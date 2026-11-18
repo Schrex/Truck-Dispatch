@@ -1,0 +1,56 @@
+import { readFileSync } from 'node:fs';
+import { createTestHarness } from 'wrangler';
+import { afterAll, beforeAll, beforeEach } from 'vitest';
+import type { Env } from '../app';
+
+/**
+ * A real local D1 for the tests, migrated from migrations/ like the deployed
+ * ones and reseeded from seed/fixture.sql before each test. Wrangler's test
+ * harness runs a tiny Worker (d1-only.ts) only to own the database; the tests
+ * call handle() in Node with that database in its environment.
+ */
+export function localD1() {
+  const harness = createTestHarness({
+    workers: [
+      {
+        config: {
+          name: 'd1-only',
+          main: './worker/src/testing/d1-only.ts',
+          compatibility_date: '2026-11-10',
+          d1_databases: [
+            { binding: 'DB', database_name: 'truck-dispatch', database_id: 'test', migrations_dir: './migrations' },
+          ],
+        },
+      },
+    ],
+  });
+  const seed = readFileSync('seed/fixture.sql', 'utf8');
+  let db: D1Database | undefined;
+
+  beforeAll(async () => {
+    await harness.listen();
+    await harness.getWorker().applyD1Migrations('DB');
+    db = (await harness.getWorker<{ DB: D1Database }>().getEnv()).DB;
+  }, 60_000);
+  afterAll(() => harness.close());
+  beforeEach(async () => {
+    const DB = database();
+    await DB.batch(['orders', 'drivers'].map((table) => DB.prepare(`DELETE FROM ${table}`)));
+    await DB.exec(seed.replace(/--.*$/gm, '').replace(/\s*\n\s*/g, ' '));
+  });
+
+  const database = (): D1Database => {
+    if (!db) throw new Error('The local D1 is not started yet (use it inside a test).');
+    return db;
+  };
+
+  /** An environment for handle(), with the local D1 and a stand-in for the page files. */
+  const env = (vars: Partial<Env> = {}): Env => ({
+    ASSETS: { fetch: async (input: Request | string) => new Response(`asset ${new URL(input instanceof Request ? input.url : input).pathname}`) } as unknown as Fetcher,
+    DB: database(),
+    ENVIRONMENT: 'test',
+    ...vars,
+  });
+
+  return { env, database };
+}

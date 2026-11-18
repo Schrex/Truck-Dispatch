@@ -1,0 +1,67 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	// Top level: the local app (bun run dev). Never deployed itself; the
+	// preview and staging environments below are separate Workers with their
+	// own D1 databases. The plain name "truck-dispatch" stays free for production.
+	"name": "truck-dispatch",
+	"main": "worker/src/index.ts",
+	"compatibility_date": "2026-11-10",
+	"observability": {
+		"enabled": true
+	},
+	"workers_dev": false,
+	"assets": {
+		"binding": "ASSETS",
+		// The Worker answers every request first: it removes the /truck-dispatch
+		// prefix (where the Hub will forward) before serving files or the API.
+		"run_worker_first": true,
+		"not_found_handling": "single-page-application"
+	},
+	// "DB" is what the code calls it (env.DB); commands use database_name.
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "truck-dispatch",
+			"database_id": "local",
+			"migrations_dir": "migrations"
+		}
+	],
+	"vars": {
+		"ENVIRONMENT": "local"
+	},
+	"env": {
+		// Pull request previews (.github/workflows/pr.yml): one Worker, a version
+		// per PR at pr-<n>-truck-dispatch-preview.<account>.workers.dev.
+		"preview": {
+			"workers_dev": true,
+			"preview_urls": true,
+			"d1_databases": [
+				{
+					"binding": "DB",
+					"database_name": "truck-dispatch-preview",
+					"database_id": "60ad4b4d-ef6a-40d0-b567-54c8fe2d4950",
+					"migrations_dir": "migrations"
+				}
+			],
+			"vars": {
+				"ENVIRONMENT": "preview"
+			}
+		},
+		// Shared staging (.github/workflows/deploy.yml): every merge to main.
+		"staging": {
+			"workers_dev": true,
+			"preview_urls": false,
+			"d1_databases": [
+				{
+					"binding": "DB",
+					"database_name": "truck-dispatch-staging",
+					"database_id": "ca2c6762-0840-4a76-8cb2-441099fe58c0",
+					"migrations_dir": "migrations"
+				}
+			],
+			"vars": {
+				"ENVIRONMENT": "staging"
+			}
+		}
+	}
+}

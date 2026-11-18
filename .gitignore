@@ -155,3 +155,8 @@ vite.config.ts.timestamp-*
 .nx/cache
 .nx/workspace-data
 .nx/migrate-runs
+
+# Cloudflare: local D1 state, local secrets, generated preview configs
+.wrangler/
+.dev.vars
+.dev.vars.*
