@@ -1,0 +1,87 @@
+// Checks a deployed Truck Dispatch end to end, standalone and under the
+// /truck-dispatch/ prefix: the page loads, its script loads, the seeded
+// drivers (seed/fixture.sql) come back, and a day's orders can be read.
+// Read-only: it never adds orders.
+//
+//   node scripts/smoke.mjs <base url>
+//
+// EXPECT_COMMIT: fail unless /api/health reports this commit (retries while the
+//   new version spreads). CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET: a
+//   Cloudflare Access service token, when Access protects the address.
+const base = (process.argv[2] ?? '').replace(/\/$/, '');
+if (!base) {
+  console.error('usage: node scripts/smoke.mjs <base url>');
+  process.exit(2);
+}
+
+/** @type {Record<string, string>} */
+const headers = {};
+if (process.env.CF_ACCESS_CLIENT_ID && process.env.CF_ACCESS_CLIENT_SECRET) {
+  headers['CF-Access-Client-Id'] = process.env.CF_ACCESS_CLIENT_ID;
+  headers['CF-Access-Client-Secret'] = process.env.CF_ACCESS_CLIENT_SECRET;
+}
+
+/** @param {string} path */
+async function get(path) {
+  const response = await fetch(base + path, { headers, redirect: 'manual' });
+  if (response.status >= 300 && response.status < 400 && /cloudflareaccess\.com/.test(response.headers.get('location') ?? '')) {
+    throw new Error(`${path}: redirected to Cloudflare Access sign-in; set CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET`);
+  }
+  return response;
+}
+
+/** @param {string} message @returns {never} */
+function fail(message) {
+  throw new Error(message);
+}
+
+/** @type {{ name: string, ok: boolean }[]} */
+const results = [];
+/** @param {string} name @param {() => Promise<void>} check */
+async function step(name, check) {
+  try {
+    await check();
+    results.push({ name, ok: true });
+    console.log(`ok    ${name}`);
+  } catch (error) {
+    results.push({ name, ok: false });
+    console.error(`FAIL  ${name}: ${error instanceof Error ? error.message : error}`);
+  }
+}
+
+const expected = process.env.EXPECT_COMMIT;
+await step(`health${expected ? ` reports commit ${expected.slice(0, 7)}` : ''}`, async () => {
+  for (let attempt = 1; ; attempt++) {
+    const response = await get('/api/health');
+    if (!response.ok) fail(`/api/health: ${response.status}`);
+    const health = /** @type {{ ok: boolean, commit: string | null }} */ (await response.json());
+    if (!expected || health.commit === expected) return;
+    if (attempt >= 10) fail(`live commit is ${health.commit}, expected ${expected}`);
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+  }
+});
+
+for (const prefix of ['', '/truck-dispatch']) {
+  const where = prefix || '/';
+  await step(`${where}: page and its script load`, async () => {
+    const page = await get(`${prefix}/`);
+    if (!page.ok) fail(`${prefix}/: ${page.status}`);
+    const html = await page.text();
+    if (!html.includes('id="root"')) fail('page has no #root');
+    const script = /src="([^"]+\.js)"/.exec(html)?.[1] ?? fail('page has no script');
+    const js = await get(script);
+    if (!js.ok) fail(`${script}: ${js.status}`);
+  });
+  await step(`${where}: seeded drivers and a day's orders`, async () => {
+    const drivers = await get(`${prefix}/api/drivers`);
+    if (!drivers.ok) fail(`drivers: ${drivers.status}`);
+    const list = /** @type {{ drivers: unknown[] }} */ (await drivers.json()).drivers;
+    if (list.length === 0) fail('no drivers; was seed/fixture.sql applied?');
+    const orders = await get(`${prefix}/api/orders?date=${new Date().toISOString().slice(0, 10)}`);
+    if (!orders.ok) fail(`orders: ${orders.status}`);
+  });
+}
+
+const failed = results.filter((r) => !r.ok).length;
+console.log(`\n${results.length - failed}/${results.length} checks passed against ${base}`);
+process.exit(failed > 0 ? 1 : 0);
