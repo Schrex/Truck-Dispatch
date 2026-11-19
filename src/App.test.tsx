@@ -78,6 +78,7 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = new URL(String(input), 'https://td.example');
   const answer = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
   if (url.pathname.endsWith('/api/today')) return answer({ today: '2026-11-19', tomorrow: '2026-11-20' });
+  if (failLists && /\/api\/(drivers|trucks|places|materials|foremen)$/.test(url.pathname)) return answer({ error: 'oops' }, 500);
   if (url.pathname.endsWith('/api/drivers')) return answer({ drivers });
   if (url.pathname.endsWith('/api/trucks')) return answer({ trucks });
   if (url.pathname.endsWith('/api/places')) return answer({ places });
@@ -329,6 +330,14 @@ describe('Board', () => {
     open('/?date=2026-11-20');
     expect(await screen.findByText('Could not load the Assignments for this day.')).toBeTruthy();
     expect(screen.queryByText('No Assignments for this day')).toBeNull();
+  });
+
+  it('says so when the lists to pick from cannot be loaded, and still shows the day', async () => {
+    failLists = true;
+    assignments = [{ id: 'a1', date: '2026-11-20', driverId: 'drv-a', driverName: 'Sample Driver A', note: 'Haul stone' }];
+    open('/?date=2026-11-20');
+    expect(await screen.findByText('Could not load the Drivers, Trucks, Places, Materials and Foremen to pick from. Reload the page to try again.')).toBeTruthy();
+    expect(within(card('Sample Driver A')).getByText('Haul stone')).toBeTruthy();
   });
 });
 

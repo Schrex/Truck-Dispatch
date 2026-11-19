@@ -27,6 +27,7 @@ export function BoardPage() {
   const [places, setPlaces] = useState<Place[] | null>(null);
   const [materials, setMaterials] = useState<Material[] | null>(null);
   const [foremen, setForemen] = useState<Foreman[] | null>(null);
+  const [listsFailed, setListsFailed] = useState(false);
   const [assignments, setAssignments] = useState<Assignment[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [reloads, setReloads] = useState(0);
@@ -43,11 +44,16 @@ export function BoardPage() {
 
   useEffect(() => {
     // Inactive entries too, so an Assignment that still uses one shows it in its picker.
-    fetchList('drivers', { includeInactive: true }).then(setDrivers, () => setDrivers([]));
-    fetchList('trucks', { includeInactive: true }).then(setTrucks, () => setTrucks([]));
-    fetchList('places', { includeInactive: true }).then(setPlaces, () => setPlaces([]));
-    fetchList('materials', { includeInactive: true }).then(setMaterials, () => setMaterials([]));
-    fetchList('foremen', { includeInactive: true }).then(setForemen, () => setForemen([]));
+    // A list that fails to load is left empty, so the Board stays usable, and the page says so.
+    const failed = () => {
+      setListsFailed(true);
+      return [];
+    };
+    fetchList('drivers', { includeInactive: true }).catch(failed).then(setDrivers);
+    fetchList('trucks', { includeInactive: true }).catch(failed).then(setTrucks);
+    fetchList('places', { includeInactive: true }).catch(failed).then(setPlaces);
+    fetchList('materials', { includeInactive: true }).catch(failed).then(setMaterials);
+    fetchList('foremen', { includeInactive: true }).catch(failed).then(setForemen);
   }, []);
 
   useEffect(() => {
@@ -131,6 +137,11 @@ export function BoardPage() {
       </PageHeader>
 
       <main className="container space-y-4 py-6">
+        {listsFailed && (
+          <p className="text-sm text-destructive">
+            Could not load the Drivers, Trucks, Places, Materials and Foremen to pick from. Reload the page to try again.
+          </p>
+        )}
         {assignments && assignments.length > 0 && (
           <p className="text-sm text-muted-foreground">
             {assignments.length} Assignment{assignments.length === 1 ? '' : 's'}
