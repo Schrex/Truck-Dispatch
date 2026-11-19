@@ -1,7 +1,7 @@
 # Truck-Dispatch
 Assign work to trucks and drivers, let drivers pick up jobs, and capture trips, miles, hours, and material tickets.
 
-Today: a standalone Cloudflare Worker that serves the **Dispatch board**: it opens on tomorrow (US Eastern), shows one card per Driver with that day's **Assignments**, and adds one with **Add Assignment** (only the date is required; a Driver and a note are optional). A second page, **Settings**, is linked from the board and empty for now. Backed by D1 with **synthetic** drivers only. Hub integration (at `/truck-dispatch/`), sign-in and production are later phases.
+Today: a standalone Cloudflare Worker that serves the **Dispatch board**: it opens on tomorrow (US Eastern), shows one card per Driver with that day's **Assignments**, and adds one with **Add Assignment** (only the date is required; a Driver, a Truck and a note are optional; picking a Driver fills in their usual Truck). A second page, **Settings**, has a tab per list (Drivers, Trucks) to add, rename and make entries inactive; nothing is ever deleted. Backed by D1 with **synthetic** Drivers and Trucks only. Hub integration (at `/truck-dispatch/`), sign-in and production are later phases.
 
 ## Run it locally
 
@@ -13,7 +13,7 @@ bun run setup        # create the local D1, apply migrations, load synthetic dat
 bun run dev          # http://localhost:5173/truck-dispatch/
 ```
 
-Click **Add Assignment**, optionally pick a Driver and write a note, and save; the Assignment appears on that Driver's card (or on "Unassigned").
+Click **Add Assignment**, optionally pick a Driver (their usual Truck fills in) and write a note, and save; the Assignment appears on that Driver's card (or on "Unassigned").
 
 | Command | What it does |
 |---|---|
@@ -34,7 +34,7 @@ Click **Add Assignment**, optionally pick a Driver and write a note, and save; t
 | `shared/types.ts` | API shapes used by both |
 | `shared/base.ts` | The `/truck-dispatch` prefix, used by both |
 | `migrations/` | D1 schema only. Create with `bunx wrangler d1 migrations create truck-dispatch <name>` |
-| `seed/fixture.sql` | Synthetic Drivers; `INSERT OR IGNORE`, safe to run repeatedly. No Assignments. |
+| `seed/fixture.sql` | Synthetic Trucks and Drivers with usual Trucks; `INSERT OR IGNORE`, safe to run repeatedly. No Assignments. |
 | `wrangler.jsonc` | Local app (top level), `env.preview`, `env.staging` |
 
 ## API
@@ -44,11 +44,13 @@ Under `/api/` standalone or `/truck-dispatch/api/` under the Hub. No sign-in yet
 | Route | Answer |
 |---|---|
 | `GET health` | `{ ok, environment, commit }` |
-| `GET drivers` | `{ drivers: [{ id, name }] }` |
+| `GET drivers`, `GET trucks` | `{ drivers: [{ id, name, defaultTruckId, active }] }`, `{ trucks: [{ id, number, hcssCode, hcssGuid, active }] }` by name or number: active entries only; `?include=inactive` for every entry |
+| `POST drivers`, `POST trucks` | JSON with the name (or number) and any other field → 201 `{ driver }` / `{ truck }`, or 400 `{ fields }` (missing name, a name already in the list ignoring case, unknown usual Truck) |
+| `PATCH drivers/:id`, `PATCH trucks/:id` | JSON with only the fields to change, including `active: true/false` → 200 `{ driver }` / `{ truck }`; 400 as for POST; 404 if it does not exist. There is no delete: an entry is made inactive |
 | `GET today` | `{ today, tomorrow }`, dates in US Eastern time |
-| `GET assignments?date=2026-11-20` | `{ assignments: [{ id, date, driverId, driverName, note, createdAt, updatedAt }] }` by Driver name, then creation time; no Driver last. 400 `{ fields: { date } }` without a real date |
-| `POST assignments` | JSON `{ date, driverId?, note? }` → 201 `{ assignment }`, or 400 `{ fields: { name: message } }` (bad date, unknown Driver, note over 1000 characters). Unknown fields are ignored |
-| `PUT assignments/:id` | JSON `{ date, driverId?, note? }`, every field replaced (one left out or empty is cleared; a new Driver or date moves it) → 200 `{ assignment }` with a new `updatedAt`; 400 `{ fields }` as for POST; 404 if it does not exist |
+| `GET assignments?date=2026-11-20` | `{ assignments: [{ id, date, driverId, driverName, truckId, truckNumber, note, createdAt, updatedAt }] }` by Driver name, then creation time; no Driver last. 400 `{ fields: { date } }` without a real date |
+| `POST assignments` | JSON `{ date, driverId?, truckId?, note? }` → 201 `{ assignment }`, or 400 `{ fields: { name: message } }` (bad date, unknown Driver or Truck, note over 1000 characters). Unknown fields are ignored |
+| `PUT assignments/:id` | JSON `{ date, driverId?, truckId?, note? }`, every field replaced (one left out or empty is cleared; a new Driver or date moves it) → 200 `{ assignment }` with a new `updatedAt`; 400 `{ fields }` as for POST; 404 if it does not exist |
 | `DELETE assignments/:id` | → 204; a real delete, nothing kept. 404 if it does not exist |
 
 Days before today (US Eastern) are read-only. Adding an Assignment on one, or moving one into one, is 400 `{ fields: { date } }`; changing, moving or deleting an Assignment already on one is 409 `{ error: 'past_day', message }`.

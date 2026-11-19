@@ -1,10 +1,10 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Loader2, Plus, Trash2 } from 'lucide-react';
 import type { Assignment, Driver, Truck } from '../../shared/types';
 import { Button } from '@/components/ui/button';
+import { Field } from '@/components/Field';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { ListPicker } from '@/components/ListPicker';
 import { toast } from '@/components/ui/sonner';
 import { Textarea } from '@/components/ui/textarea';
@@ -182,36 +182,5 @@ export function AssignmentDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function Field({
-  id,
-  label,
-  optional,
-  error,
-  wide,
-  children,
-}: {
-  id: string;
-  label: string;
-  optional?: boolean;
-  error?: string;
-  wide?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <div className={wide ? 'space-y-2 sm:col-span-2' : 'space-y-2'}>
-      <Label htmlFor={id}>
-        {label}
-        {optional && <span className="ml-1 font-normal text-muted-foreground">(optional)</span>}
-      </Label>
-      {children}
-      {error && (
-        <p className="text-xs text-destructive" role="alert">
-          {error}
-        </p>
-      )}
-    </div>
   );
 }

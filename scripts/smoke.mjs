@@ -1,6 +1,6 @@
 // Checks a deployed Truck Dispatch end to end, standalone and under the
 // /truck-dispatch/ prefix: the page loads, its script loads, the seeded
-// drivers (seed/fixture.sql) come back, and a day's Assignments can be read.
+// Drivers and Trucks (seed/fixture.sql) come back, and a day's Assignments can be read.
 // Read-only: it never adds Assignments.
 //
 //   node scripts/smoke.mjs <base url>
@@ -94,11 +94,14 @@ for (const prefix of ['', '/truck-dispatch']) {
     if (!page.ok) fail(`${prefix}/settings: ${page.status}`);
     if (!(await page.text()).includes('id="root"')) fail('page has no #root');
   });
-  await step(`${where}: seeded drivers and tomorrow's Assignments`, async () => {
+  await step(`${where}: seeded Drivers, Trucks and tomorrow's Assignments`, async () => {
     const drivers = await get(`${prefix}/api/drivers`);
     if (!drivers.ok) fail(`drivers: ${drivers.status}`);
     const list = /** @type {{ drivers: unknown[] }} */ (await drivers.json()).drivers;
     if (list.length === 0) fail('no drivers; was seed/fixture.sql applied?');
+    const trucks = await get(`${prefix}/api/trucks?include=inactive`);
+    if (!trucks.ok) fail(`trucks: ${trucks.status}`);
+    if (/** @type {{ trucks: unknown[] }} */ (await trucks.json()).trucks.length === 0) fail('no trucks; was seed/fixture.sql applied?');
     const today = await get(`${prefix}/api/today`);
     if (!today.ok) fail(`today: ${today.status}`);
     const { tomorrow } = /** @type {{ tomorrow: string }} */ (await today.json());
