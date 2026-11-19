@@ -48,6 +48,10 @@ Under `/api/` standalone or `/truck-dispatch/api/` under the Hub. No sign-in yet
 | `GET today` | `{ today, tomorrow }`, dates in US Eastern time |
 | `GET assignments?date=2026-11-20` | `{ assignments: [{ id, date, driverId, driverName, note, createdAt, updatedAt }] }` by Driver name, then creation time; no Driver last. 400 `{ fields: { date } }` without a real date |
 | `POST assignments` | JSON `{ date, driverId?, note? }` → 201 `{ assignment }`, or 400 `{ fields: { name: message } }` (bad date, unknown Driver, note over 1000 characters). Unknown fields are ignored |
+| `PUT assignments/:id` | JSON `{ date, driverId?, note? }`, every field replaced (one left out or empty is cleared; a new Driver or date moves it) → 200 `{ assignment }` with a new `updatedAt`; 400 `{ fields }` as for POST; 404 if it does not exist |
+| `DELETE assignments/:id` | → 204; a real delete, nothing kept. 404 if it does not exist |
+
+Days before today (US Eastern) are read-only. Adding an Assignment on one, or moving one into one, is 400 `{ fields: { date } }`; changing, moving or deleting an Assignment already on one is 409 `{ error: 'past_day', message }`.
 
 The Worker reads the current time from its environment: `NOW` (an ISO 8601 moment) fixes it, as the tests do; deployed environments leave it unset. The old `orders` table is still in the database, unused.
 
