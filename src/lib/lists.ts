@@ -4,6 +4,8 @@ import type { ListName, Lists } from '../../shared/types';
 const DISPLAY: { [L in ListName]: (entry: Lists[L]) => string } = {
   drivers: (driver) => driver.name,
   trucks: (truck) => truck.number,
+  materials: (material) => material.name,
+  foremen: (foreman) => foreman.name,
 };
 
 export function displayName<L extends ListName>(list: L, entry: Lists[L]): string {

@@ -8,14 +8,14 @@ import { App } from '../App';
  * changed, refuses a name already used (ignoring case) and has no delete.
  */
 type Entry = Record<string, unknown> & { id: string; active: boolean };
-const NAME: Record<string, string> = { drivers: 'name', trucks: 'number' };
+const NAME: Record<string, string> = { drivers: 'name', trucks: 'number', materials: 'name', foremen: 'name' };
 let lists: Record<string, Entry[]>;
 const sent: { method: string; path: string; body: unknown }[] = [];
 
 const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = new URL(String(input), 'https://td.example');
   const answer = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
-  const [, list, id] = /\/api\/(drivers|trucks)(?:\/([^/]+))?$/.exec(url.pathname) ?? [];
+  const [, list, id] = /\/api\/(drivers|trucks|materials|foremen)(?:\/([^/]+))?$/.exec(url.pathname) ?? [];
   if (!list) return answer({ error: 'not_found' }, 404);
   const method = init?.method ?? 'GET';
   const entries = lists[list];
@@ -53,6 +53,14 @@ beforeEach(() => {
       { id: 'trk-24', number: '24', hcssCode: null, hcssGuid: null, active: true },
       { id: 'trk-99', number: '99', hcssCode: null, hcssGuid: null, active: false },
     ],
+    materials: [
+      { id: 'mat-minus', name: '2" minus', active: true },
+      { id: 'mat-old', name: 'Sample Old Fill', active: false },
+    ],
+    foremen: [
+      { id: 'frm-a', name: 'Sample Foreman A', active: true },
+      { id: 'frm-x', name: 'Sample Foreman X', active: false },
+    ],
   };
   sent.length = 0;
   api.mockClear();
@@ -63,7 +71,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const settings = async (tab: 'Drivers' | 'Trucks' = 'Drivers') => {
+const settings = async (tab: 'Drivers' | 'Trucks' | 'Materials' | 'Foremen' = 'Drivers') => {
   window.history.pushState(null, '', '/settings');
   render(<App />);
   if (tab !== 'Drivers') fireEvent.mouseDown(await screen.findByRole('tab', { name: tab }));
@@ -77,7 +85,7 @@ const save = (dialog: HTMLElement) => fireEvent.click(within(dialog).getByRole('
 describe('Settings', () => {
   it('has a Drivers and a Trucks tab, each listing its entries with inactive ones marked', async () => {
     const drivers = await settings();
-    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Drivers', 'Trucks']);
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Drivers', 'Trucks', 'Materials', 'Foremen']);
     expect(rows(drivers)).toEqual(['Sample Driver A', 'Sample Driver X']);
     expect(row(drivers, 'Sample Driver A').textContent).toContain('Usual Truck 21');
     expect(row(drivers, 'Sample Driver X').textContent).toContain('Inactive');
@@ -88,6 +96,23 @@ describe('Settings', () => {
     const trucks = screen.getByRole('tabpanel');
     expect(row(trucks, '21').textContent).toContain('HCSS code SAMPLE-21');
     expect(row(trucks, '99').textContent).toContain('Inactive');
+  });
+
+  it.each([
+    ['Materials', 'Material', ['2" minus', 'Sample Old Fill'], 'Sample Fill', '/api/materials'],
+    ['Foremen', 'Foreman', ['Sample Foreman A', 'Sample Foreman X'], 'Sample Foreman D', '/api/foremen'],
+  ] as const)('has a %s tab listing its entries with inactive ones marked, and adds one with a name', async (tab, noun, listed, fresh, path) => {
+    const panel = await settings(tab);
+    expect(rows(panel)).toEqual(listed);
+    expect(row(panel, listed[1]).textContent).toContain('Inactive');
+    expect(row(panel, listed[0]).textContent).not.toContain('Inactive');
+
+    fireEvent.click(within(panel).getByRole('button', { name: `Add ${noun}` }));
+    const dialog = screen.getByRole('dialog', { name: `Add ${noun}` });
+    fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: fresh } });
+    save(dialog);
+    expect(await within(panel).findByRole('listitem', { name: fresh })).toBeTruthy();
+    expect(sent).toEqual([{ method: 'POST', path, body: { name: fresh } }]);
   });
 
   it('adds a Truck with a number, HCSS code and HCSS id', async () => {

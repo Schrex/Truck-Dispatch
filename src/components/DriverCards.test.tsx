@@ -13,6 +13,10 @@ const assignment = (fields: Partial<Assignment>): Assignment => ({
   driverName: null,
   truckId: null,
   truckNumber: null,
+  materialId: null,
+  materialName: null,
+  foremanId: null,
+  foremanName: null,
   note: null,
   createdAt: '2026-11-19T20:00:00.000Z',
   updatedAt: '2026-11-19T20:00:00.000Z',
@@ -80,6 +84,23 @@ describe('AssignmentLine', () => {
 
   it('reads as the Truck alone when nothing else is set', () => {
     expect(line({ ...a, truckId: 'trk-24', truckNumber: '24' })).toBe('Truck 24');
+  });
+
+  const minus = { materialId: 'mat-minus', materialName: '2" minus' };
+  const foreman = { foremanId: 'frm-a', foremanName: 'Sample Foreman A' };
+
+  it('shows the Material and the Foreman first, then the note and the Truck', () => {
+    expect(line({ ...a, ...minus, ...foreman, truckId: 'trk-24', truckNumber: '24', note: 'Two loads' })).toBe(
+      '2" minus · Foreman Sample Foreman A · Two loads · Truck 24',
+    );
+  });
+
+  it('reads as the Material alone, or the Foreman alone, with no stray separators', () => {
+    expect(line({ ...a, ...minus })).toBe('2" minus');
+    cleanup();
+    expect(line({ ...a, ...foreman })).toBe('Foreman Sample Foreman A');
+    cleanup();
+    expect(line({ ...a, ...foreman, note: 'Two loads' })).toBe('Foreman Sample Foreman A · Two loads');
   });
 
   it('still reads sensibly with nothing filled in yet', () => {

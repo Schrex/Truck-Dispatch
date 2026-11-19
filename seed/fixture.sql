@@ -17,3 +17,14 @@ INSERT OR IGNORE INTO drivers (id, name, default_truck_id) VALUES
 -- Truck, but only while they have none, so a choice made in Settings stays.
 UPDATE drivers SET default_truck_id = 'trk-21' WHERE id = 'drv-a' AND default_truck_id IS NULL;
 UPDATE drivers SET default_truck_id = 'trk-24' WHERE id = 'drv-b' AND default_truck_id IS NULL;
+
+-- Synthetic Materials and Foremen to pick on Assignments. Made-up names, never real people.
+INSERT OR IGNORE INTO materials (id, name) VALUES
+  ('mat-minus', '2" minus'),
+  ('mat-dirt', 'Sample Dirt'),
+  ('mat-stone', 'Sample Stone');
+
+INSERT OR IGNORE INTO foremen (id, name) VALUES
+  ('frm-a', 'Sample Foreman A'),
+  ('frm-b', 'Sample Foreman B'),
+  ('frm-c', 'Sample Foreman C');

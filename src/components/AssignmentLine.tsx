@@ -3,13 +3,17 @@ import type { Assignment } from '../../shared/types';
 
 /**
  * One Assignment as one short line on a Driver's card, built from whatever is
- * set, parts joined by " · ". For now that is the note and the Truck; Places,
- * Material and Foreman join the line as the Assignment gains them. With onEdit
- * (today and later days) the line opens the Assignment; without it (past days)
- * it is plain text.
+ * set, parts joined by " · ": the Material, the Foreman, the note and the
+ * Truck. With onEdit (today and later days) the line opens the Assignment;
+ * without it (past days) it is plain text.
  */
 export function AssignmentLine({ assignment, onEdit }: { assignment: Assignment; onEdit?: (assignment: Assignment) => void }) {
   const parts: { text: string; node: ReactNode }[] = [];
+  if (assignment.materialName) parts.push({ text: assignment.materialName, node: <span>{assignment.materialName}</span> });
+  if (assignment.foremanName) {
+    const foreman = `Foreman ${assignment.foremanName}`;
+    parts.push({ text: foreman, node: <span>{foreman}</span> });
+  }
   if (assignment.note) parts.push({ text: assignment.note, node: <span className="whitespace-pre-line">{assignment.note}</span> });
   if (assignment.truckNumber) {
     const truck = `Truck ${assignment.truckNumber}`;

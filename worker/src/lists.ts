@@ -46,6 +46,18 @@ export const LISTS: Record<ListName, List> = {
       { key: 'hcssGuid', column: 'hcss_guid', kind: 'text' },
     ],
   },
+  materials: {
+    table: 'materials',
+    one: 'material',
+    name: { key: 'name', column: 'name', missing: 'Write the Material\'s name.', taken: 'There is already a Material with this name.' },
+    fields: [],
+  },
+  foremen: {
+    table: 'foremen',
+    one: 'foreman',
+    name: { key: 'name', column: 'name', missing: 'Write the Foreman\'s name.', taken: 'There is already a Foreman with this name.' },
+    fields: [],
+  },
 };
 
 const TEXT_LIMIT = 100;

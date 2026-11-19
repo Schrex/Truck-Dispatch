@@ -71,7 +71,14 @@ export async function addAssignment(assignment: NewAssignment): Promise<Assignme
  * duplicate never leaves one behind.
  */
 export function fieldsOf(assignment: Assignment): Required<NewAssignment> {
-  return { date: assignment.date, driverId: assignment.driverId, truckId: assignment.truckId, note: assignment.note };
+  return {
+    date: assignment.date,
+    driverId: assignment.driverId,
+    truckId: assignment.truckId,
+    materialId: assignment.materialId,
+    foremanId: assignment.foremanId,
+    note: assignment.note,
+  };
 }
 
 /** Replaces every field of an Assignment; one left empty is cleared. */

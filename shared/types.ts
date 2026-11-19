@@ -16,6 +16,20 @@ export interface Truck {
   active: boolean;
 }
 
+/** What a Load carries, e.g. 2" minus. */
+export interface Material {
+  id: string;
+  name: string;
+  active: boolean;
+}
+
+/** The person running a Job on a given day, whom the Driver reports to. */
+export interface Foreman {
+  id: string;
+  name: string;
+  active: boolean;
+}
+
 /**
  * The lists Settings edits and the Board picks from, by their API route
  * (GET, POST api/<list>; PATCH api/<list>/<id>). Nothing is ever deleted.
@@ -23,6 +37,8 @@ export interface Truck {
 export interface Lists {
   drivers: Driver;
   trucks: Truck;
+  materials: Material;
+  foremen: Foreman;
 }
 export type ListName = keyof Lists;
 
@@ -43,6 +59,8 @@ export interface NewAssignment {
   date: string;
   driverId?: string | null;
   truckId?: string | null;
+  materialId?: string | null;
+  foremanId?: string | null;
   note?: string | null;
 }
 
@@ -54,6 +72,10 @@ export interface Assignment {
   driverName: string | null;
   truckId: string | null;
   truckNumber: string | null;
+  materialId: string | null;
+  materialName: string | null;
+  foremanId: string | null;
+  foremanName: string | null;
   note: string | null;
   createdAt: string;
   updatedAt: string;

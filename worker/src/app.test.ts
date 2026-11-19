@@ -108,7 +108,7 @@ describe('Assignments', () => {
     const response = await post('/api/assignments', { date: '2026-11-20', startTime: '07:30', job: 'Sample Job' });
     expect(response.status).toBe(201);
     expect(Object.keys(((await response.json()) as { assignment: object }).assignment).sort()).toEqual(
-      ['createdAt', 'date', 'driverId', 'driverName', 'id', 'note', 'truckId', 'truckNumber', 'updatedAt'],
+      ['createdAt', 'date', 'driverId', 'driverName', 'foremanId', 'foremanName', 'id', 'materialId', 'materialName', 'note', 'truckId', 'truckNumber', 'updatedAt'],
     );
   });
 
@@ -197,6 +197,8 @@ const list = async (path: string) => {
 describe.each([
   { route: 'drivers', one: 'driver', name: 'name', seeded: 'drv-a', seededName: 'Sample Driver A', fresh: 'Sample Driver D' },
   { route: 'trucks', one: 'truck', name: 'number', seeded: 'trk-21', seededName: '21', fresh: '30' },
+  { route: 'materials', one: 'material', name: 'name', seeded: 'mat-minus', seededName: '2" minus', fresh: 'Sample Fill' },
+  { route: 'foremen', one: 'foreman', name: 'name', seeded: 'frm-a', seededName: 'Sample Foreman A', fresh: 'Sample Foreman D' },
 ])('the $route list', ({ route, one, name, seeded, seededName, fresh }) => {
   const names = async (search = '') => (await list(`/api/${route}${search}`)).map((e) => e[name]);
   const change = (id: string, body: unknown) => send('PATCH', `/api/${route}/${id}`, body);
@@ -361,6 +363,59 @@ describe('Assignments and the lists', () => {
   it('refuse an unknown Truck on a change, with a message on the Truck', async () => {
     const { id } = await add({ date: '2026-11-20' });
     expect(Object.keys(await refusal(await change(id, { date: '2026-11-20', truckId: 'nothing' })))).toEqual(['truckId']);
+  });
+});
+
+describe('Materials and Foremen', () => {
+  it('list the seeded entries by name', async () => {
+    expect(await list('/api/materials')).toEqual([
+      { id: 'mat-minus', name: '2" minus', active: true },
+      { id: 'mat-dirt', name: 'Sample Dirt', active: true },
+      { id: 'mat-stone', name: 'Sample Stone', active: true },
+    ]);
+    expect((await list('/api/foremen')).map((f) => f.name)).toEqual(['Sample Foreman A', 'Sample Foreman B', 'Sample Foreman C']);
+  });
+});
+
+describe('Assignments with a Material and a Foreman', () => {
+  it('save them and return their names alongside their ids; with none they come back empty', async () => {
+    const created = await post('/api/assignments', { date: '2026-11-20', driverId: 'drv-a', materialId: 'mat-minus', foremanId: 'frm-a' });
+    expect(created.status).toBe(201);
+    expect(((await created.json()) as { assignment: Assignment }).assignment).toMatchObject({
+      materialId: 'mat-minus', materialName: '2" minus', foremanId: 'frm-a', foremanName: 'Sample Foreman A',
+    });
+    await add({ date: '2026-11-20', driverId: 'drv-b' });
+    expect((await day('2026-11-20')).map((a) => [a.materialName, a.foremanName])).toEqual([['2" minus', 'Sample Foreman A'], [null, null]]);
+  });
+
+  it('refuse an unknown Material or Foreman, with a message on each field', async () => {
+    const fields = await refusal(await post('/api/assignments', { date: '2026-11-20', materialId: 'nothing', foremanId: 'nobody' }));
+    expect(Object.keys(fields).sort()).toEqual(['foremanId', 'materialId']);
+    expect(await day('2026-11-20')).toEqual([]);
+    const { id } = await add({ date: '2026-11-20' });
+    expect(Object.keys(await refusal(await change(id, { date: '2026-11-20', materialId: 7, foremanId: 'nobody' }))).sort()).toEqual(['foremanId', 'materialId']);
+  });
+
+  it('show the new names after a rename, and keep, change and clear them when changed', async () => {
+    const { id } = await add({ date: '2026-11-20', materialId: 'mat-minus', foremanId: 'frm-a' });
+    await send('PATCH', '/api/materials/mat-minus', { name: 'Sample Minus' });
+    await send('PATCH', '/api/foremen/frm-a', { name: 'Sample Foreman Z' });
+    expect(await day('2026-11-20')).toEqual([expect.objectContaining({ materialName: 'Sample Minus', foremanName: 'Sample Foreman Z' })]);
+
+    await change(id, { date: '2026-11-20', materialId: 'mat-dirt', foremanId: 'frm-b' });
+    expect(await day('2026-11-20')).toEqual([expect.objectContaining({ materialName: 'Sample Dirt', foremanName: 'Sample Foreman B' })]);
+    await change(id, { date: '2026-11-20', materialId: null, foremanId: '' });
+    expect(await day('2026-11-20')).toEqual([expect.objectContaining({ materialId: null, materialName: null, foremanId: null, foremanName: null })]);
+  });
+
+  it('still show a Material and Foreman made inactive afterwards, and accept them on a save', async () => {
+    const { id } = await add({ date: '2026-11-20', materialId: 'mat-minus', foremanId: 'frm-a' });
+    await send('PATCH', '/api/materials/mat-minus', { active: false });
+    await send('PATCH', '/api/foremen/frm-a', { active: false });
+    expect(await day('2026-11-20')).toEqual([expect.objectContaining({ materialName: '2" minus', foremanName: 'Sample Foreman A' })]);
+    const kept = await change(id, { date: '2026-11-20', materialId: 'mat-minus', foremanId: 'frm-a', note: 'Only the note changed' });
+    expect(kept.status).toBe(200);
+    expect((await post('/api/assignments', { date: '2026-11-21', materialId: 'mat-minus', foremanId: 'frm-a' })).status).toBe(201);
   });
 });
 
@@ -595,7 +650,7 @@ describe('copying a day', () => {
    * and the copy must then carry it.
    */
   it('carries every column of the assignments table except id, date, note and the times', async () => {
-    const source = await add({ date: '2026-11-19', driverId: 'drv-b', truckId: 'trk-24', note: 'Haul stone' });
+    const source = await add({ date: '2026-11-19', driverId: 'drv-b', truckId: 'trk-24', materialId: 'mat-minus', foremanId: 'frm-a', note: 'Haul stone' });
     const [copy1] = await copied(await copy({ from: '2026-11-19', to: '2026-11-20' }));
 
     const row = (id: string) => d1.database().prepare('SELECT * FROM assignments WHERE id = ?').bind(id).first<Record<string, unknown>>();

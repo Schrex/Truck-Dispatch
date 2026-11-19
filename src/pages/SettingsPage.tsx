@@ -28,6 +28,8 @@ const TABS = [
       { key: 'hcssGuid', label: 'HCSS id', kind: 'text' },
     ],
   }),
+  tab({ list: 'materials', title: 'Materials', noun: 'Material', name: { key: 'name', label: 'Name' }, fields: [] }),
+  tab({ list: 'foremen', title: 'Foremen', noun: 'Foreman', name: { key: 'name', label: 'Name' }, fields: [] }),
 ];
 
 /** Settings: the lists the Board picks from, one tab each. */

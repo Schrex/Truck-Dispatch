@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Copy, Loader2, Plus, Trash2 } from 'lucide-react';
-import type { Assignment, Driver, Truck } from '../../shared/types';
+import type { Assignment, Driver, Foreman, Material, Truck } from '../../shared/types';
 import { Button } from '@/components/ui/button';
 import { Field } from '@/components/Field';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -17,8 +17,12 @@ interface Form {
   date: string;
   driverId: string | null;
   truckId: string | null;
+  materialId: string | null;
+  foremanId: string | null;
   note: string;
 }
+
+const EMPTY = { driverId: null, truckId: null, materialId: null, foremanId: null, note: '' };
 
 /**
  * "Add Assignment" (with its own button), or, given `editing`, the same dialog
@@ -30,15 +34,19 @@ export function AssignmentDialog({
   date,
   drivers,
   trucks,
+  materials,
+  foremen,
   onSaved,
   editing,
   onClose,
   onDeleted,
 }: {
   date: string;
-  /** Every Driver and Truck, inactive ones included: the pickers leave those out unless already chosen. */
+  /** Every entry of each list, inactive ones included: the pickers leave those out unless already chosen. */
   drivers: Driver[] | null;
   trucks: Truck[] | null;
+  materials: Material[] | null;
+  foremen: Foreman[] | null;
   onSaved: (assignment: Assignment) => void;
   editing?: Assignment | null;
   onClose?: () => void;
@@ -48,7 +56,7 @@ export function AssignmentDialog({
   const [adding, setAdding] = useState(false);
   const open = editMode ? editing != null : adding;
   const setOpen = (value: boolean) => (editMode ? !value && onClose?.() : setAdding(value));
-  const [form, setForm] = useState<Form>({ date, driverId: null, truckId: null, note: '' });
+  const [form, setForm] = useState<Form>({ date, ...EMPTY });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
@@ -60,8 +68,8 @@ export function AssignmentDialog({
     if (open) {
       setForm(
         editing
-          ? { date: editing.date, driverId: editing.driverId, truckId: editing.truckId, note: editing.note ?? '' }
-          : { date, driverId: null, truckId: null, note: '' },
+          ? { ...fieldsOf(editing), note: editing.note ?? '' }
+          : { date, ...EMPTY },
       );
       setErrors({});
       setFailed(null);
@@ -135,13 +143,7 @@ export function AssignmentDialog({
     setSaving(true);
     setFailed(null);
     try {
-      const fields = {
-        date: form.date,
-        driverId: form.driverId,
-        truckId: form.truckId,
-        note: form.note,
-      };
-      const assignment = editing ? await changeAssignment(editing.id, fields) : await addAssignment(fields);
+      const assignment = editing ? await changeAssignment(editing.id, form) : await addAssignment(form);
       toast.success('Assignment saved');
       onSaved(assignment);
       setOpen(false);
@@ -180,6 +182,12 @@ export function AssignmentDialog({
           </Field>
           <Field id="truckId" label="Truck" optional error={errors.truckId}>
             <ListPicker id="truckId" label="Truck" empty="No Truck" choices={choicesOf('trucks', trucks)} value={form.truckId} onChange={(value) => set('truckId', value)} />
+          </Field>
+          <Field id="materialId" label="Material" optional error={errors.materialId}>
+            <ListPicker id="materialId" label="Material" empty="No Material" choices={choicesOf('materials', materials)} value={form.materialId} onChange={(value) => set('materialId', value)} />
+          </Field>
+          <Field id="foremanId" label="Foreman" optional error={errors.foremanId}>
+            <ListPicker id="foremanId" label="Foreman" empty="No Foreman" choices={choicesOf('foremen', foremen)} value={form.foremanId} onChange={(value) => set('foremanId', value)} />
           </Field>
           <Field id="note" label="Note" optional error={errors.note} wide>
             <Textarea id="note" rows={3} maxLength={1000} value={form.note} onChange={(e) => set('note', e.target.value)} />

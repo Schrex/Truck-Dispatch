@@ -23,16 +23,38 @@ const trucks = [
   { id: 'trk-24', number: '24', hcssCode: null, hcssGuid: null, active: true },
   { id: 'trk-99', number: '99', hcssCode: null, hcssGuid: null, active: false },
 ];
-/** The saved fields of an Assignment, with the Driver's name and Truck's number resolved. */
-const resolve = (body: { date: string; driverId?: string | null; truckId?: string | null; note?: string | null }) => {
+const materials = [
+  { id: 'mat-minus', name: '2" minus', active: true },
+  { id: 'mat-dirt', name: 'Sample Dirt', active: true },
+  { id: 'mat-old', name: 'Sample Old Fill', active: false },
+];
+const foremen = [
+  { id: 'frm-a', name: 'Sample Foreman A', active: true },
+  { id: 'frm-x', name: 'Sample Foreman X', active: false },
+];
+/** The saved fields of an Assignment, with the names of its Driver, Truck, Material and Foreman resolved. */
+const resolve = (body: {
+  date: string;
+  driverId?: string | null;
+  truckId?: string | null;
+  materialId?: string | null;
+  foremanId?: string | null;
+  note?: string | null;
+}) => {
   const driver = drivers.find((d) => d.id === body.driverId);
   const truck = trucks.find((t) => t.id === body.truckId);
+  const material = materials.find((m) => m.id === body.materialId);
+  const foreman = foremen.find((f) => f.id === body.foremanId);
   return {
     date: body.date,
     driverId: driver?.id ?? null,
     driverName: driver?.name ?? null,
     truckId: truck?.id ?? null,
     truckNumber: truck?.number ?? null,
+    materialId: material?.id ?? null,
+    materialName: material?.name ?? null,
+    foremanId: foreman?.id ?? null,
+    foremanName: foreman?.name ?? null,
     note: body.note || null,
   };
 };
@@ -43,6 +65,8 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   if (url.pathname.endsWith('/api/today')) return answer({ today: '2026-11-19', tomorrow: '2026-11-20' });
   if (url.pathname.endsWith('/api/drivers')) return answer({ drivers });
   if (url.pathname.endsWith('/api/trucks')) return answer({ trucks });
+  if (url.pathname.endsWith('/api/materials')) return answer({ materials });
+  if (url.pathname.endsWith('/api/foremen')) return answer({ foremen });
   if (url.pathname.endsWith('/api/assignments/copy')) {
     const { from, to } = JSON.parse(String(init?.body));
     const copies = assignments
@@ -213,6 +237,8 @@ describe.each([
     expect(api.mock.calls.map(([url]) => String(url)).sort()).toEqual([
       `${prefix}/api/assignments?date=2026-11-20`,
       `${prefix}/api/drivers?include=inactive`,
+      `${prefix}/api/foremen?include=inactive`,
+      `${prefix}/api/materials?include=inactive`,
       `${prefix}/api/today`,
       `${prefix}/api/trucks?include=inactive`,
     ]);
@@ -471,6 +497,55 @@ describe('the Truck', () => {
     expect(await screen.findByText('Assignment saved')).toBeTruthy();
     expect(sent).toEqual([expect.objectContaining({ driverId: 'drv-x', truckId: 'trk-99', note: 'Haul topsoil' })]);
     expect(within(card('Sample Driver X')).getByRole('listitem').textContent).toBe('Haul topsoil · Truck 99');
+  });
+});
+
+describe('the Material and Foreman', () => {
+  const picker = async (dialog: HTMLElement, name: 'materialId' | 'foremanId') => {
+    await waitFor(() => expect(dialog.querySelectorAll(`select[name="${name}"] option`).length).toBeGreaterThan(1));
+    return dialog.querySelector(`select[name="${name}"]`) as HTMLSelectElement;
+  };
+  const choices = (select: HTMLSelectElement) => [...select.options].map((o) => o.textContent);
+
+  it('have pickers with an empty choice, listing active entries only, and show on the line once saved', async () => {
+    open('/?date=2026-11-20');
+    await screen.findByText('No Assignments for this day');
+    fireEvent.click(screen.getByRole('button', { name: 'Add Assignment' }));
+    const dialog = screen.getByRole('dialog');
+    const material = await picker(dialog, 'materialId');
+    const foreman = await picker(dialog, 'foremanId');
+    expect([material.value, foreman.value]).toEqual(['none', 'none']);
+    expect(choices(material)).toEqual(['No Material', '2" minus', 'Sample Dirt']);
+    expect(choices(foreman)).toEqual(['No Foreman', 'Sample Foreman A']);
+
+    fireEvent.change(material, { target: { value: 'mat-minus' } });
+    fireEvent.change(foreman, { target: { value: 'frm-a' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
+    expect(await screen.findByText('Assignment saved')).toBeTruthy();
+    expect(sent).toEqual([expect.objectContaining({ materialId: 'mat-minus', foremanId: 'frm-a' })]);
+    expect(within(card('Unassigned')).getByRole('listitem').textContent).toBe('2" minus · Foreman Sample Foreman A');
+  });
+
+  it('keep a Material and Foreman made inactive since, by name, when something else is edited', async () => {
+    assignments = [{
+      id: 'a0', date: '2026-11-20', driverId: 'drv-a', driverName: 'Sample Driver A', truckId: null, truckNumber: null,
+      materialId: 'mat-old', materialName: 'Sample Old Fill', foremanId: 'frm-x', foremanName: 'Sample Foreman X',
+      note: null, createdAt: '', updatedAt: '',
+    }];
+    open('/?date=2026-11-20');
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit Sample Old Fill · Foreman Sample Foreman X' }));
+    const dialog = screen.getByRole('dialog', { name: 'Edit Assignment' });
+    const material = await picker(dialog, 'materialId');
+    const foreman = await picker(dialog, 'foremanId');
+    expect(material.value).toBe('mat-old');
+    expect(choices(material)).toContain('Sample Old Fill (inactive)');
+    expect(foreman.value).toBe('frm-x');
+    expect(choices(foreman)).toContain('Sample Foreman X (inactive)');
+
+    fireEvent.change(within(dialog).getByLabelText(/Note/), { target: { value: 'Two loads' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
+    expect(await screen.findByText('Assignment saved')).toBeTruthy();
+    expect(sent).toEqual([expect.objectContaining({ materialId: 'mat-old', foremanId: 'frm-x', note: 'Two loads' })]);
   });
 });
 
