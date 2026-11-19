@@ -89,6 +89,11 @@ for (const prefix of ['', '/truck-dispatch']) {
     const js = await get(script);
     if (!js.ok) fail(`${script}: ${js.status}`);
   });
+  await step(`${where}: Settings loads directly`, async () => {
+    const page = await get(`${prefix}/settings`);
+    if (!page.ok) fail(`${prefix}/settings: ${page.status}`);
+    if (!(await page.text()).includes('id="root"')) fail('page has no #root');
+  });
   await step(`${where}: seeded drivers and a day's orders`, async () => {
     const drivers = await get(`${prefix}/api/drivers`);
     if (!drivers.ok) fail(`drivers: ${drivers.status}`);

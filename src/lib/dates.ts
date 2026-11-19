@@ -1,19 +1,13 @@
+import { format, parseISO } from 'date-fns';
+
 /** Today in the viewer's time zone, as YYYY-MM-DD. */
 export function today(): string {
-  const now = new Date();
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  return format(new Date(), 'yyyy-MM-dd');
 }
 
+/** 2026-11-18 → Wednesday, November 18, 2026 */
 export function formatDate(iso: string): string {
-  const [y, m, d] = iso.split('-').map(Number);
-  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-    timeZone: 'UTC',
-  });
+  return format(parseISO(iso), 'EEEE, MMMM d, yyyy');
 }
 
 /** 07:30 → 7:30 AM */

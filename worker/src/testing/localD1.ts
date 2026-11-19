@@ -46,7 +46,10 @@ export function localD1() {
 
   /** An environment for handle(), with the local D1 and a stand-in for the page files. */
   const env = (vars: Partial<Env> = {}): Env => ({
-    ASSETS: { fetch: async (input: Request | string) => new Response(`asset ${new URL(input instanceof Request ? input.url : input).pathname}`) } as unknown as Fetcher,
+    ASSETS: { fetch: async (input: Request | string) => {
+      const { pathname, search } = new URL(input instanceof Request ? input.url : input);
+      return new Response(`asset ${pathname}${search}`);
+    } } as unknown as Fetcher,
     DB: database(),
     ENVIRONMENT: 'test',
     ...vars,

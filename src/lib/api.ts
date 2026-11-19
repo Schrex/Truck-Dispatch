@@ -1,7 +1,8 @@
 import type { Driver, NewOrder, Order } from '../../shared/types';
+import { basePath } from './basePath';
 
-// Relative URLs: "api/..." resolves to /api/... standalone and to
-// /truck-dispatch/api/... under the Hub, with no configuration.
+// Every call starts at the base path the page was reached under: /api/...
+// standalone and /truck-dispatch/api/... under the Hub, on any page.
 
 export class FieldErrors extends Error {
   constructor(public fields: Record<string, string>) {
@@ -9,7 +10,8 @@ export class FieldErrors extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(route: string, init?: RequestInit): Promise<T> {
+  const path = `${basePath()}/${route}`;
   const response = await fetch(path, { ...init, headers: { Accept: 'application/json', ...init?.headers } });
   const body = await response.json().catch(() => ({}));
   if (response.status === 400 && body.fields) throw new FieldErrors(body.fields);

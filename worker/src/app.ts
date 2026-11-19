@@ -1,7 +1,7 @@
+import { BASE } from '../../shared/base';
 import { handleApi } from './api';
 
-/** Where the Hub will forward Truck Dispatch (like /daily-schedule). */
-export const BASE = '/truck-dispatch';
+export { BASE };
 
 export interface Env {
   ASSETS: Fetcher;

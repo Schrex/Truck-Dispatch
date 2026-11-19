@@ -1,7 +1,7 @@
 # Truck-Dispatch
 Assign work to trucks and drivers, let drivers pick up jobs, and capture trips, miles, hours, and material tickets.
 
-Today: a standalone Cloudflare Worker that serves the **Dispatch board**: pick a day, see its orders, and add one with **New Order** (the work, an assigned driver, an optional truck number). Backed by D1 with **synthetic** drivers only. Hub integration (at `/truck-dispatch/`), sign-in and production are later phases.
+Today: a standalone Cloudflare Worker that serves the **Dispatch board**: pick a day, see its orders, and add one with **New Order** (the work, an assigned driver, an optional truck number). A second page, **Settings**, is linked from the board and empty for now. Backed by D1 with **synthetic** drivers only. Hub integration (at `/truck-dispatch/`), sign-in and production are later phases.
 
 ## Run it locally
 
@@ -29,9 +29,10 @@ Click **New Order**, fill in the work, pick a driver and save; the order appears
 
 | Path | What |
 |---|---|
-| `src/` | React page (React 18, Tailwind 3, shadcn/ui, Hub theme tokens in `src/index.css`) |
+| `src/` | React pages (React 18, react-router 6, Tailwind 3, shadcn/ui, sonner toasts, Hub theme tokens in `src/index.css`): Board at `/`, Settings at `/settings`, both also under `/truck-dispatch/` |
 | `worker/src/` | Worker: removes the `/truck-dispatch` prefix, then serves the API (`api.ts`) or page files |
 | `shared/types.ts` | API shapes used by both |
+| `shared/base.ts` | The `/truck-dispatch` prefix, used by both |
 | `migrations/` | D1 schema only. Create with `bunx wrangler d1 migrations create truck-dispatch <name>` |
 | `seed/fixture.sql` | Synthetic drivers; `INSERT OR IGNORE`, safe to run repeatedly. No orders. |
 | `wrangler.jsonc` | Local app (top level), `env.preview`, `env.staging` |

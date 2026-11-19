@@ -43,6 +43,19 @@ describe.each([
     expect(orders[0]).toMatchObject({ job: 'Sample Job 100', driverName: 'Sample Driver A', truckNumber: 'T-101', startTime: '07:30' });
   });
 
+  // The page files answer any address that is not a file with the page itself
+  // (wrangler.jsonc: single-page-application), so the Worker only has to ask
+  // for the address without the prefix.
+  it.each([
+    ['Board', '/'],
+    ['Board on a given day', '/?date=2026-11-18'],
+    ['Settings', '/settings'],
+  ])('serves the %s page on a direct load', async (_page, address) => {
+    const response = await get(`${prefix}${address}`);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(`asset ${address}`);
+  });
+
   it('serves page files with the prefix removed', async () => {
     expect(await (await get(`${prefix}/assets/app.js`)).text()).toBe('asset /assets/app.js');
   });
