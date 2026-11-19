@@ -8,7 +8,7 @@ import { PageHeader } from '@/components/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/sonner';
-import { copyTodayOnto, fetchAssignments, fetchBusinessDay, fetchList } from '@/lib/api';
+import { copyTodayOnto, fetchAssignments, fetchBusinessDay, fetchList, FieldErrors, Refused } from '@/lib/api';
 import { formatDate, isDate, shiftDate } from '@/lib/dates';
 
 /**
@@ -88,8 +88,11 @@ export function BoardPage() {
         toast.success(`Copied ${copies.length} Assignment${copies.length === 1 ? '' : 's'} from today`);
         reload();
       }
-    } catch {
-      toast.error('Could not copy today');
+    } catch (error) {
+      // The Worker's own message when it gave one, e.g. the day is now before today.
+      if (error instanceof FieldErrors) toast.error(Object.values(error.fields).join(' '));
+      else if (error instanceof Refused) toast.error(error.message);
+      else toast.error('Could not copy today');
     } finally {
       setCopying(false);
     }

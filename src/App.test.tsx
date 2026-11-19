@@ -722,6 +722,18 @@ describe('Copy today', () => {
     expect(await screen.findByText('Today has no Assignments to copy')).toBeTruthy();
     expect(screen.getByText('No Assignments for this day')).toBeTruthy();
   });
+
+  it.each([
+    ['a refused field', { status: 400, body: { error: 'invalid', fields: { to: 'Days before today are read-only. Pick today or a later day.' } } }, 'Days before today are read-only. Pick today or a later day.'],
+    ['a refusal', { status: 409, body: { error: 'past_day', message: 'Today has moved on.' } }, 'Today has moved on.'],
+    ['a failure', { status: 500, body: { error: 'oops' } }, 'Could not copy today'],
+  ])('shows the Worker\'s message for %s', async (_what, refusal, message) => {
+    copyRefusal = refusal;
+    open('/?date=2026-11-20');
+    await screen.findByText('No Assignments for this day');
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy today' }));
+    expect(await screen.findByText(message)).toBeTruthy();
+  });
 });
 
 describe('Duplicate to…', () => {
