@@ -160,14 +160,23 @@ async function save(request: Request, env: Env, list: ListName, id: string | nul
 
   const columns = Object.keys(values);
   const savedId = id ?? crypto.randomUUID();
-  if (adding) {
-    await env.DB.prepare(`INSERT INTO ${spec.table} (id, ${columns.join(', ')}) VALUES (?, ${columns.map(() => '?').join(', ')})`)
-      .bind(savedId, ...Object.values(values))
-      .run();
-  } else if (columns.length > 0) {
-    await env.DB.prepare(`UPDATE ${spec.table} SET ${columns.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`)
-      .bind(...Object.values(values), savedId)
-      .run();
+  try {
+    if (adding) {
+      await env.DB.prepare(`INSERT INTO ${spec.table} (id, ${columns.join(', ')}) VALUES (?, ${columns.map(() => '?').join(', ')})`)
+        .bind(savedId, ...Object.values(values))
+        .run();
+    } else if (columns.length > 0) {
+      await env.DB.prepare(`UPDATE ${spec.table} SET ${columns.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`)
+        .bind(...Object.values(values), savedId)
+        .run();
+    }
+  } catch (error) {
+    // The check above covers the usual case; another request can still save the
+    // same name between that check and this write, and the unique index stops it.
+    if (String(error).includes(`UNIQUE constraint failed: ${spec.table}.${spec.name.column}`)) {
+      return refuse({ [spec.name.key]: spec.name.taken });
+    }
+    throw error;
   }
   const saved = await env.DB.prepare(`${select(list)} WHERE id = ?`).bind(savedId).first<Record<string, unknown>>();
   return json({ [spec.one]: saved && entry(saved) }, adding ? 201 : 200);

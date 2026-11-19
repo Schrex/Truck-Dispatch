@@ -193,6 +193,31 @@ const list = async (path: string) => {
   return Object.values((await response.json()) as Record<string, Entry[]>)[0];
 };
 
+/**
+ * The tests' D1, except that another request (`other`) runs just before the
+ * first write to `table`: after this request has checked, before it writes.
+ */
+const racedBy = (table: string, other: () => Promise<unknown>): D1Database => {
+  const db = d1.database();
+  let raced = false;
+  const prepare = (sql: string): D1PreparedStatement => {
+    const statement = db.prepare(sql);
+    if (raced || !new RegExp(`^\\s*(INSERT INTO|UPDATE) ${table}\\b`).test(sql)) return statement;
+    raced = true;
+    const bind = (...values: unknown[]) => {
+      const bound = statement.bind(...values);
+      return Object.assign(Object.create(bound) as D1PreparedStatement, {
+        run: async () => {
+          await other();
+          return bound.run();
+        },
+      });
+    };
+    return Object.assign(Object.create(statement) as D1PreparedStatement, { bind });
+  };
+  return new Proxy(db, { get: (target, key) => (key === 'prepare' ? prepare : Reflect.get(target, key, target)) });
+};
+
 // Every list behaves the same way; each is named by its display field.
 describe.each([
   { route: 'drivers', one: 'driver', name: 'name', seeded: 'drv-a', seededName: 'Sample Driver A', fresh: 'Sample Driver D' },
@@ -228,6 +253,16 @@ describe.each([
     await post(`/api/${route}`, { [name]: fresh });
     const renamed = await refusal(await change(seeded, { [name]: fresh.toLowerCase() }));
     expect(Object.keys(renamed)).toEqual([name]);
+  });
+
+  it('refuses a name another request saved after the check, with the same message, rather than failing', async () => {
+    const { [name]: taken } = await refusal(await post(`/api/${route}`, { [name]: seededName }));
+    const added = await send('POST', `/api/${route}`, { [name]: fresh }, { DB: racedBy(route, () => post(`/api/${route}`, { [name]: fresh })) });
+    expect(await refusal(added)).toEqual({ [name]: taken });
+    const other = `${fresh} 2`;
+    const renamed = await send('PATCH', `/api/${route}/${seeded}`, { [name]: other }, { DB: racedBy(route, () => post(`/api/${route}`, { [name]: other })) });
+    expect(await refusal(renamed)).toEqual({ [name]: taken });
+    expect(await names()).toContain(seededName);
   });
 
   it('lets an entry keep its own name in another case', async () => {
