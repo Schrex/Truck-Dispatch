@@ -38,6 +38,25 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     assignments.push(assignment);
     return answer({ assignment }, 201);
   }
+  const one = /\/api\/assignments\/([^/]+)$/.exec(url.pathname);
+  if (one && init?.method === 'PUT') {
+    const index = assignments.findIndex((a) => a.id === one[1]);
+    const body = JSON.parse(String(init.body));
+    const driver = drivers.find((d) => d.id === body.driverId);
+    assignments[index] = {
+      ...assignments[index],
+      date: body.date,
+      driverId: driver?.id ?? null,
+      driverName: driver?.name ?? null,
+      note: body.note || null,
+      updatedAt: '2026-11-19T21:00:00.000Z',
+    };
+    return answer({ assignment: assignments[index] });
+  }
+  if (one && init?.method === 'DELETE') {
+    assignments = assignments.filter((a) => a.id !== one[1]);
+    return new Response(null, { status: 204 });
+  }
   if (failLoads) return answer({ error: 'oops' }, 500);
   return answer({ assignments: assignments.filter((a) => a.date === url.searchParams.get('date')) });
 });
@@ -238,5 +257,121 @@ describe('Board', () => {
     open('/?date=2026-11-20');
     expect(await screen.findByText('Could not load the Assignments for this day.')).toBeTruthy();
     expect(screen.queryByText('No Assignments for this day')).toBeNull();
+  });
+});
+
+describe('changing the plan', () => {
+  const planned = (fields: Record<string, unknown> = {}) => ({
+    id: 'a1', date: '2026-11-20', driverId: 'drv-a', driverName: 'Sample Driver A', note: 'Haul stone',
+    createdAt: '2026-11-19T20:00:00.000Z', updatedAt: '2026-11-19T20:00:00.000Z', ...fields,
+  });
+  const edit = async (line: string) => {
+    fireEvent.click(await screen.findByRole('button', { name: `Edit ${line}` }));
+    return screen.getByRole('dialog', { name: 'Edit Assignment' });
+  };
+  const pickDriver = async (dialog: HTMLElement, id: string) => {
+    // The Driver picker's own form control: jsdom cannot open the listbox.
+    await waitFor(() => expect(dialog.querySelector(`select option[value="${id}"]`)).toBeTruthy());
+    fireEvent.change(dialog.querySelector('select')!, { target: { value: id } });
+  };
+
+  const findCard = (driver: string) => screen.findByRole('article', { name: driver });
+
+  it('opens an Assignment in the same dialog, filled in, and saves an edit onto the Board', async () => {
+    assignments = [planned()];
+    open('/?date=2026-11-20');
+    const dialog = await edit('Haul stone');
+    expect((within(dialog).getByLabelText('Date') as HTMLInputElement).value).toBe('2026-11-20');
+    expect((within(dialog).getByLabelText(/Note/) as HTMLTextAreaElement).value).toBe('Haul stone');
+    expect((dialog.querySelector('select') as HTMLSelectElement).value).toBe('drv-a');
+
+    fireEvent.change(within(dialog).getByLabelText(/Note/), { target: { value: 'Haul topsoil' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
+
+    expect(await within(await findCard('Sample Driver A')).findByText('Haul topsoil')).toBeTruthy();
+    expect(screen.queryByText('Haul stone')).toBeNull();
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('clears a field that was set', async () => {
+    assignments = [planned()];
+    open('/?date=2026-11-20');
+    const dialog = await edit('Haul stone');
+    fireEvent.change(within(dialog).getByLabelText(/Note/), { target: { value: '' } });
+    await pickDriver(dialog, 'none');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
+
+    expect(await within(await findCard('Unassigned')).findByText('No details yet')).toBeTruthy();
+  });
+
+  it('moves the line to the other Driver\'s card when the Driver changes', async () => {
+    assignments = [planned(), planned({ id: 'a2', driverId: 'drv-b', driverName: 'Sample Driver B', note: 'Topsoil run' })];
+    open('/?date=2026-11-20');
+    const dialog = await edit('Haul stone');
+    await pickDriver(dialog, 'drv-b');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
+
+    await waitFor(() => expect(screen.queryByRole('article', { name: 'Sample Driver A' })).toBeNull());
+    expect(within(card('Sample Driver B')).getByText('Haul stone')).toBeTruthy();
+  });
+
+  it('moves it to the other day when the date changes, and shows that day', async () => {
+    assignments = [planned()];
+    open('/?date=2026-11-20');
+    const dialog = await edit('Haul stone');
+    fireEvent.change(within(dialog).getByLabelText('Date'), { target: { value: '2026-11-23' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
+
+    await waitFor(() => expect(address()).toBe('/?date=2026-11-23'));
+    expect(await within(await findCard('Sample Driver A')).findByText('Haul stone')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Previous day' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Previous day' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Previous day' }));
+    expect(await screen.findByText('No Assignments for this day')).toBeTruthy();
+  });
+
+  it('deletes an Assignment after a second click to confirm, and it leaves the Board', async () => {
+    assignments = [planned(), planned({ id: 'a2', note: 'Topsoil run' })];
+    open('/?date=2026-11-20');
+    const dialog = await edit('Haul stone');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+    expect(assignments).toHaveLength(2);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete for good' }));
+
+    expect(await screen.findByText('Assignment deleted')).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText('Haul stone')).toBeNull());
+    expect(within(card('Sample Driver A')).getByText('Topsoil run')).toBeTruthy();
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('shows a message when a change is refused for a past day, and keeps the dialog open', async () => {
+    assignments = [planned({ date: '2026-11-19' })];
+    open('/?date=2026-11-19');
+    const dialog = await edit('Haul stone');
+    api.mockImplementationOnce(async () =>
+      new Response(JSON.stringify({ error: 'past_day', message: 'This Assignment is on a day before today, which is read-only.' }), { status: 409 }),
+    );
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
+    expect(await within(dialog).findByText('This Assignment is on a day before today, which is read-only.')).toBeTruthy();
+    expect(screen.getByRole('dialog')).toBeTruthy();
+  });
+
+  it('shows a past day read-only: no add, edit or delete controls', async () => {
+    assignments = [planned({ date: '2026-11-18' }), planned({ id: 'a2', date: '2026-11-18', driverId: null, driverName: null, note: 'Unplanned' })];
+    open('/?date=2026-11-18');
+    expect(await within(await findCard('Sample Driver A')).findByText('Haul stone')).toBeTruthy();
+    expect(within(card('Unassigned')).getByText('Unplanned')).toBeTruthy();
+    // Wait for the Worker's today, so the read-only view is not just the moment before it arrives.
+    await waitFor(() => expect(api.mock.calls.some(([url]) => String(url).endsWith('/api/today'))).toBe(true));
+    await act(async () => {});
+    expect(screen.queryByRole('button', { name: /Add Assignment|^Edit |Delete/ })).toBeNull();
+    expect(screen.getByText(/read-only/i)).toBeTruthy();
+  });
+
+  it('shows today with its add and edit controls', async () => {
+    assignments = [planned({ date: '2026-11-19' })];
+    open('/?date=2026-11-19');
+    expect(await screen.findByRole('button', { name: 'Edit Haul stone' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Add Assignment' })).toBeTruthy();
   });
 });

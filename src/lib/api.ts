@@ -10,11 +10,15 @@ export class FieldErrors extends Error {
   }
 }
 
+/** The Worker said no with a plain message, e.g. the Assignment is on a past day. */
+export class Refused extends Error {}
+
 async function request<T>(route: string, init?: RequestInit): Promise<T> {
   const path = `${basePath()}/${route}`;
   const response = await fetch(path, { ...init, headers: { Accept: 'application/json', ...init?.headers } });
   const body = await response.json().catch(() => ({}));
   if (response.status === 400 && body.fields) throw new FieldErrors(body.fields);
+  if (!response.ok && typeof body.message === 'string') throw new Refused(body.message);
   if (!response.ok) throw new Error(`${path}: ${response.status}`);
   return body as T;
 }
@@ -40,4 +44,19 @@ export async function addAssignment(assignment: NewAssignment): Promise<Assignme
       body: JSON.stringify(assignment),
     })
   ).assignment;
+}
+
+/** Replaces every field of an Assignment; one left empty is cleared. */
+export async function changeAssignment(id: string, assignment: NewAssignment): Promise<Assignment> {
+  return (
+    await request<{ assignment: Assignment }>(`api/assignments/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(assignment),
+    })
+  ).assignment;
+}
+
+export async function deleteAssignment(id: string): Promise<void> {
+  await request(`api/assignments/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }

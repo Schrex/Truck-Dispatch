@@ -12,8 +12,9 @@ interface Group {
 /**
  * A day's Assignments as one card per Driver, in the order the day was read
  * (by Driver name), plus an "Unassigned" card last for those with no Driver.
+ * Lines open their Assignment through onEdit; without it the cards are read-only.
  */
-export function DriverCards({ assignments }: { assignments: Assignment[] }) {
+export function DriverCards({ assignments, onEdit }: { assignments: Assignment[]; onEdit?: (assignment: Assignment) => void }) {
   const groups = new Map<string, Group>();
   const unassigned: Group = { key: 'unassigned', driverName: null, assignments: [] };
   for (const assignment of assignments) {
@@ -38,7 +39,7 @@ export function DriverCards({ assignments }: { assignments: Assignment[] }) {
             </h3>
             <ul className="mt-1 divide-y">
               {group.assignments.map((assignment) => (
-                <AssignmentLine key={assignment.id} assignment={assignment} />
+                <AssignmentLine key={assignment.id} assignment={assignment} onEdit={onEdit} />
               ))}
             </ul>
           </CardContent>

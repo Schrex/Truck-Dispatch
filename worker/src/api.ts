@@ -27,6 +27,14 @@ export async function handleApi(request: Request, env: Env, route: string, query
     return json({ error: 'method_not_allowed' }, 405, { Allow: 'GET, HEAD, POST' });
   }
 
+  const one = /^assignments\/([^/]+)$/.exec(route);
+  if (one) {
+    const id = decodeURIComponent(one[1]);
+    if (method === 'PUT') return changeAssignment(request, env, id);
+    if (method === 'DELETE') return deleteAssignment(env, id);
+    return json({ error: 'method_not_allowed' }, 405, { Allow: 'PUT, DELETE' });
+  }
+
   if (['health', 'today', 'drivers'].includes(route)) return json({ error: 'method_not_allowed' }, 405, { Allow: 'GET, HEAD' });
   return json({ error: 'not_found' }, 404);
 }
@@ -48,6 +56,60 @@ async function readDay(env: Env, date: string | null): Promise<Response> {
 }
 
 async function addAssignment(request: Request, env: Env): Promise<Response> {
+  const read = await readAssignment(request, env);
+  if (read instanceof Response) return read;
+
+  const id = crypto.randomUUID();
+  const now = clock(env).now.toISOString();
+  await env.DB.prepare(
+    'INSERT INTO assignments (id, date, driver_id, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+  )
+    .bind(id, read.date, read.driverId, read.note, now, now)
+    .run();
+  return json({ assignment: await findAssignment(env, id) }, 201);
+}
+
+/** Replaces every field: one left out or empty is cleared. The Assignment may move to another Driver or day. */
+async function changeAssignment(request: Request, env: Env, id: string): Promise<Response> {
+  const existing = await findAssignment(env, id);
+  if (!existing) return json({ error: 'not_found' }, 404);
+  if (isPast(env, existing.date)) return onPastDay();
+  const read = await readAssignment(request, env);
+  if (read instanceof Response) return read;
+
+  await env.DB.prepare('UPDATE assignments SET date = ?, driver_id = ?, note = ?, updated_at = ? WHERE id = ?')
+    .bind(read.date, read.driverId, read.note, clock(env).now.toISOString(), id)
+    .run();
+  return json({ assignment: await findAssignment(env, id) });
+}
+
+/** A real delete: nothing of the Assignment is kept. */
+async function deleteAssignment(env: Env, id: string): Promise<Response> {
+  const existing = await findAssignment(env, id);
+  if (!existing) return json({ error: 'not_found' }, 404);
+  if (isPast(env, existing.date)) return onPastDay();
+  await env.DB.prepare('DELETE FROM assignments WHERE id = ?').bind(id).run();
+  return new Response(null, { status: 204, headers: { 'Cache-Control': 'no-store' } });
+}
+
+/** Days before today (US Eastern) are read-only: nothing on them is added, changed, moved or deleted. */
+function isPast(env: Env, date: string): boolean {
+  return date < clock(env).today;
+}
+
+function onPastDay(): Response {
+  return json({ error: 'past_day', message: 'This Assignment is on a day before today, which is read-only.' }, 409);
+}
+
+function findAssignment(env: Env, id: string): Promise<Assignment | null> {
+  return env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.id = ?`).bind(id).first<Assignment>();
+}
+
+/** The Assignment a request sends, checked and tidied, or the response refusing it. */
+async function readAssignment(
+  request: Request,
+  env: Env,
+): Promise<{ date: string; driverId: string | null; note: string | null } | Response> {
   if (!request.headers.get('Content-Type')?.includes('application/json')) {
     return json({ error: 'json_required' }, 415);
   }
@@ -63,17 +125,9 @@ async function addAssignment(request: Request, env: Env): Promise<Response> {
   if (driverId && !(await env.DB.prepare('SELECT 1 FROM drivers WHERE id = ?').bind(driverId).first())) {
     errors.driverId = 'Pick a Driver from the list.';
   }
+  if (!errors.date && isPast(env, body.date as string)) errors.date = 'Days before today are read-only. Pick today or a later day.';
   if (Object.keys(errors).length > 0) return refuse(errors);
-
-  const id = crypto.randomUUID();
-  const now = clock(env).now.toISOString();
-  await env.DB.prepare(
-    'INSERT INTO assignments (id, date, driver_id, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-  )
-    .bind(id, body.date, driverId, text(body.note) || null, now, now)
-    .run();
-  const assignment = await env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.id = ?`).bind(id).first<Assignment>();
-  return json({ assignment }, 201);
+  return { date: body.date as string, driverId, note: text(body.note) || null };
 }
 
 const NOTE_LIMIT = 1000;
