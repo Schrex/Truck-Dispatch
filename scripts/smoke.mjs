@@ -49,14 +49,31 @@ async function step(name, check) {
   }
 }
 
+// Waits up to ~30 s for the new version: a brand-new Worker's address can
+// answer 404 for a few seconds, and a new version takes a moment to spread.
+// Access refusals (401/403) are not waited out: retrying won't fix them.
 const expected = process.env.EXPECT_COMMIT;
 await step(`health${expected ? ` reports commit ${expected.slice(0, 7)}` : ''}`, async () => {
+  const attempts = 10;
   for (let attempt = 1; ; attempt++) {
-    const response = await get('/api/health');
-    if (!response.ok) fail(`/api/health: ${response.status}`);
-    const health = /** @type {{ ok: boolean, commit: string | null }} */ (await response.json());
-    if (!expected || health.commit === expected) return;
-    if (attempt >= 10) fail(`live commit is ${health.commit}, expected ${expected}`);
+    let problem;
+    try {
+      const response = await get('/api/health');
+      if (response.status === 401 || response.status === 403) {
+        fail(`/api/health: ${response.status} from Cloudflare Access; check the service token and its Service Auth policy`);
+      }
+      if (!response.ok) {
+        problem = `/api/health: ${response.status}`;
+      } else {
+        const health = /** @type {{ ok: boolean, commit: string | null }} */ (await response.json());
+        if (!expected || health.commit === expected) return;
+        problem = `live commit is ${health.commit}, expected ${expected}`;
+      }
+    } catch (error) {
+      if (error instanceof Error && /Cloudflare Access/.test(error.message)) throw error;
+      problem = error instanceof Error ? error.message : String(error);
+    }
+    if (attempt >= attempts) fail(`${problem} (after ${attempts} tries)`);
     await new Promise((resolve) => setTimeout(resolve, 3000));
   }
 });
