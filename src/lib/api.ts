@@ -1,4 +1,4 @@
-import type { Assignment, BusinessDay, Driver, NewAssignment } from '../../shared/types';
+import type { Assignment, BusinessDay, EntryFields, ListName, Lists, NewAssignment } from '../../shared/types';
 import { basePath } from './basePath';
 
 // Every call starts at the base path the page was reached under: /api/...
@@ -28,8 +28,27 @@ export function fetchBusinessDay(): Promise<BusinessDay> {
   return request<BusinessDay>('api/today');
 }
 
-export async function fetchDrivers(): Promise<Driver[]> {
-  return (await request<{ drivers: Driver[] }>('api/drivers')).drivers;
+/**
+ * A list's entries by display name: active ones only, or every entry with
+ * includeInactive (Settings, and the Board so a saved inactive entry keeps its name).
+ */
+export async function fetchList<L extends ListName>(list: L, { includeInactive = false } = {}): Promise<Lists[L][]> {
+  const body = await request<Record<L, Lists[L][]>>(`api/${list}${includeInactive ? '?include=inactive' : ''}`);
+  return body[list];
+}
+
+/** Adds an entry to a list. There is no delete: an entry is made inactive with changeEntry. */
+export async function addEntry<L extends ListName>(list: L, fields: EntryFields<L>): Promise<Lists[L]> {
+  return Object.values(await request<Record<string, Lists[L]>>(`api/${list}`, json('POST', fields)))[0];
+}
+
+/** Changes only the given fields of an entry, e.g. its name or { active: false }. */
+export async function changeEntry<L extends ListName>(list: L, id: string, fields: EntryFields<L>): Promise<Lists[L]> {
+  return Object.values(await request<Record<string, Lists[L]>>(`api/${list}/${encodeURIComponent(id)}`, json('PATCH', fields)))[0];
+}
+
+function json(method: string, body: unknown): RequestInit {
+  return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
 }
 
 export async function fetchAssignments(date: string): Promise<Assignment[]> {

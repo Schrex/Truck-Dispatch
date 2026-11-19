@@ -1,21 +1,20 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Loader2, Plus, Trash2 } from 'lucide-react';
-import type { Assignment, Driver } from '../../shared/types';
+import type { Assignment, Driver, Truck } from '../../shared/types';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ListPicker } from '@/components/ListPicker';
 import { toast } from '@/components/ui/sonner';
 import { Textarea } from '@/components/ui/textarea';
 import { addAssignment, changeAssignment, deleteAssignment, FieldErrors, Refused } from '@/lib/api';
-
-/** The picker's empty choice. Radix Select cannot use '' as a value. */
-const NO_DRIVER = 'none';
+import { choicesOf } from '@/lib/lists';
 
 interface Form {
   date: string;
-  driverId: string;
+  driverId: string | null;
+  truckId: string | null;
   note: string;
 }
 
@@ -28,13 +27,16 @@ interface Form {
 export function AssignmentDialog({
   date,
   drivers,
+  trucks,
   onSaved,
   editing,
   onClose,
   onDeleted,
 }: {
   date: string;
+  /** Every Driver and Truck, inactive ones included: the pickers leave those out unless already chosen. */
   drivers: Driver[] | null;
+  trucks: Truck[] | null;
   onSaved: (assignment: Assignment) => void;
   editing?: Assignment | null;
   onClose?: () => void;
@@ -44,7 +46,7 @@ export function AssignmentDialog({
   const [adding, setAdding] = useState(false);
   const open = editMode ? editing != null : adding;
   const setOpen = (value: boolean) => (editMode ? !value && onClose?.() : setAdding(value));
-  const [form, setForm] = useState<Form>({ date, driverId: NO_DRIVER, note: '' });
+  const [form, setForm] = useState<Form>({ date, driverId: null, truckId: null, note: '' });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
@@ -55,8 +57,8 @@ export function AssignmentDialog({
     if (open) {
       setForm(
         editing
-          ? { date: editing.date, driverId: editing.driverId ?? NO_DRIVER, note: editing.note ?? '' }
-          : { date, driverId: NO_DRIVER, note: '' },
+          ? { date: editing.date, driverId: editing.driverId, truckId: editing.truckId, note: editing.note ?? '' }
+          : { date, driverId: null, truckId: null, note: '' },
       );
       setErrors({});
       setFailed(null);
@@ -99,6 +101,14 @@ export function AssignmentDialog({
     setErrors(({ [field]: _gone, ...rest }) => rest);
   };
 
+  /** Picking a Driver fills an empty Truck with their usual Truck, if it is still in use; a chosen Truck is left alone. */
+  const pickDriver = (driverId: string | null) => {
+    set('driverId', driverId);
+    if (form.truckId) return;
+    const usual = drivers?.find((driver) => driver.id === driverId)?.defaultTruckId;
+    if (usual && trucks?.some((truck) => truck.id === usual && truck.active)) set('truckId', usual);
+  };
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     setSaving(true);
@@ -106,7 +116,8 @@ export function AssignmentDialog({
     try {
       const fields = {
         date: form.date,
-        driverId: form.driverId === NO_DRIVER ? null : form.driverId,
+        driverId: form.driverId,
+        truckId: form.truckId,
         note: form.note,
       };
       const assignment = editing ? await changeAssignment(editing.id, fields) : await addAssignment(fields);
@@ -144,19 +155,10 @@ export function AssignmentDialog({
             <Input id="date" type="date" required value={form.date} onChange={(e) => set('date', e.target.value)} />
           </Field>
           <Field id="driverId" label="Driver" optional error={errors.driverId}>
-            <Select value={form.driverId} onValueChange={(value) => set('driverId', value)} disabled={!drivers}>
-              <SelectTrigger id="driverId" aria-label="Driver">
-                <SelectValue placeholder={drivers ? 'No Driver' : 'Loading…'} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NO_DRIVER}>No Driver</SelectItem>
-                {drivers?.map((driver) => (
-                  <SelectItem key={driver.id} value={driver.id}>
-                    {driver.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <ListPicker id="driverId" label="Driver" empty="No Driver" choices={choicesOf('drivers', drivers)} value={form.driverId} onChange={pickDriver} />
+          </Field>
+          <Field id="truckId" label="Truck" optional error={errors.truckId}>
+            <ListPicker id="truckId" label="Truck" empty="No Truck" choices={choicesOf('trucks', trucks)} value={form.truckId} onChange={(value) => set('truckId', value)} />
           </Field>
           <Field id="note" label="Note" optional error={errors.note} wide>
             <Textarea id="note" rows={3} maxLength={1000} value={form.note} onChange={(e) => set('note', e.target.value)} />

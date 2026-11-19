@@ -6,32 +6,50 @@ import { toast } from './components/ui/sonner';
 
 /**
  * The API as the page sees it: tomorrow in US Eastern is 2026-11-20, two
- * seeded Drivers, and Assignments that stay once added.
+ * seeded Drivers with usual Trucks, an inactive Driver and Truck, and
+ * Assignments that stay once added.
  */
 let assignments: Record<string, unknown>[] = [];
 let failLoads = false;
 let failSaves = false;
 let refuse: Record<string, string> | null = null;
 const drivers = [
-  { id: 'drv-a', name: 'Sample Driver A' },
-  { id: 'drv-b', name: 'Sample Driver B' },
+  { id: 'drv-a', name: 'Sample Driver A', defaultTruckId: 'trk-21', active: true },
+  { id: 'drv-b', name: 'Sample Driver B', defaultTruckId: 'trk-24', active: true },
+  { id: 'drv-x', name: 'Sample Driver X', defaultTruckId: null, active: false },
 ];
+const trucks = [
+  { id: 'trk-21', number: '21', hcssCode: null, hcssGuid: null, active: true },
+  { id: 'trk-24', number: '24', hcssCode: null, hcssGuid: null, active: true },
+  { id: 'trk-99', number: '99', hcssCode: null, hcssGuid: null, active: false },
+];
+/** The saved fields of an Assignment, with the Driver's name and Truck's number resolved. */
+const resolve = (body: { date: string; driverId?: string | null; truckId?: string | null; note?: string | null }) => {
+  const driver = drivers.find((d) => d.id === body.driverId);
+  const truck = trucks.find((t) => t.id === body.truckId);
+  return {
+    date: body.date,
+    driverId: driver?.id ?? null,
+    driverName: driver?.name ?? null,
+    truckId: truck?.id ?? null,
+    truckNumber: truck?.number ?? null,
+    note: body.note || null,
+  };
+};
+const sent: unknown[] = [];
 const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = new URL(String(input), 'https://td.example');
   const answer = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
   if (url.pathname.endsWith('/api/today')) return answer({ today: '2026-11-19', tomorrow: '2026-11-20' });
   if (url.pathname.endsWith('/api/drivers')) return answer({ drivers });
+  if (url.pathname.endsWith('/api/trucks')) return answer({ trucks });
+  if (init?.body) sent.push(JSON.parse(String(init.body)));
   if (init?.method === 'POST') {
     if (failSaves) return answer({ error: 'oops' }, 500);
     if (refuse) return answer({ error: 'invalid', fields: refuse }, 400);
-    const body = JSON.parse(String(init.body));
-    const driver = drivers.find((d) => d.id === body.driverId);
     const assignment = {
       id: `a${assignments.length + 1}`,
-      date: body.date,
-      driverId: driver?.id ?? null,
-      driverName: driver?.name ?? null,
-      note: body.note || null,
+      ...resolve(JSON.parse(String(init.body))),
       createdAt: '2026-11-19T20:00:00.000Z',
       updatedAt: '2026-11-19T20:00:00.000Z',
     };
@@ -41,14 +59,9 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   const one = /\/api\/assignments\/([^/]+)$/.exec(url.pathname);
   if (one && init?.method === 'PUT') {
     const index = assignments.findIndex((a) => a.id === one[1]);
-    const body = JSON.parse(String(init.body));
-    const driver = drivers.find((d) => d.id === body.driverId);
     assignments[index] = {
       ...assignments[index],
-      date: body.date,
-      driverId: driver?.id ?? null,
-      driverName: driver?.name ?? null,
-      note: body.note || null,
+      ...resolve(JSON.parse(String(init.body))),
       updatedAt: '2026-11-19T21:00:00.000Z',
     };
     return answer({ assignment: assignments[index] });
@@ -71,6 +84,7 @@ const card = (driver: string) => screen.getByRole('article', { name: driver });
 
 beforeEach(() => {
   assignments = [];
+  sent.length = 0;
   failLoads = false;
   failSaves = false;
   refuse = null;
@@ -190,8 +204,9 @@ describe.each([
     await screen.findByText('No Assignments for this day');
     expect(api.mock.calls.map(([url]) => String(url)).sort()).toEqual([
       `${prefix}/api/assignments?date=2026-11-20`,
-      `${prefix}/api/drivers`,
+      `${prefix}/api/drivers?include=inactive`,
       `${prefix}/api/today`,
+      `${prefix}/api/trucks?include=inactive`,
     ]);
   });
 });
@@ -373,5 +388,80 @@ describe('changing the plan', () => {
     open('/?date=2026-11-19');
     expect(await screen.findByRole('button', { name: 'Edit Haul stone' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Add Assignment' })).toBeTruthy();
+  });
+});
+
+describe('the Truck', () => {
+  /** A picker's own form control (jsdom cannot open the listbox), once its list has loaded. */
+  const picker = async (dialog: HTMLElement, name: 'driverId' | 'truckId') => {
+    await waitFor(() => expect(dialog.querySelectorAll(`select[name="${name}"] option`).length).toBeGreaterThan(1));
+    return dialog.querySelector(`select[name="${name}"]`) as HTMLSelectElement;
+  };
+  const choices = (select: HTMLSelectElement) => [...select.options].map((o) => o.textContent);
+  const addDialog = async () => {
+    open('/?date=2026-11-20');
+    await screen.findByText('No Assignments for this day');
+    fireEvent.click(screen.getByRole('button', { name: 'Add Assignment' }));
+    return screen.getByRole('dialog');
+  };
+
+  it('has a picker with an empty choice, listing active Trucks only', async () => {
+    const dialog = await addDialog();
+    const truck = await picker(dialog, 'truckId');
+    expect(truck.value).toBe('none');
+    expect(choices(truck)).toEqual(['No Truck', '21', '24']);
+  });
+
+  it('leaves inactive Drivers out of the Driver picker', async () => {
+    const dialog = await addDialog();
+    expect(choices(await picker(dialog, 'driverId'))).toEqual(['No Driver', 'Sample Driver A', 'Sample Driver B']);
+  });
+
+  it("is filled with the Driver's usual Truck when a Driver is picked and the Truck is empty, and shows on the line", async () => {
+    const dialog = await addDialog();
+    fireEvent.change(await picker(dialog, 'driverId'), { target: { value: 'drv-b' } });
+    expect((await picker(dialog, 'truckId')).value).toBe('trk-24');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
+
+    expect(await screen.findByText('Assignment saved')).toBeTruthy();
+    expect(within(card('Sample Driver B')).getByRole('listitem').textContent).toBe('Truck 24');
+  });
+
+  it('is left alone when already chosen and a Driver is picked', async () => {
+    const dialog = await addDialog();
+    fireEvent.change(await picker(dialog, 'truckId'), { target: { value: 'trk-21' } });
+    fireEvent.change(await picker(dialog, 'driverId'), { target: { value: 'drv-b' } });
+    expect((await picker(dialog, 'truckId')).value).toBe('trk-21');
+  });
+
+  it('can be changed from the usual Truck, or cleared', async () => {
+    const dialog = await addDialog();
+    fireEvent.change(await picker(dialog, 'driverId'), { target: { value: 'drv-a' } });
+    fireEvent.change(await picker(dialog, 'truckId'), { target: { value: 'none' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
+    expect(await screen.findByText('Assignment saved')).toBeTruthy();
+    expect(sent).toEqual([expect.objectContaining({ driverId: 'drv-a', truckId: null })]);
+  });
+
+  it('keeps a Driver and Truck made inactive since, by name, when something else is edited', async () => {
+    assignments = [{
+      id: 'a0', date: '2026-11-20', driverId: 'drv-x', driverName: 'Sample Driver X', truckId: 'trk-99', truckNumber: '99',
+      note: 'Haul stone', createdAt: '', updatedAt: '',
+    }];
+    open('/?date=2026-11-20');
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit Haul stone · Truck 99' }));
+    const dialog = screen.getByRole('dialog', { name: 'Edit Assignment' });
+    const driver = await picker(dialog, 'driverId');
+    const truck = await picker(dialog, 'truckId');
+    expect(driver.value).toBe('drv-x');
+    expect(choices(driver)).toContain('Sample Driver X (inactive)');
+    expect(truck.value).toBe('trk-99');
+    expect(choices(truck)).toContain('99 (inactive)');
+
+    fireEvent.change(within(dialog).getByLabelText(/Note/), { target: { value: 'Haul topsoil' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
+    expect(await screen.findByText('Assignment saved')).toBeTruthy();
+    expect(sent).toEqual([expect.objectContaining({ driverId: 'drv-x', truckId: 'trk-99', note: 'Haul topsoil' })]);
+    expect(within(card('Sample Driver X')).getByRole('listitem').textContent).toBe('Haul topsoil · Truck 99');
   });
 });
