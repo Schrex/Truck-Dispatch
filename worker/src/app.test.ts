@@ -417,6 +417,36 @@ describe('Places', () => {
   });
 });
 
+describe('an Assignment\'s Driver, Truck, Places, Material and Foreman', () => {
+  const fields = {
+    driverId: 'Pick a Driver from the list.',
+    truckId: 'Pick a Truck from the list.',
+    fromPlaceId: 'Pick a Place from the list.',
+    toPlaceId: 'Pick a Place from the list.',
+    materialId: 'Pick a Material from the list.',
+    foremanId: 'Pick a Foreman from the list.',
+  };
+  const every = (value: unknown) => Object.fromEntries(Object.keys(fields).map((key) => [key, value]));
+
+  it('are each refused, with its own message, when not text or not in its list, on add and on change', async () => {
+    expect(await refusal(await post('/api/assignments', { date: '2026-11-20', ...every(7) }))).toEqual(fields);
+    expect(await refusal(await post('/api/assignments', { date: '2026-11-20', ...every('nothing') }))).toEqual(fields);
+    const { assignment } = (await (await post('/api/assignments', { date: '2026-11-20' })).json()) as { assignment: Assignment };
+    expect(await refusal(await change(assignment.id, { date: '2026-11-20', ...every('nothing') }))).toEqual(fields);
+  });
+
+  it('are each saved on add and on change, and cleared when left out', async () => {
+    const chosen = { driverId: 'drv-a', truckId: 'trk-21', fromPlaceId: 'plc-plant', toPlaceId: 'plc-north', materialId: 'mat-minus', foremanId: 'frm-a' };
+    const added = (await (await post('/api/assignments', { date: '2026-11-20', ...chosen })).json()) as { assignment: Assignment };
+    expect(added.assignment).toMatchObject(chosen);
+    const changed = { driverId: 'drv-b', truckId: 'trk-24', fromPlaceId: 'plc-shop', toPlaceId: 'plc-yard', materialId: 'mat-dirt', foremanId: 'frm-b' };
+    const moved = (await (await change(added.assignment.id, { date: '2026-11-20', ...changed })).json()) as { assignment: Assignment };
+    expect(moved.assignment).toMatchObject(changed);
+    const cleared = (await (await change(added.assignment.id, { date: '2026-11-20' })).json()) as { assignment: Assignment };
+    expect(cleared.assignment).toMatchObject(every(null));
+  });
+});
+
 describe('Assignments and the lists', () => {
   it('save a Truck and return its number alongside its id; with none it comes back empty', async () => {
     const created = await post('/api/assignments', { date: '2026-11-20', driverId: 'drv-a', truckId: 'trk-24' });

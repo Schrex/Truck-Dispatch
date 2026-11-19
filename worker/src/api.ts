@@ -2,7 +2,7 @@ import type { Env } from './app';
 import { clock } from './clock';
 import { json, readJson, refuse, text } from './http';
 import { exists, handleList, isList } from './lists';
-import type { Assignment, NewAssignment } from '../../shared/types';
+import type { Assignment, ListName, NewAssignment } from '../../shared/types';
 
 /** The JSON API under /api/ (or /truck-dispatch/api/). */
 export async function handleApi(request: Request, env: Env, route: string, query: URLSearchParams): Promise<Response> {
@@ -119,11 +119,9 @@ async function addAssignment(request: Request, env: Env): Promise<Response> {
 
   const id = crypto.randomUUID();
   const now = clock(env).now.toISOString();
-  await env.DB.prepare(
-    `INSERT INTO assignments (id, date, driver_id, truck_id, from_place_id, to_place_id, material_id, foreman_id, note, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  )
-    .bind(id, read.date, read.driverId, read.truckId, read.fromPlaceId, read.toPlaceId, read.materialId, read.foremanId, read.note, now, now)
+  const columns = ['id', ...SAVED_COLUMNS, 'created_at', 'updated_at'];
+  await env.DB.prepare(`INSERT INTO assignments (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`)
+    .bind(id, ...savedValues(read), now, now)
     .run();
   return json({ assignment: await findAssignment(env, id) }, 201);
 }
@@ -136,11 +134,8 @@ async function changeAssignment(request: Request, env: Env, id: string): Promise
   const read = await readAssignment(request, env);
   if (read instanceof Response) return read;
 
-  await env.DB.prepare(
-    `UPDATE assignments SET date = ?, driver_id = ?, truck_id = ?, from_place_id = ?, to_place_id = ?, material_id = ?, foreman_id = ?, note = ?,
-     updated_at = ? WHERE id = ?`,
-  )
-    .bind(read.date, read.driverId, read.truckId, read.fromPlaceId, read.toPlaceId, read.materialId, read.foremanId, read.note, clock(env).now.toISOString(), id)
+  await env.DB.prepare(`UPDATE assignments SET ${SAVED_COLUMNS.map((c) => `${c} = ?`).join(', ')}, updated_at = ? WHERE id = ?`)
+    .bind(...savedValues(read), clock(env).now.toISOString(), id)
     .run();
   return json({ assignment: await findAssignment(env, id) });
 }
@@ -167,47 +162,58 @@ function findAssignment(env: Env, id: string): Promise<Assignment | null> {
   return env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.id = ?`).bind(id).first<Assignment>();
 }
 
+const PICK_PLACE = 'Pick a Place from the list.';
+
+/**
+ * An Assignment's references to entries in the lists, declared once: each
+ * drives the field's type check, its existence check, and its column in the
+ * INSERT and UPDATE. Any entry that exists may be used, active or not.
+ */
+const REFERENCES = [
+  { key: 'driverId', column: 'driver_id', list: 'drivers', message: 'Pick a Driver from the list.' },
+  { key: 'truckId', column: 'truck_id', list: 'trucks', message: 'Pick a Truck from the list.' },
+  { key: 'fromPlaceId', column: 'from_place_id', list: 'places', message: PICK_PLACE },
+  { key: 'toPlaceId', column: 'to_place_id', list: 'places', message: PICK_PLACE },
+  { key: 'materialId', column: 'material_id', list: 'materials', message: 'Pick a Material from the list.' },
+  { key: 'foremanId', column: 'foreman_id', list: 'foremen', message: 'Pick a Foreman from the list.' },
+] as const satisfies readonly { key: keyof NewAssignment; column: string; list: ListName; message: string }[];
+
+type ReferenceKey = (typeof REFERENCES)[number]['key'];
+
+/** A field added to NewAssignment does not compile until it is declared in REFERENCES or handled like date and note. */
+type Undeclared = Exclude<keyof NewAssignment, 'date' | 'note' | ReferenceKey>;
+const everyFieldDeclared: [Undeclared] extends [never] ? true : Undeclared = true;
+void everyFieldDeclared;
+
+/** An Assignment as a request sends it, checked and tidied. */
+type ReadAssignment = { date: string; note: string | null } & Record<ReferenceKey, string | null>;
+
+/** The columns adding or changing an Assignment saves, in the order savedValues gives them. */
+const SAVED_COLUMNS = ['date', ...REFERENCES.map((r) => r.column), 'note'];
+
+function savedValues(read: ReadAssignment): (string | null)[] {
+  return [read.date, ...REFERENCES.map((r) => read[r.key]), read.note];
+}
+
 /** The Assignment a request sends, checked and tidied, or the response refusing it. */
-async function readAssignment(
-  request: Request,
-  env: Env,
-): Promise<
-  | {
-      date: string;
-      driverId: string | null;
-      truckId: string | null;
-      fromPlaceId: string | null;
-      toPlaceId: string | null;
-      materialId: string | null;
-      foremanId: string | null;
-      note: string | null;
-    }
-  | Response
-> {
+async function readAssignment(request: Request, env: Env): Promise<ReadAssignment | Response> {
   const body = await readJson<Partial<NewAssignment>>(request);
   if (body instanceof Response) return body;
 
   const errors = validate(body);
-  const driverId = text(body.driverId) || null;
-  if (driverId && !(await env.DB.prepare('SELECT 1 FROM drivers WHERE id = ?').bind(driverId).first())) {
-    errors.driverId = 'Pick a Driver from the list.';
-  }
-  const truckId = text(body.truckId) || null;
-  if (truckId && !(await exists(env, 'trucks', truckId))) errors.truckId = 'Pick a Truck from the list.';
-  const fromPlaceId = text(body.fromPlaceId) || null;
-  if (fromPlaceId && !(await exists(env, 'places', fromPlaceId))) errors.fromPlaceId = PICK_PLACE;
-  const toPlaceId = text(body.toPlaceId) || null;
-  if (toPlaceId && !(await exists(env, 'places', toPlaceId))) errors.toPlaceId = PICK_PLACE;
-  const materialId = text(body.materialId) || null;
-  if (materialId && !(await exists(env, 'materials', materialId))) errors.materialId = 'Pick a Material from the list.';
-  const foremanId = text(body.foremanId) || null;
-  if (foremanId && !(await exists(env, 'foremen', foremanId))) errors.foremanId = 'Pick a Foreman from the list.';
+  const ids = Object.fromEntries(REFERENCES.map((r) => [r.key, text(body[r.key]) || null])) as Record<ReferenceKey, string | null>;
+  // Every existence check at once, not one after another.
+  const found = await Promise.all(REFERENCES.map((r) => {
+    const id = ids[r.key];
+    return id === null || exists(env, r.list, id);
+  }));
+  REFERENCES.forEach((r, i) => {
+    if (!found[i]) errors[r.key] = r.message;
+  });
   if (!errors.date && isPast(env, body.date as string)) errors.date = PAST_DATE;
   if (Object.keys(errors).length > 0) return refuse(errors);
-  return { date: body.date as string, driverId, truckId, fromPlaceId, toPlaceId, materialId, foremanId, note: text(body.note) || null };
+  return { date: body.date as string, ...ids, note: text(body.note) || null };
 }
-
-const PICK_PLACE = 'Pick a Place from the list.';
 
 const PAST_DATE = 'Days before today are read-only. Pick today or a later day.';
 
@@ -217,12 +223,7 @@ const NOTE_LIMIT = 1000;
 function validate(body: Partial<NewAssignment>): Record<string, string> {
   const errors: Record<string, string> = {};
   if (!isCalendarDate(body.date)) errors.date = 'Pick a date.';
-  if (body.driverId != null && typeof body.driverId !== 'string') errors.driverId = 'Pick a Driver from the list.';
-  if (body.truckId != null && typeof body.truckId !== 'string') errors.truckId = 'Pick a Truck from the list.';
-  if (body.fromPlaceId != null && typeof body.fromPlaceId !== 'string') errors.fromPlaceId = PICK_PLACE;
-  if (body.toPlaceId != null && typeof body.toPlaceId !== 'string') errors.toPlaceId = PICK_PLACE;
-  if (body.materialId != null && typeof body.materialId !== 'string') errors.materialId = 'Pick a Material from the list.';
-  if (body.foremanId != null && typeof body.foremanId !== 'string') errors.foremanId = 'Pick a Foreman from the list.';
+  for (const r of REFERENCES) if (body[r.key] != null && typeof body[r.key] !== 'string') errors[r.key] = r.message;
   if (body.note != null && typeof body.note !== 'string') errors.note = 'Write the note as text.';
   else if (text(body.note).length > NOTE_LIMIT) errors.note = `Keep the note to ${NOTE_LIMIT} characters or fewer.`;
   return errors;
