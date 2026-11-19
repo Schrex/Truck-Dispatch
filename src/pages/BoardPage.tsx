@@ -8,7 +8,7 @@ import { PageHeader } from '@/components/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/sonner';
-import { copyDay, fetchAssignments, fetchBusinessDay, fetchList } from '@/lib/api';
+import { copyTodayOnto, fetchAssignments, fetchBusinessDay, fetchList } from '@/lib/api';
 import { formatDate, isDate, shiftDate } from '@/lib/dates';
 
 /**
@@ -82,7 +82,7 @@ export function BoardPage() {
     if (!date || !businessDay) return;
     setCopying(true);
     try {
-      const copies = await copyDay(businessDay.today, date);
+      const copies = await copyTodayOnto(date);
       if (copies.length === 0) toast.info('Today has no Assignments to copy');
       else {
         toast.success(`Copied ${copies.length} Assignment${copies.length === 1 ? '' : 's'} from today`);

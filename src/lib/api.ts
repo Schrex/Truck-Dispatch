@@ -94,13 +94,17 @@ export async function changeAssignment(id: string, assignment: NewAssignment): P
   ).assignment;
 }
 
-/** Copies every Assignment on one day onto another, notes left empty; answers the new ones. */
-export async function copyDay(from: string, to: string): Promise<Assignment[]> {
+/**
+ * Copies every Assignment on today onto a later day, notes left empty; answers
+ * the new ones. The Worker decides which day is today, so a page left open past
+ * midnight still copies the real today.
+ */
+export async function copyTodayOnto(to: string): Promise<Assignment[]> {
   return (
     await request<{ assignments: Assignment[] }>('api/assignments/copy', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from, to }),
+      body: JSON.stringify({ to }),
     })
   ).assignments;
 }

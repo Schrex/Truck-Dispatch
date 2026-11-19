@@ -73,30 +73,30 @@ async function readDay(env: Env, date: string | null): Promise<Response> {
 const NOT_COPIED = new Set(['id', 'date', 'note', 'created_at', 'updated_at']);
 
 /**
- * Copies every Assignment on one day onto another, adding to what the target
- * day already has. Answers the new Assignments, in the order a day is read.
+ * Copies every Assignment on today (by the Worker's clock, never a day the
+ * page sends) onto a later day, adding to what that day already has. Answers
+ * the new Assignments, in the order a day is read.
  */
 async function copyDay(request: Request, env: Env): Promise<Response> {
-  const body = await readJson<{ from?: unknown; to?: unknown }>(request);
+  const body = await readJson<{ to?: unknown }>(request);
   if (body instanceof Response) return body;
-  const errors: Record<string, string> = {};
-  if (!isCalendarDate(body.from)) errors.from = 'Pick a day to copy from.';
-  if (!isCalendarDate(body.to)) errors.to = 'Pick a day to copy onto.';
-  else if (isPast(env, body.to)) errors.to = PAST_DATE;
-  if (Object.keys(errors).length > 0) return refuse(errors);
-  const { from, to } = body as { from: string; to: string };
+  const { today: from, now } = clock(env);
+  const to = body.to;
+  if (!isCalendarDate(to)) return refuse({ to: 'Pick a day to copy onto.' });
+  if (to < from) return refuse({ to: PAST_DATE });
+  if (to === from) return refuse({ to: 'Today cannot be copied onto itself. Pick a later day.' });
 
   const { results: sources } = await env.DB.prepare('SELECT * FROM assignments WHERE date = ? ORDER BY created_at, rowid')
     .bind(from)
     .all<Record<string, unknown>>();
   if (sources.length === 0) return json({ assignments: [] }, 201);
 
-  const now = clock(env).now.toISOString();
+  const createdAt = now.toISOString();
   const ids: string[] = [];
   const inserts = sources.map((source) => {
     const id = crypto.randomUUID();
     ids.push(id);
-    const row: Record<string, unknown> = { id, date: to, note: null, created_at: now, updated_at: now };
+    const row: Record<string, unknown> = { id, date: to, note: null, created_at: createdAt, updated_at: createdAt };
     for (const [column, value] of Object.entries(source)) if (!NOT_COPIED.has(column)) row[column] = value;
     const columns = Object.keys(row);
     return env.DB.prepare(

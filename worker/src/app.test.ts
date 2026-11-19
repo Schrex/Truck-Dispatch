@@ -674,7 +674,7 @@ describe('copying a day', () => {
     await add({ date: '2026-11-19', note: 'Unplanned' });
     await add({ date: '2026-11-19', driverId: 'drv-a' });
 
-    const created = await copied(await copy({ from: '2026-11-19', to: '2026-11-21' }));
+    const created = await copied(await copy({ to: '2026-11-21' }));
 
     expect(created).toEqual([
       expect.objectContaining({ date: '2026-11-21', driverId: 'drv-a', driverName: 'Sample Driver A', note: null }),
@@ -687,15 +687,15 @@ describe('copying a day', () => {
   it('leaves the source day as it was', async () => {
     await add({ date: '2026-11-19', driverId: 'drv-b', note: 'Haul stone' });
     const before = await day('2026-11-19');
-    await copied(await copy({ from: '2026-11-19', to: '2026-11-20' }));
+    await copied(await copy({ to: '2026-11-20' }));
     expect(await day('2026-11-19')).toEqual(before);
   });
 
   it('adds to what the target day already has, and copying twice creates the Assignments twice', async () => {
     await add({ date: '2026-11-19', driverId: 'drv-a', note: 'Haul stone' });
     const already = await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Already planned' });
-    await copied(await copy({ from: '2026-11-19', to: '2026-11-20' }));
-    await copied(await copy({ from: '2026-11-19', to: '2026-11-20' }));
+    await copied(await copy({ to: '2026-11-20' }));
+    await copied(await copy({ to: '2026-11-20' }));
     const target = await day('2026-11-20');
     expect(target.map((a) => a.note)).toEqual(['Already planned', null, null]);
     expect(target[0]).toEqual(already);
@@ -703,32 +703,43 @@ describe('copying a day', () => {
   });
 
   it('creates nothing when the source day has no Assignments', async () => {
-    expect(await copied(await copy({ from: '2026-11-19', to: '2026-11-20' }))).toEqual([]);
+    expect(await copied(await copy({ to: '2026-11-20' }))).toEqual([]);
     expect(await day('2026-11-20')).toEqual([]);
   });
 
   it('records the copies as created and updated now', async () => {
     await add({ date: '2026-11-19' });
-    const [one] = await copied(await copy({ from: '2026-11-19', to: '2026-11-20' }, { NOW: '2026-11-19T22:15:00.000Z' }));
+    const [one] = await copied(await copy({ to: '2026-11-20' }, { NOW: '2026-11-19T22:15:00.000Z' }));
     expect(one).toMatchObject({ createdAt: '2026-11-19T22:15:00.000Z', updatedAt: '2026-11-19T22:15:00.000Z' });
   });
 
   it('refuses copying onto a day before today, with a message on the target day, and creates nothing', async () => {
     await add({ date: '2026-11-19', note: 'Haul stone' });
-    const fields = await refusal(await copy({ from: '2026-11-19', to: '2026-11-18' }));
+    const fields = await refusal(await copy({ to: '2026-11-18' }));
     expect(fields).toEqual({ to: 'Days before today are read-only. Pick today or a later day.' });
     expect(await day('2026-11-18')).toEqual([]);
   });
 
-  it('allows copying onto today', async () => {
-    await add({ date: '2026-11-20', note: 'Haul stone' });
-    expect(await copied(await copy({ from: '2026-11-20', to: '2026-11-19' }))).toHaveLength(1);
+  it('refuses copying today onto itself, and creates nothing', async () => {
+    await add({ date: '2026-11-19', note: 'Haul stone' });
+    const fields = await refusal(await copy({ to: '2026-11-19' }));
+    expect(fields).toEqual({ to: 'Today cannot be copied onto itself. Pick a later day.' });
+    expect(await day('2026-11-19')).toHaveLength(1);
+  });
+
+  it('copies from today by the Worker\'s clock, never a day the page sends', async () => {
+    await add({ date: '2026-11-19', note: 'Yesterday by now' });
+    await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Today by now' });
+    const afterMidnight = { NOW: '2026-11-20T05:01:00.000Z' };
+    // A page left open since yesterday still thinks today is 2026-11-19.
+    const created = await copied(await copy({ from: '2026-11-19', to: '2026-11-22' }, afterMidnight));
+    expect(created).toEqual([expect.objectContaining({ date: '2026-11-22', driverId: 'drv-a', note: null })]);
   });
 
   it.each([
-    ['no days', {}, ['from', 'to']],
-    ['a source day that is not on the calendar', { from: '2026-02-30', to: '2026-11-20' }, ['from']],
-    ['a target day written another way', { from: '2026-11-19', to: '20-11-2026' }, ['to']],
+    ['no day', {}, ['to']],
+    ['a target day that is not on the calendar', { to: '2026-02-30' }, ['to']],
+    ['a target day written another way', { to: '20-11-2026' }, ['to']],
   ])('refuses %s, with a message on each', async (_why, body, wrong) => {
     expect(Object.keys(await refusal(await copy(body))).sort()).toEqual(wrong);
   });
@@ -741,7 +752,7 @@ describe('copying a day', () => {
   it('makes ordinary Assignments that can be changed and deleted', async () => {
     await add({ date: '2026-11-19', driverId: 'drv-a', note: 'Haul stone' });
     await add({ date: '2026-11-19', driverId: 'drv-b' });
-    const [first, second] = await copied(await copy({ from: '2026-11-19', to: '2026-11-20' }));
+    const [first, second] = await copied(await copy({ to: '2026-11-20' }));
     expect((await change(first.id, { date: '2026-11-20', driverId: 'drv-c', note: 'Changed' })).status).toBe(200);
     expect((await remove(second.id)).status).toBe(204);
     expect(await day('2026-11-20')).toEqual([expect.objectContaining({ id: first.id, driverId: 'drv-c', note: 'Changed' })]);
@@ -757,7 +768,7 @@ describe('copying a day', () => {
       date: '2026-11-19', driverId: 'drv-b', truckId: 'trk-24', fromPlaceId: 'plc-plant', toPlaceId: 'plc-north',
       materialId: 'mat-minus', foremanId: 'frm-a', note: 'Haul stone',
     });
-    const [copy1] = await copied(await copy({ from: '2026-11-19', to: '2026-11-20' }));
+    const [copy1] = await copied(await copy({ to: '2026-11-20' }));
 
     const row = (id: string) => d1.database().prepare('SELECT * FROM assignments WHERE id = ?').bind(id).first<Record<string, unknown>>();
     const [from, to] = [await row(source.id), await row(copy1.id)];
@@ -774,7 +785,7 @@ describe('copying a day', () => {
   it('copies an Assignment whose Truck was made inactive since, keeping the Truck, and the copy can be saved again', async () => {
     await add({ date: '2026-11-19', driverId: 'drv-a', truckId: 'trk-21', note: 'Haul stone' });
     await send('PATCH', '/api/trucks/trk-21', { active: false });
-    const [copy1] = await copied(await copy({ from: '2026-11-19', to: '2026-11-20' }));
+    const [copy1] = await copied(await copy({ to: '2026-11-20' }));
     expect(copy1).toMatchObject({ date: '2026-11-20', truckId: 'trk-21', truckNumber: '21' });
 
     const saved = await change(copy1.id, { date: '2026-11-20', driverId: 'drv-a', truckId: 'trk-21', note: 'Only the note' });

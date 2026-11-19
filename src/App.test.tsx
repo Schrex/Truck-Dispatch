@@ -13,6 +13,8 @@ let assignments: Record<string, unknown>[] = [];
 let failLoads = false;
 let failSaves = false;
 let refuse: Record<string, string> | null = null;
+let copyRefusal: { status: number; body: unknown } | null = null;
+let failLists = false;
 const drivers = [
   { id: 'drv-a', name: 'Sample Driver A', defaultTruckId: 'trk-21', active: true },
   { id: 'drv-b', name: 'Sample Driver B', defaultTruckId: 'trk-24', active: true },
@@ -82,9 +84,13 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   if (url.pathname.endsWith('/api/materials')) return answer({ materials });
   if (url.pathname.endsWith('/api/foremen')) return answer({ foremen });
   if (url.pathname.endsWith('/api/assignments/copy')) {
-    const { from, to } = JSON.parse(String(init?.body));
+    const body = JSON.parse(String(init?.body));
+    sent.push(body);
+    if (copyRefusal) return answer(copyRefusal.body, copyRefusal.status);
+    // The Worker copies from its own today, whatever the page sends.
+    const { to } = body;
     const copies = assignments
-      .filter((a) => a.date === from)
+      .filter((a) => a.date === '2026-11-19')
       .map((a, i) => ({ ...a, id: `c${assignments.length + i + 1}`, date: to, note: null }));
     assignments.push(...copies);
     return answer({ assignments: copies }, 201);
@@ -134,6 +140,8 @@ beforeEach(() => {
   failLoads = false;
   failSaves = false;
   refuse = null;
+  copyRefusal = null;
+  failLists = false;
   api.mockClear();
   vi.stubGlobal('fetch', api);
 });
@@ -700,6 +708,8 @@ describe('Copy today', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Copy today' }));
 
     expect(await screen.findByText('Copied 1 Assignment from today')).toBeTruthy();
+    // The Worker decides which day is today; the page names only the target day.
+    expect(sent).toEqual([{ to: '2026-11-21' }]);
     expect(await within(await screen.findByRole('article', { name: 'Sample Driver A' })).findByText('No details yet')).toBeTruthy();
     expect(within(card('Sample Driver B')).getByText('Already planned')).toBeTruthy();
     expect(screen.queryByText('Haul stone')).toBeNull();
