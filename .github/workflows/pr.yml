@@ -1,0 +1,131 @@
+# Every pull request: typecheck, tests and build in parallel, then a protected
+# preview of the branch, linked from the PR.
+#
+# The preview is a separate Worker, "truck-dispatch-preview", with its own
+# shared preview D1 (wrangler.jsonc env.preview), so it never touches staging.
+# Each PR gets its own address, pr-<number>-truck-dispatch-preview.<account>.workers.dev
+# (a Worker version with a preview alias; the preview Worker's live deployment
+# is not changed). Setup: docs/deployment.md.
+name: PR
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
+      - run: bun run typecheck
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
+      - run: bun run test
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
+      # Built once, for the preview environment; the preview job uploads this build.
+      - run: bun run build
+        env:
+          CLOUDFLARE_ENV: preview
+      - uses: actions/upload-artifact@v4
+        with:
+          name: preview-build
+          path: dist
+          retention-days: 3
+
+  preview:
+    name: Preview deploy
+    needs: [typecheck, test, build]
+    # Secrets aren't given to pull requests from forks.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CONFIG: dist/truck_dispatch/wrangler.json
+      ALIAS: pr-${{ github.event.pull_request.number }}
+      SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      # Until the Cloudflare secrets are set, the preview is skipped with a
+      # notice instead of failing every PR.
+      - name: Check the Cloudflare secrets are set
+        id: secrets
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::notice::Preview skipped: set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID (docs/deployment.md)."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.secrets.outputs.ready == 'true'
+        uses: actions/checkout@v5
+      - if: steps.secrets.outputs.ready == 'true'
+        uses: ./.github/actions/setup
+      - if: steps.secrets.outputs.ready == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: preview-build
+          path: dist
+      - if: steps.secrets.outputs.ready == 'true'
+        run: node scripts/check-config.mjs "$CONFIG"
+
+      # Migrations and the synthetic seed go to the preview database only.
+      # The seed only adds missing rows.
+      - name: Migrate and seed the preview database
+        if: steps.secrets.outputs.ready == 'true'
+        run: |
+          bunx wrangler d1 migrations apply truck-dispatch-preview --remote --config "$CONFIG"
+          bunx wrangler d1 execute truck-dispatch-preview --remote --config "$CONFIG" --file seed/fixture.sql
+
+      - name: Upload the preview version
+        if: steps.secrets.outputs.ready == 'true'
+        id: upload
+        env:
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-output.json
+        run: |
+          # The first preview creates the preview Worker.
+          if ! bunx wrangler deployments list --config "$CONFIG" > /dev/null 2>&1; then
+            bunx wrangler deploy --config "$CONFIG"
+          fi
+          bunx wrangler versions upload --config "$CONFIG" \
+            --preview-alias "$ALIAS" \
+            --var "COMMIT_SHA:$SHA" \
+            --message "PR #${{ github.event.pull_request.number }} $SHA"
+          url=$(jq -r 'select(.type == "version-upload") | .preview_alias_url // .preview_url // empty' \
+            "$WRANGLER_OUTPUT_FILE_PATH" | tail -n 1)
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Link the preview from the PR
+        if: steps.upload.outputs.url != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          URL: ${{ steps.upload.outputs.url }}
+        run: |
+          body=$(cat <<BODY
+          **Preview** (test data only, behind Cloudflare Access): ${URL}/truck-dispatch/
+
+          Commit \`${SHA}\`. How to review: docs/deployment.md#reviewing-a-preview
+          BODY
+          )
+          echo "$body" >> "$GITHUB_STEP_SUMMARY"
+          gh pr comment "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" \
+            --edit-last --create-if-none --body "$body"

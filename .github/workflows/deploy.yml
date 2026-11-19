@@ -1,0 +1,134 @@
+# A merge to main: typecheck, tests and build in parallel; then migrate and
+# seed the staging D1, deploy the staging Worker, and smoke-test it. A failed
+# migration stops the deploy before the new version goes live.
+#
+# Redeploy a known-good commit: Actions > Deploy staging > Run workflow, with
+# its commit SHA. Setup and recovery: docs/deployment.md.
+name: Deploy staging
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit SHA (or branch) to deploy. Empty deploys the head of main.
+        required: false
+
+permissions:
+  contents: read
+
+# One deploy at a time, in order; never cancel one halfway through a migration.
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+env:
+  REF: ${{ inputs.ref || github.sha }}
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.REF }}
+      - uses: ./.github/actions/setup
+      - run: bun run typecheck
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.REF }}
+      - uses: ./.github/actions/setup
+      - run: bun run test
+
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.REF }}
+      - id: sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/setup
+      - run: bun run build
+        env:
+          CLOUDFLARE_ENV: staging
+      - uses: actions/upload-artifact@v4
+        with:
+          name: staging-build
+          path: dist
+          retention-days: 14
+
+  deploy:
+    name: Migrate, deploy and smoke-test staging
+    needs: [typecheck, test, build]
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: ${{ steps.deploy.outputs.url }}
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CONFIG: dist/truck_dispatch/wrangler.json
+      SHA: ${{ needs.build.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.build.outputs.sha }}
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@v4
+        with:
+          name: staging-build
+          path: dist
+      - run: node scripts/check-config.mjs "$CONFIG"
+
+      # set -e (the default shell): a failed migration fails the job here,
+      # before the new version goes live. Migrations must work with the
+      # version still running (add first, remove in a later release).
+      - name: Migrate the staging database
+        run: bunx wrangler d1 migrations apply truck-dispatch-staging --remote --config "$CONFIG"
+
+      # Only adds missing synthetic rows, so data added while testing is kept.
+      - name: Seed synthetic data
+        run: bunx wrangler d1 execute truck-dispatch-staging --remote --config "$CONFIG" --file seed/fixture.sql
+
+      - name: Deploy the Worker
+        id: deploy
+        env:
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-output.json
+        run: |
+          bunx wrangler deploy --config "$CONFIG" --var "COMMIT_SHA:$SHA" --message "main $SHA"
+          url=$(jq -r 'select(.type == "deploy") | .targets[]? | select(test("workers\\.dev"))' \
+            "$WRANGLER_OUTPUT_FILE_PATH" | head -n 1)
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke-test staging
+        env:
+          EXPECT_COMMIT: ${{ needs.build.outputs.sha }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          set -o pipefail
+          node scripts/smoke.mjs "$URL" 2>&1 | tee "$RUNNER_TEMP/smoke.txt"
+
+      - name: Record the deploy
+        if: always() && steps.deploy.outcome != 'skipped'
+        env:
+          URL: ${{ steps.deploy.outputs.url }}
+          RESULT: ${{ job.status }}
+        run: |
+          {
+            echo "### Staging: ${RESULT}"
+            echo "- Commit: \`${SHA}\`"
+            echo "- URL: ${URL}/truck-dispatch/"
+            echo '```'
+            cat "$RUNNER_TEMP/smoke.txt" 2>/dev/null || echo "Smoke test did not run."
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
