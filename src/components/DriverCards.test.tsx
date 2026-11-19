@@ -11,6 +11,8 @@ const assignment = (fields: Partial<Assignment>): Assignment => ({
   date: '2026-11-20',
   driverId: null,
   driverName: null,
+  truckId: null,
+  truckNumber: null,
   note: null,
   createdAt: '2026-11-19T20:00:00.000Z',
   updatedAt: '2026-11-19T20:00:00.000Z',
@@ -70,6 +72,14 @@ describe('AssignmentLine', () => {
 
   it('reads as the note', () => {
     expect(line({ ...a, note: 'Move the excavator to the shop' })).toBe('Move the excavator to the shop');
+  });
+
+  it('shows the Truck when it is set', () => {
+    expect(line({ ...a, truckId: 'trk-24', truckNumber: '24', note: 'Move the excavator' })).toBe('Move the excavator · Truck 24');
+  });
+
+  it('reads as the Truck alone when nothing else is set', () => {
+    expect(line({ ...a, truckId: 'trk-24', truckNumber: '24' })).toBe('Truck 24');
   });
 
   it('still reads sensibly with nothing filled in yet', () => {

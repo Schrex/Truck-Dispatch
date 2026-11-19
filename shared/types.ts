@@ -3,7 +3,34 @@
 export interface Driver {
   id: string;
   name: string;
+  /** The usual Truck, filled in on a new Assignment when the Driver is picked. */
+  defaultTruckId: string | null;
+  active: boolean;
 }
+
+export interface Truck {
+  id: string;
+  number: string;
+  hcssCode: string | null;
+  hcssGuid: string | null;
+  active: boolean;
+}
+
+/**
+ * The lists Settings edits and the Board picks from, by their API route
+ * (GET, POST api/<list>; PATCH api/<list>/<id>). Nothing is ever deleted.
+ */
+export interface Lists {
+  drivers: Driver;
+  trucks: Truck;
+}
+export type ListName = keyof Lists;
+
+/**
+ * What the page sends to add an entry (the display name is required; active
+ * defaults to true) or to change one (only the fields to change).
+ */
+export type EntryFields<L extends ListName> = Partial<Omit<Lists[L], 'id'>>;
 
 /** Today and tomorrow in US Eastern time (GET api/today). */
 export interface BusinessDay {
@@ -15,6 +42,7 @@ export interface BusinessDay {
 export interface NewAssignment {
   date: string;
   driverId?: string | null;
+  truckId?: string | null;
   note?: string | null;
 }
 
@@ -24,6 +52,8 @@ export interface Assignment {
   date: string;
   driverId: string | null;
   driverName: string | null;
+  truckId: string | null;
+  truckNumber: string | null;
   note: string | null;
   createdAt: string;
   updatedAt: string;
