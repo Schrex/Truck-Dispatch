@@ -16,6 +16,27 @@ export interface Truck {
   active: boolean;
 }
 
+export interface Job {
+  id: string;
+  name: string;
+  jobNumber: string | null;
+  active: boolean;
+}
+
+/** What a Place is. Stored as these values; the page shows them as words. */
+export const PLACE_KINDS = ['plant', 'job_site', 'shop', 'yard'] as const;
+export type PlaceKind = (typeof PLACE_KINDS)[number];
+
+/** Anywhere a Truck loads, dumps or parks. Its geofence code (for GPS later) is not part of the API. */
+export interface Place {
+  id: string;
+  shortName: string;
+  fullName: string | null;
+  kind: PlaceKind | null;
+  jobId: string | null;
+  active: boolean;
+}
+
 /**
  * The lists Settings edits and the Board picks from, by their API route
  * (GET, POST api/<list>; PATCH api/<list>/<id>). Nothing is ever deleted.
@@ -23,6 +44,8 @@ export interface Truck {
 export interface Lists {
   drivers: Driver;
   trucks: Truck;
+  jobs: Job;
+  places: Place;
 }
 export type ListName = keyof Lists;
 
@@ -43,10 +66,12 @@ export interface NewAssignment {
   date: string;
   driverId?: string | null;
   truckId?: string | null;
+  fromPlaceId?: string | null;
+  toPlaceId?: string | null;
   note?: string | null;
 }
 
-/** One piece of work given to one Driver for one day, with its Driver's name resolved. */
+/** One piece of work given to one Driver for one day, with the names of its Driver, Truck and Places resolved. */
 export interface Assignment {
   id: string;
   date: string;
@@ -54,6 +79,12 @@ export interface Assignment {
   driverName: string | null;
   truckId: string | null;
   truckNumber: string | null;
+  fromPlaceId: string | null;
+  /** The From Place's short name. */
+  fromPlaceName: string | null;
+  toPlaceId: string | null;
+  /** The To Place's short name. */
+  toPlaceName: string | null;
   note: string | null;
   createdAt: string;
   updatedAt: string;

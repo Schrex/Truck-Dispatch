@@ -13,6 +13,10 @@ const assignment = (fields: Partial<Assignment>): Assignment => ({
   driverName: null,
   truckId: null,
   truckNumber: null,
+  fromPlaceId: null,
+  fromPlaceName: null,
+  toPlaceId: null,
+  toPlaceName: null,
   note: null,
   createdAt: '2026-11-19T20:00:00.000Z',
   updatedAt: '2026-11-19T20:00:00.000Z',
@@ -80,6 +84,25 @@ describe('AssignmentLine', () => {
 
   it('reads as the Truck alone when nothing else is set', () => {
     expect(line({ ...a, truckId: 'trk-24', truckNumber: '24' })).toBe('Truck 24');
+  });
+
+  const from = { fromPlaceId: 'plc-plant', fromPlaceName: 'Sample Plant' };
+  const to = { toPlaceId: 'plc-north', toPlaceName: 'Sample Site North' };
+
+  it('starts with From → To by the Places\' short names', () => {
+    expect(line({ ...a, ...from, ...to, truckId: 'trk-24', truckNumber: '24', note: 'Haul stone' })).toBe('Sample Plant → Sample Site North · Haul stone · Truck 24');
+  });
+
+  it('shows only the From Place, with no dangling arrow, when there is no To', () => {
+    expect(line({ ...a, ...from })).toBe('Sample Plant');
+  });
+
+  it('shows only the To Place, with no dangling arrow, when there is no From', () => {
+    expect(line({ ...a, ...to, note: 'Drop off' })).toBe('Sample Site North · Drop off');
+  });
+
+  it('shows the same Place on both sides when it is both From and To', () => {
+    expect(line({ ...a, fromPlaceId: 'plc-yard', fromPlaceName: 'Sample Yard', toPlaceId: 'plc-yard', toPlaceName: 'Sample Yard' })).toBe('Sample Yard → Sample Yard');
   });
 
   it('still reads sensibly with nothing filled in yet', () => {

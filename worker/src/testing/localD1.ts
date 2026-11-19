@@ -35,8 +35,8 @@ export function localD1() {
   afterAll(() => harness.close());
   beforeEach(async () => {
     const DB = database();
-    // Rows that point at others go first: Assignments and orders at Drivers and Trucks, Drivers at Trucks.
-    await DB.batch(['assignments', 'orders', 'drivers', 'trucks'].map((table) => DB.prepare(`DELETE FROM ${table}`)));
+    // Rows that point at others go first: Assignments and orders at Drivers, Trucks and Places, Drivers at Trucks, Places at Jobs.
+    await DB.batch(['assignments', 'orders', 'drivers', 'trucks', 'places', 'jobs'].map((table) => DB.prepare(`DELETE FROM ${table}`)));
     await DB.exec(seed.replace(/--.*$/gm, '').replace(/\s*\n\s*/g, ' '));
   });
 

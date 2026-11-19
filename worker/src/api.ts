@@ -44,11 +44,14 @@ export async function handleApi(request: Request, env: Env, route: string, query
   return json({ error: 'not_found' }, 404);
 }
 
-/** Each Assignment with its Driver's name and Truck's number, so the page never has to look them up. */
+/** Each Assignment with its Driver's name, Truck's number and Places' short names, so the page never has to look them up. */
 const SELECT_ASSIGNMENT = `SELECT a.id, a.date, a.driver_id AS driverId, d.name AS driverName,
-       a.truck_id AS truckId, t.number AS truckNumber, a.note,
+       a.truck_id AS truckId, t.number AS truckNumber,
+       a.from_place_id AS fromPlaceId, pf.short_name AS fromPlaceName,
+       a.to_place_id AS toPlaceId, pt.short_name AS toPlaceName, a.note,
        a.created_at AS createdAt, a.updated_at AS updatedAt
-  FROM assignments a LEFT JOIN drivers d ON d.id = a.driver_id LEFT JOIN trucks t ON t.id = a.truck_id`;
+  FROM assignments a LEFT JOIN drivers d ON d.id = a.driver_id LEFT JOIN trucks t ON t.id = a.truck_id
+  LEFT JOIN places pf ON pf.id = a.from_place_id LEFT JOIN places pt ON pt.id = a.to_place_id`;
 
 /** How a day's Assignments are listed: by Driver name, then in the order they were added; those with no Driver last. */
 const DAY_ORDER = 'ORDER BY a.driver_id IS NULL, d.name COLLATE NOCASE, a.created_at, a.rowid';
@@ -114,9 +117,9 @@ async function addAssignment(request: Request, env: Env): Promise<Response> {
   const id = crypto.randomUUID();
   const now = clock(env).now.toISOString();
   await env.DB.prepare(
-    'INSERT INTO assignments (id, date, driver_id, truck_id, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO assignments (id, date, driver_id, truck_id, from_place_id, to_place_id, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
   )
-    .bind(id, read.date, read.driverId, read.truckId, read.note, now, now)
+    .bind(id, read.date, read.driverId, read.truckId, read.fromPlaceId, read.toPlaceId, read.note, now, now)
     .run();
   return json({ assignment: await findAssignment(env, id) }, 201);
 }
@@ -129,8 +132,10 @@ async function changeAssignment(request: Request, env: Env, id: string): Promise
   const read = await readAssignment(request, env);
   if (read instanceof Response) return read;
 
-  await env.DB.prepare('UPDATE assignments SET date = ?, driver_id = ?, truck_id = ?, note = ?, updated_at = ? WHERE id = ?')
-    .bind(read.date, read.driverId, read.truckId, read.note, clock(env).now.toISOString(), id)
+  await env.DB.prepare(
+    'UPDATE assignments SET date = ?, driver_id = ?, truck_id = ?, from_place_id = ?, to_place_id = ?, note = ?, updated_at = ? WHERE id = ?',
+  )
+    .bind(read.date, read.driverId, read.truckId, read.fromPlaceId, read.toPlaceId, read.note, clock(env).now.toISOString(), id)
     .run();
   return json({ assignment: await findAssignment(env, id) });
 }
@@ -161,7 +166,9 @@ function findAssignment(env: Env, id: string): Promise<Assignment | null> {
 async function readAssignment(
   request: Request,
   env: Env,
-): Promise<{ date: string; driverId: string | null; truckId: string | null; note: string | null } | Response> {
+): Promise<
+  { date: string; driverId: string | null; truckId: string | null; fromPlaceId: string | null; toPlaceId: string | null; note: string | null } | Response
+> {
   const body = await readJson<Partial<NewAssignment>>(request);
   if (body instanceof Response) return body;
 
@@ -172,10 +179,16 @@ async function readAssignment(
   }
   const truckId = text(body.truckId) || null;
   if (truckId && !(await exists(env, 'trucks', truckId))) errors.truckId = 'Pick a Truck from the list.';
+  const fromPlaceId = text(body.fromPlaceId) || null;
+  if (fromPlaceId && !(await exists(env, 'places', fromPlaceId))) errors.fromPlaceId = PICK_PLACE;
+  const toPlaceId = text(body.toPlaceId) || null;
+  if (toPlaceId && !(await exists(env, 'places', toPlaceId))) errors.toPlaceId = PICK_PLACE;
   if (!errors.date && isPast(env, body.date as string)) errors.date = PAST_DATE;
   if (Object.keys(errors).length > 0) return refuse(errors);
-  return { date: body.date as string, driverId, truckId, note: text(body.note) || null };
+  return { date: body.date as string, driverId, truckId, fromPlaceId, toPlaceId, note: text(body.note) || null };
 }
+
+const PICK_PLACE = 'Pick a Place from the list.';
 
 const PAST_DATE = 'Days before today are read-only. Pick today or a later day.';
 
@@ -187,6 +200,8 @@ function validate(body: Partial<NewAssignment>): Record<string, string> {
   if (!isCalendarDate(body.date)) errors.date = 'Pick a date.';
   if (body.driverId != null && typeof body.driverId !== 'string') errors.driverId = 'Pick a Driver from the list.';
   if (body.truckId != null && typeof body.truckId !== 'string') errors.truckId = 'Pick a Truck from the list.';
+  if (body.fromPlaceId != null && typeof body.fromPlaceId !== 'string') errors.fromPlaceId = PICK_PLACE;
+  if (body.toPlaceId != null && typeof body.toPlaceId !== 'string') errors.toPlaceId = PICK_PLACE;
   if (body.note != null && typeof body.note !== 'string') errors.note = 'Write the note as text.';
   else if (text(body.note).length > NOTE_LIMIT) errors.note = `Keep the note to ${NOTE_LIMIT} characters or fewer.`;
   return errors;

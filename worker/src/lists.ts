@@ -1,6 +1,6 @@
 import type { Env } from './app';
 import { json, readJson, refuse, text } from './http';
-import type { ListName } from '../../shared/types';
+import { PLACE_KINDS, type ListName } from '../../shared/types';
 
 /**
  * The lists Settings edits and the Board picks from. Each list has the same
@@ -20,7 +20,9 @@ type Field =
   /** Optional free text; empty is saved as null. */
   | { key: string; column: string; kind: 'text' }
   /** Optional id of an entry in another list. */
-  | { key: string; column: string; kind: 'ref'; list: ListName; message: string };
+  | { key: string; column: string; kind: 'ref'; list: ListName; message: string }
+  /** Optional, one of a fixed set of values; empty is saved as null. */
+  | { key: string; column: string; kind: 'choice'; choices: readonly string[]; message: string };
 
 interface List {
   table: string;
@@ -44,6 +46,22 @@ export const LISTS: Record<ListName, List> = {
     fields: [
       { key: 'hcssCode', column: 'hcss_code', kind: 'text' },
       { key: 'hcssGuid', column: 'hcss_guid', kind: 'text' },
+    ],
+  },
+  jobs: {
+    table: 'jobs',
+    one: 'job',
+    name: { key: 'name', column: 'name', missing: 'Write the Job\'s name.', taken: 'There is already a Job with this name.' },
+    fields: [{ key: 'jobNumber', column: 'job_number', kind: 'text' }],
+  },
+  places: {
+    table: 'places',
+    one: 'place',
+    name: { key: 'shortName', column: 'short_name', missing: 'Write the Place\'s short name.', taken: 'There is already a Place with this short name.' },
+    fields: [
+      { key: 'fullName', column: 'full_name', kind: 'text' },
+      { key: 'kind', column: 'kind', kind: 'choice', choices: PLACE_KINDS, message: 'Pick plant, job site, shop or yard, or leave it empty.' },
+      { key: 'jobId', column: 'job_id', kind: 'ref', list: 'jobs', message: 'Pick a Job from the list.' },
     ],
   },
 };
@@ -111,12 +129,13 @@ async function save(request: Request, env: Env, list: ListName, id: string | nul
     if (!(field.key in body)) continue;
     const raw = body[field.key];
     if (raw != null && typeof raw !== 'string') {
-      errors[field.key] = field.kind === 'ref' ? field.message : 'Write it as text.';
+      errors[field.key] = field.kind === 'text' ? 'Write it as text.' : field.message;
       continue;
     }
     const value = text(raw) || null;
     if (field.kind === 'text' && value && value.length > TEXT_LIMIT) errors[field.key] = `Keep it to ${TEXT_LIMIT} characters or fewer.`;
     else if (field.kind === 'ref' && value && !(await exists(env, field.list, value))) errors[field.key] = field.message;
+    else if (field.kind === 'choice' && value && !field.choices.includes(value)) errors[field.key] = field.message;
     else values[field.column] = value;
   }
 

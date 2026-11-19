@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Copy, Loader2, Plus, Trash2 } from 'lucide-react';
-import type { Assignment, Driver, Truck } from '../../shared/types';
+import type { Assignment, Driver, Place, Truck } from '../../shared/types';
 import { Button } from '@/components/ui/button';
 import { Field } from '@/components/Field';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -17,8 +17,12 @@ interface Form {
   date: string;
   driverId: string | null;
   truckId: string | null;
+  fromPlaceId: string | null;
+  toPlaceId: string | null;
   note: string;
 }
+
+const EMPTY = { driverId: null, truckId: null, fromPlaceId: null, toPlaceId: null, note: '' };
 
 /**
  * "Add Assignment" (with its own button), or, given `editing`, the same dialog
@@ -30,15 +34,17 @@ export function AssignmentDialog({
   date,
   drivers,
   trucks,
+  places,
   onSaved,
   editing,
   onClose,
   onDeleted,
 }: {
   date: string;
-  /** Every Driver and Truck, inactive ones included: the pickers leave those out unless already chosen. */
+  /** Every Driver, Truck and Place, inactive ones included: the pickers leave those out unless already chosen. */
   drivers: Driver[] | null;
   trucks: Truck[] | null;
+  places: Place[] | null;
   onSaved: (assignment: Assignment) => void;
   editing?: Assignment | null;
   onClose?: () => void;
@@ -48,7 +54,7 @@ export function AssignmentDialog({
   const [adding, setAdding] = useState(false);
   const open = editMode ? editing != null : adding;
   const setOpen = (value: boolean) => (editMode ? !value && onClose?.() : setAdding(value));
-  const [form, setForm] = useState<Form>({ date, driverId: null, truckId: null, note: '' });
+  const [form, setForm] = useState<Form>({ date, ...EMPTY });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
@@ -60,8 +66,8 @@ export function AssignmentDialog({
     if (open) {
       setForm(
         editing
-          ? { date: editing.date, driverId: editing.driverId, truckId: editing.truckId, note: editing.note ?? '' }
-          : { date, driverId: null, truckId: null, note: '' },
+          ? { ...fieldsOf(editing), note: editing.note ?? '' }
+          : { date, ...EMPTY },
       );
       setErrors({});
       setFailed(null);
@@ -139,6 +145,8 @@ export function AssignmentDialog({
         date: form.date,
         driverId: form.driverId,
         truckId: form.truckId,
+        fromPlaceId: form.fromPlaceId,
+        toPlaceId: form.toPlaceId,
         note: form.note,
       };
       const assignment = editing ? await changeAssignment(editing.id, fields) : await addAssignment(fields);
@@ -180,6 +188,12 @@ export function AssignmentDialog({
           </Field>
           <Field id="truckId" label="Truck" optional error={errors.truckId}>
             <ListPicker id="truckId" label="Truck" empty="No Truck" choices={choicesOf('trucks', trucks)} value={form.truckId} onChange={(value) => set('truckId', value)} />
+          </Field>
+          <Field id="fromPlaceId" label="From Place" optional error={errors.fromPlaceId}>
+            <ListPicker id="fromPlaceId" label="From Place" empty="No From Place" choices={choicesOf('places', places)} value={form.fromPlaceId} onChange={(value) => set('fromPlaceId', value)} />
+          </Field>
+          <Field id="toPlaceId" label="To Place" optional error={errors.toPlaceId}>
+            <ListPicker id="toPlaceId" label="To Place" empty="No To Place" choices={choicesOf('places', places)} value={form.toPlaceId} onChange={(value) => set('toPlaceId', value)} />
           </Field>
           <Field id="note" label="Note" optional error={errors.note} wide>
             <Textarea id="note" rows={3} maxLength={1000} value={form.note} onChange={(e) => set('note', e.target.value)} />

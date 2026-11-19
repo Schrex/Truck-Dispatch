@@ -108,7 +108,7 @@ describe('Assignments', () => {
     const response = await post('/api/assignments', { date: '2026-11-20', startTime: '07:30', job: 'Sample Job' });
     expect(response.status).toBe(201);
     expect(Object.keys(((await response.json()) as { assignment: object }).assignment).sort()).toEqual(
-      ['createdAt', 'date', 'driverId', 'driverName', 'id', 'note', 'truckId', 'truckNumber', 'updatedAt'],
+      ['createdAt', 'date', 'driverId', 'driverName', 'fromPlaceId', 'fromPlaceName', 'id', 'note', 'toPlaceId', 'toPlaceName', 'truckId', 'truckNumber', 'updatedAt'],
     );
   });
 
@@ -197,6 +197,8 @@ const list = async (path: string) => {
 describe.each([
   { route: 'drivers', one: 'driver', name: 'name', seeded: 'drv-a', seededName: 'Sample Driver A', fresh: 'Sample Driver D' },
   { route: 'trucks', one: 'truck', name: 'number', seeded: 'trk-21', seededName: '21', fresh: '30' },
+  { route: 'jobs', one: 'job', name: 'name', seeded: 'job-n', seededName: 'Sample Job North', fresh: 'Sample Job East' },
+  { route: 'places', one: 'place', name: 'shortName', seeded: 'plc-plant', seededName: 'Sample Plant', fresh: 'Sample Pit' },
 ])('the $route list', ({ route, one, name, seeded, seededName, fresh }) => {
   const names = async (search = '') => (await list(`/api/${route}${search}`)).map((e) => e[name]);
   const change = (id: string, body: unknown) => send('PATCH', `/api/${route}/${id}`, body);
@@ -314,6 +316,59 @@ describe('Drivers', () => {
   });
 });
 
+describe('Jobs', () => {
+  it('list the seeded Jobs by name, with their job number', async () => {
+    expect(await list('/api/jobs')).toEqual([
+      { id: 'job-n', name: 'Sample Job North', jobNumber: 'S-1001', active: true },
+      { id: 'job-s', name: 'Sample Job South', jobNumber: null, active: true },
+    ]);
+  });
+
+  it('save a job number when added, and change or clear it', async () => {
+    const { job } = (await (await post('/api/jobs', { name: 'Sample Job East', jobNumber: ' S-1003 ' })).json()) as { job: Entry };
+    expect(job).toMatchObject({ name: 'Sample Job East', jobNumber: 'S-1003', active: true });
+    const cleared = await send('PATCH', `/api/jobs/${job.id}`, { jobNumber: '' });
+    expect(((await cleared.json()) as { job: Entry }).job).toMatchObject({ name: 'Sample Job East', jobNumber: null });
+  });
+});
+
+describe('Places', () => {
+  it('list the seeded Places by short name, with full name, kind and Job, and no geofence code', async () => {
+    const places = await list('/api/places');
+    expect(places.map((p) => p.shortName)).toEqual(['Sample Plant', 'Sample Shop', 'Sample Site North', 'Sample Yard']);
+    expect(places[2]).toEqual({ id: 'plc-north', shortName: 'Sample Site North', fullName: 'Sample Job North site', kind: 'job_site', jobId: 'job-n', active: true });
+    for (const place of places) expect(Object.keys(place)).not.toContain('geofenceCode');
+  });
+
+  it('save a short name alone, or with a full name, kind and Job, and clear them', async () => {
+    const bare = ((await (await post('/api/places', { shortName: 'Sample Pit' })).json()) as { place: Entry }).place;
+    expect(bare).toMatchObject({ shortName: 'Sample Pit', fullName: null, kind: null, jobId: null, active: true });
+
+    const full = await post('/api/places', { shortName: 'Sample Site South', fullName: 'Sample Job South site', kind: 'job_site', jobId: 'job-s' });
+    expect(full.status).toBe(201);
+    const { place } = (await full.json()) as { place: Entry };
+    expect(place).toMatchObject({ shortName: 'Sample Site South', fullName: 'Sample Job South site', kind: 'job_site', jobId: 'job-s' });
+
+    const cleared = await send('PATCH', `/api/places/${place.id}`, { fullName: '', kind: null, jobId: null });
+    expect(((await cleared.json()) as { place: Entry }).place).toMatchObject({ fullName: null, kind: null, jobId: null });
+  });
+
+  it.each(['plant', 'job_site', 'shop', 'yard'])('accept the kind %s', async (kind) => {
+    expect((await send('PATCH', '/api/places/plc-yard', { kind })).status).toBe(200);
+  });
+
+  it.each(['quarry', 'Plant', 'job site', 3])('refuse the kind %s, with a message on the kind', async (kind) => {
+    expect(Object.keys(await refusal(await post('/api/places', { shortName: 'Sample Pit', kind })))).toEqual(['kind']);
+    expect(Object.keys(await refusal(await send('PATCH', '/api/places/plc-yard', { kind })))).toEqual(['kind']);
+  });
+
+  it('refuse a Job that does not exist, with a message on the Job, and accept an inactive one', async () => {
+    expect(Object.keys(await refusal(await post('/api/places', { shortName: 'Sample Pit', jobId: 'nothing' })))).toEqual(['jobId']);
+    await send('PATCH', '/api/jobs/job-s', { active: false });
+    expect((await send('PATCH', '/api/places/plc-yard', { jobId: 'job-s' })).status).toBe(200);
+  });
+});
+
 describe('Assignments and the lists', () => {
   it('save a Truck and return its number alongside its id; with none it comes back empty', async () => {
     const created = await post('/api/assignments', { date: '2026-11-20', driverId: 'drv-a', truckId: 'trk-24' });
@@ -364,6 +419,54 @@ describe('Assignments and the lists', () => {
   });
 });
 
+
+describe('Assignments and Places', () => {
+  it('save a From and To Place and return their short names alongside their ids; with none they come back empty', async () => {
+    const created = await post('/api/assignments', { date: '2026-11-20', driverId: 'drv-a', fromPlaceId: 'plc-plant', toPlaceId: 'plc-north' });
+    expect(created.status).toBe(201);
+    await add({ date: '2026-11-20', driverId: 'drv-b' });
+    expect((await day('2026-11-20')).map((a) => [a.fromPlaceId, a.fromPlaceName, a.toPlaceId, a.toPlaceName])).toEqual([
+      ['plc-plant', 'Sample Plant', 'plc-north', 'Sample Site North'],
+      [null, null, null, null],
+    ]);
+  });
+
+  it('save only one of From and To', async () => {
+    expect(await add({ date: '2026-11-20', toPlaceId: 'plc-shop' })).toMatchObject({ fromPlaceId: null, fromPlaceName: null, toPlaceId: 'plc-shop', toPlaceName: 'Sample Shop' });
+  });
+
+  it('accept the same Place as both From and To', async () => {
+    expect(await add({ date: '2026-11-20', fromPlaceId: 'plc-yard', toPlaceId: 'plc-yard' })).toMatchObject({ fromPlaceName: 'Sample Yard', toPlaceName: 'Sample Yard' });
+  });
+
+  it.each(['fromPlaceId', 'toPlaceId'])('refuse an unknown Place as %s, with a message on that field, adding or changing', async (field) => {
+    const fields = await refusal(await post('/api/assignments', { date: '2026-11-20', [field]: 'nowhere' }));
+    expect(Object.keys(fields)).toEqual([field]);
+    expect(fields[field]).toBeTruthy();
+    expect(await day('2026-11-20')).toEqual([]);
+    const { id } = await add({ date: '2026-11-20' });
+    expect(Object.keys(await refusal(await change(id, { date: '2026-11-20', [field]: 'nowhere' })))).toEqual([field]);
+    expect(Object.keys(await refusal(await post('/api/assignments', { date: '2026-11-20', [field]: 7 })))).toEqual([field]);
+  });
+
+  it('show the new short name after a Place is renamed', async () => {
+    await add({ date: '2026-11-20', fromPlaceId: 'plc-plant', toPlaceId: 'plc-north' });
+    await send('PATCH', '/api/places/plc-plant', { shortName: 'Sample Plant 2' });
+    expect(await day('2026-11-20')).toEqual([expect.objectContaining({ fromPlaceName: 'Sample Plant 2', toPlaceName: 'Sample Site North' })]);
+  });
+
+  it('keep, change and clear the Places when changed, and save again with a Place made inactive since', async () => {
+    const { id } = await add({ date: '2026-11-20', fromPlaceId: 'plc-plant', toPlaceId: 'plc-north' });
+    await send('PATCH', '/api/places/plc-plant', { active: false });
+    expect(await day('2026-11-20')).toEqual([expect.objectContaining({ fromPlaceName: 'Sample Plant' })]);
+    const kept = await change(id, { date: '2026-11-20', fromPlaceId: 'plc-plant', toPlaceId: 'plc-north', note: 'Only the note' });
+    expect(kept.status).toBe(200);
+    expect(((await kept.json()) as { assignment: Assignment }).assignment).toMatchObject({ fromPlaceId: 'plc-plant', fromPlaceName: 'Sample Plant', toPlaceId: 'plc-north' });
+
+    await change(id, { date: '2026-11-20', fromPlaceId: 'plc-yard' });
+    expect(await day('2026-11-20')).toEqual([expect.objectContaining({ fromPlaceId: 'plc-yard', fromPlaceName: 'Sample Yard', toPlaceId: null, toPlaceName: null })]);
+  });
+});
 
 describe('changing an Assignment', () => {
   it('saves every field and the day shows the change', async () => {
@@ -595,7 +698,7 @@ describe('copying a day', () => {
    * and the copy must then carry it.
    */
   it('carries every column of the assignments table except id, date, note and the times', async () => {
-    const source = await add({ date: '2026-11-19', driverId: 'drv-b', truckId: 'trk-24', note: 'Haul stone' });
+    const source = await add({ date: '2026-11-19', driverId: 'drv-b', truckId: 'trk-24', fromPlaceId: 'plc-plant', toPlaceId: 'plc-north', note: 'Haul stone' });
     const [copy1] = await copied(await copy({ from: '2026-11-19', to: '2026-11-20' }));
 
     const row = (id: string) => d1.database().prepare('SELECT * FROM assignments WHERE id = ?').bind(id).first<Record<string, unknown>>();
