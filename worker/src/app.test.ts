@@ -311,6 +311,114 @@ describe('past days', () => {
   });
 });
 
+const copy = (body: unknown, vars = {}) => send('POST', '/api/assignments/copy', body, vars);
+const copied = async (response: Response) => {
+  expect(response.status).toBe(201);
+  return ((await response.json()) as { assignments: Assignment[] }).assignments;
+};
+
+describe('copying a day', () => {
+  // The tests' clock says today is 2026-11-19 in US Eastern.
+  it('creates one new Assignment on the target day for each on the source day, with every field but the note', async () => {
+    await add({ date: '2026-11-19', driverId: 'drv-b', note: 'Haul stone' });
+    await add({ date: '2026-11-19', note: 'Unplanned' });
+    await add({ date: '2026-11-19', driverId: 'drv-a' });
+
+    const created = await copied(await copy({ from: '2026-11-19', to: '2026-11-21' }));
+
+    expect(created).toEqual([
+      expect.objectContaining({ date: '2026-11-21', driverId: 'drv-a', driverName: 'Sample Driver A', note: null }),
+      expect.objectContaining({ date: '2026-11-21', driverId: 'drv-b', driverName: 'Sample Driver B', note: null }),
+      expect.objectContaining({ date: '2026-11-21', driverId: null, driverName: null, note: null }),
+    ]);
+    expect(await day('2026-11-21')).toEqual(created);
+  });
+
+  it('leaves the source day as it was', async () => {
+    await add({ date: '2026-11-19', driverId: 'drv-b', note: 'Haul stone' });
+    const before = await day('2026-11-19');
+    await copied(await copy({ from: '2026-11-19', to: '2026-11-20' }));
+    expect(await day('2026-11-19')).toEqual(before);
+  });
+
+  it('adds to what the target day already has, and copying twice creates the Assignments twice', async () => {
+    await add({ date: '2026-11-19', driverId: 'drv-a', note: 'Haul stone' });
+    const already = await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Already planned' });
+    await copied(await copy({ from: '2026-11-19', to: '2026-11-20' }));
+    await copied(await copy({ from: '2026-11-19', to: '2026-11-20' }));
+    const target = await day('2026-11-20');
+    expect(target.map((a) => a.note)).toEqual(['Already planned', null, null]);
+    expect(target[0]).toEqual(already);
+    expect(new Set(target.map((a) => a.id)).size).toBe(3);
+  });
+
+  it('creates nothing when the source day has no Assignments', async () => {
+    expect(await copied(await copy({ from: '2026-11-19', to: '2026-11-20' }))).toEqual([]);
+    expect(await day('2026-11-20')).toEqual([]);
+  });
+
+  it('records the copies as created and updated now', async () => {
+    await add({ date: '2026-11-19' });
+    const [one] = await copied(await copy({ from: '2026-11-19', to: '2026-11-20' }, { NOW: '2026-11-19T22:15:00.000Z' }));
+    expect(one).toMatchObject({ createdAt: '2026-11-19T22:15:00.000Z', updatedAt: '2026-11-19T22:15:00.000Z' });
+  });
+
+  it('refuses copying onto a day before today, with a message on the target day, and creates nothing', async () => {
+    await add({ date: '2026-11-19', note: 'Haul stone' });
+    const fields = await refusal(await copy({ from: '2026-11-19', to: '2026-11-18' }));
+    expect(fields).toEqual({ to: 'Days before today are read-only. Pick today or a later day.' });
+    expect(await day('2026-11-18')).toEqual([]);
+  });
+
+  it('allows copying onto today', async () => {
+    await add({ date: '2026-11-20', note: 'Haul stone' });
+    expect(await copied(await copy({ from: '2026-11-20', to: '2026-11-19' }))).toHaveLength(1);
+  });
+
+  it.each([
+    ['no days', {}, ['from', 'to']],
+    ['a source day that is not on the calendar', { from: '2026-02-30', to: '2026-11-20' }, ['from']],
+    ['a target day written another way', { from: '2026-11-19', to: '20-11-2026' }, ['to']],
+  ])('refuses %s, with a message on each', async (_why, body, wrong) => {
+    expect(Object.keys(await refusal(await copy(body))).sort()).toEqual(wrong);
+  });
+
+  it('refuses a body that is not JSON, and other methods', async () => {
+    expect((await handle(new Request('https://td.example/api/assignments/copy', { method: 'POST', body: 'x' }), env())).status).toBe(415);
+    expect((await send('GET', '/api/assignments/copy')).status).toBe(405);
+  });
+
+  it('makes ordinary Assignments that can be changed and deleted', async () => {
+    await add({ date: '2026-11-19', driverId: 'drv-a', note: 'Haul stone' });
+    await add({ date: '2026-11-19', driverId: 'drv-b' });
+    const [first, second] = await copied(await copy({ from: '2026-11-19', to: '2026-11-20' }));
+    expect((await change(first.id, { date: '2026-11-20', driverId: 'drv-c', note: 'Changed' })).status).toBe(200);
+    expect((await remove(second.id)).status).toBe(204);
+    expect(await day('2026-11-20')).toEqual([expect.objectContaining({ id: first.id, driverId: 'drv-c', note: 'Changed' })]);
+  });
+
+  /**
+   * Guards later fields: the source fills every column of the assignments
+   * table, so a column a migration adds must be filled here (or this fails),
+   * and the copy must then carry it.
+   */
+  it('carries every column of the assignments table except id, date, note and the times', async () => {
+    const source = await add({ date: '2026-11-19', driverId: 'drv-b', note: 'Haul stone' });
+    const [copy1] = await copied(await copy({ from: '2026-11-19', to: '2026-11-20' }));
+
+    const row = (id: string) => d1.database().prepare('SELECT * FROM assignments WHERE id = ?').bind(id).first<Record<string, unknown>>();
+    const [from, to] = [await row(source.id), await row(copy1.id)];
+    const unfilled = Object.keys(from!).filter((column) => from![column] == null);
+    expect(unfilled, 'fill these columns in this test\'s source Assignment').toEqual([]);
+
+    const notCopied = ['id', 'date', 'note', 'created_at', 'updated_at'];
+    const carried = (r: Record<string, unknown>) => Object.fromEntries(Object.entries(r).filter(([c]) => !notCopied.includes(c)));
+    expect(carried(to!)).toEqual(carried(from!));
+    expect(to).toMatchObject({ date: '2026-11-20', note: null });
+    expect(Object.keys(carried(from!)).length).toBeGreaterThan(0);
+  });
+});
+
 describe('orders', () => {
   it.each([
     ['read', () => get('/api/orders?date=2026-11-20')],
