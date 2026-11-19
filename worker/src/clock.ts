@@ -22,10 +22,11 @@ export interface Clock {
 /**
  * The current time as the Worker's logic sees it. It comes from the
  * environment: `NOW` (an ISO 8601 moment) fixes it, as the tests do; unset, as
- * when deployed, it is the real clock.
+ * when deployed, or set to something that is not a moment, it is the real clock.
  */
 export function clock(env: Pick<Env, 'NOW'>): Clock {
-  const now = env.NOW ? new Date(env.NOW) : new Date();
+  const fixed = env.NOW ? new Date(env.NOW) : null;
+  const now = fixed && !Number.isNaN(fixed.getTime()) ? fixed : new Date();
   const today = businessDate.format(now);
   return { now, today, tomorrow: addDays(today, 1) };
 }

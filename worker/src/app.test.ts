@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { handle } from './app';
 import { localD1 } from './testing/localD1';
 import type { Assignment } from '../../shared/types';
@@ -860,6 +860,18 @@ describe('the business day', () => {
   ])('knows today and tomorrow %s', async (_when, now, today, tomorrow) => {
     const response = await handle(new Request('https://td.example/api/today'), env({ NOW: now }));
     expect(await response.json()).toEqual({ today, tomorrow });
+  });
+
+  it.each(['not a moment', '2026-13-45'])('uses the real clock when NOW is set but is not a moment (%s)', async (now) => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-11-25T15:00:00Z'));
+      const response = await handle(new Request('https://td.example/api/today'), env({ NOW: now }));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ today: '2026-11-25', tomorrow: '2026-11-26' });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
