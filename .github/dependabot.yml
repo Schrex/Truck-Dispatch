@@ -1,0 +1,26 @@
+# Weekly dependency updates, grouped so they arrive as few PRs.
+# Security fixes still open their own PR as soon as an advisory appears.
+# The project uses Bun (bun.lock), so the ecosystem is "bun", not "npm".
+version: 2
+updates:
+  - package-ecosystem: bun
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    # Stay on the Hub's major versions (React 18, Vite 6, Tailwind 3, Vitest 5);
+    # major upgrades are done by hand, together with the Hub.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directories: [/, /.github/actions/setup]
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

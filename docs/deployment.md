@@ -4,33 +4,47 @@
 |---|---|---|
 | Trigger | Every push to a PR (`.github/workflows/pr.yml`) | Every merge to `main` (`.github/workflows/deploy.yml`) |
 | Worker | `truck-dispatch-preview`, one version per PR | `truck-dispatch-staging` |
-| Address | `https://pr-<n>-truck-dispatch-preview.<account>.workers.dev/truck-dispatch/` | `https://truck-dispatch-staging.<account>.workers.dev/truck-dispatch/` |
+| Address | `https://pr-<n>-truck-dispatch-preview.schrex-dev.workers.dev/truck-dispatch/` | `https://truck-dispatch-staging.schrex-dev.workers.dev/truck-dispatch/` |
 | D1 | `truck-dispatch-preview`, shared by open PRs | `truck-dispatch-staging` |
 | Data | Synthetic drivers + orders added while reviewing | Synthetic drivers + orders added while testing (kept across deploys) |
-| Protection | Cloudflare Access | Cloudflare Access |
+| Protection | Cloudflare Access: Schrex Dev members only | Cloudflare Access: Schrex Dev members, plus the CI service token |
 
 Both run typecheck, tests and build as parallel jobs, build once, and then deploy that build. Neither touches the Hub or production Supabase.
 
+## Accounts and access
+
+| Where | What lives there | Who |
+|---|---|---|
+| Cloudflare account **Schrex Dev** | Truck Dispatch preview and staging Workers and D1 databases, Access (team `schrex-dev`) | Sumanth (Super Administrator), Prasad (Administrator) |
+| Cloudflare production account | Hub, Daily Schedule, telematics; later Truck Dispatch production | Truck Dispatch CI has **no** token here |
+| GitHub `Schrex/Truck-Dispatch` (public) | Code, PRs, secrets, the "Protect main" ruleset | Admins bypass the ruleset; writers need a PR, 1 approval and passing checks |
+
+Cloudflare API tokens can only be limited per account, not per Worker or database. That is why Truck Dispatch has its own account: its CI token cannot reach Daily Schedule.
+
+**GitHub secrets:** `CLOUDFLARE_API_TOKEN` (Schrex Dev only: Workers Scripts Edit, D1 Edit, Account Settings Read, 1-year expiry), `CLOUDFLARE_ACCOUNT_ID` (Schrex Dev), `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` (service token `github-smoke-test`).
+
 ## One-time Cloudflare setup
 
-Done once by whoever owns the Cloudflare account.
+Already done; kept here to rebuild it or to set up production later. Make sure the account picker says **Schrex Dev**.
 
-1. **Create the databases** and put each id in `wrangler.jsonc` (replacing `REPLACE_WITH_DATABASE_ID`), then commit:
+1. **Databases.** Create them and put each id in `wrangler.jsonc` (replacing `REPLACE_WITH_DATABASE_ID`). When Wrangler asks *"add it on your behalf?"*, answer **n**: it would add the database to the top (laptop) section, not to `env.preview` or `env.staging`.
    ```bash
    bunx wrangler d1 create truck-dispatch-preview
    bunx wrangler d1 create truck-dispatch-staging
    ```
-   Until then, CI fails the deploy step with a message pointing here.
-2. **API token** (Cloudflare dashboard → My Profile → API Tokens): start from the "Edit Cloudflare Workers" template and add **Account → D1 → Edit**. Limit it to this account.
-3. **GitHub secrets** (repo → Settings → Secrets and variables → Actions): `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`. Until both are set, PR previews are skipped with a notice.
-4. **Cloudflare Access.** In Workers & Pages → each Worker → Settings → Domains & Routes, enable Cloudflare Access on the `workers.dev` address and on Preview URLs. Allow only your two emails.
-5. **Smoke-test token.** In Zero Trust → Access → Service Auth, create a service token. Add a *Service Auth* policy for it on the staging Access application. Store it as GitHub secrets `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`. Without it the smoke test fails with "redirected to Cloudflare Access sign-in".
-6. **Protect `main`** (repo → Settings → Branches): require a pull request, 1 approval, and the checks `typecheck`, `test`, `build`.
+2. **API token** (My Profile → API Tokens → Create Token). Account Resources: **Schrex Dev** only, never "All accounts". Permissions: Workers Scripts Edit, D1 Edit, Account Settings Read. Remove the Zone row. Expiry: 1 year.
+3. **GitHub secrets** `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Until both are set, PR previews are skipped with a notice.
+4. **Cloudflare Access.** Workers & Pages → each Worker → Settings → Domains & Routes → **Enable Access**. Scope **All traffic**, policy **Cloudflare account** (members of Schrex Dev). To give someone access, invite them to Schrex Dev.
+5. **Smoke-test token.** Zero Trust → Access controls → Service credentials → Service Tokens → create `github-smoke-test`. On the **staging** application → Policies, add a policy with Action **Service Auth** (not Allow), Include → Service Token → `github-smoke-test`, then **Save** the application. Store the token as `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`.
+   - Smoke test says **302 / redirected to sign-in**: the secrets are missing or empty.
+   - **401**: Access does not know the token (wrong ID or secret).
+   - **403**: the token is valid, but no policy on this application lets it in.
+6. **Protect `main`** (Settings → Rules → Rulesets → "Protect main"): pull request with 1 approval, checks `typecheck`, `test`, `build`, no force push or deletion; Repository admin may bypass.
 
 ## Reviewing a preview
 
 1. Open the PR. The bot comment has the preview link; it is also in the run summary under the **Checks** tab.
-2. Sign in through Cloudflare Access with your email.
+2. Sign in through Cloudflare Access with your email and the emailed code. Only members of Schrex Dev get in.
 3. Try the change, e.g. add an order with **New Order** and check it shows on that day. Leave feedback on the PR.
 4. A README or typo change only needs a diff review.
 
@@ -41,6 +55,7 @@ The comment updates on every push. Each PR keeps its own address, so two open PR
 - **URL:** shown on the deploy run (Actions → *Deploy staging* → the run → `staging` environment link), and in the repo's **Environments** list.
 - **Logs:** Actions → *Deploy staging*. The run summary records the deployed commit and each smoke-test check. Worker logs: Cloudflare dashboard → `truck-dispatch-staging` → Observability.
 - **Order:** migrate → seed → deploy → smoke test. A failed migration stops before the new version goes live. One deploy runs at a time, and later merges wait.
+- **Smoke test** (`scripts/smoke.mjs`): waits up to ~30 s for the new version to answer, then checks the page and API at `/` and `/truck-dispatch/`. Read-only: it never adds orders.
 
 ### Redeploy a known-good commit
 
