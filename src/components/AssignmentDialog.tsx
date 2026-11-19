@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Copy, Loader2, Plus, Trash2 } from 'lucide-react';
-import type { Assignment, Driver, Foreman, Material, Truck } from '../../shared/types';
+import type { Assignment, Driver, Foreman, Material, Place, Truck } from '../../shared/types';
 import { Button } from '@/components/ui/button';
 import { Field } from '@/components/Field';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -17,12 +17,14 @@ interface Form {
   date: string;
   driverId: string | null;
   truckId: string | null;
+  fromPlaceId: string | null;
+  toPlaceId: string | null;
   materialId: string | null;
   foremanId: string | null;
   note: string;
 }
 
-const EMPTY = { driverId: null, truckId: null, materialId: null, foremanId: null, note: '' };
+const EMPTY = { driverId: null, truckId: null, fromPlaceId: null, toPlaceId: null, materialId: null, foremanId: null, note: '' };
 
 /**
  * "Add Assignment" (with its own button), or, given `editing`, the same dialog
@@ -34,6 +36,7 @@ export function AssignmentDialog({
   date,
   drivers,
   trucks,
+  places,
   materials,
   foremen,
   onSaved,
@@ -45,6 +48,7 @@ export function AssignmentDialog({
   /** Every entry of each list, inactive ones included: the pickers leave those out unless already chosen. */
   drivers: Driver[] | null;
   trucks: Truck[] | null;
+  places: Place[] | null;
   materials: Material[] | null;
   foremen: Foreman[] | null;
   onSaved: (assignment: Assignment) => void;
@@ -182,6 +186,12 @@ export function AssignmentDialog({
           </Field>
           <Field id="truckId" label="Truck" optional error={errors.truckId}>
             <ListPicker id="truckId" label="Truck" empty="No Truck" choices={choicesOf('trucks', trucks)} value={form.truckId} onChange={(value) => set('truckId', value)} />
+          </Field>
+          <Field id="fromPlaceId" label="From Place" optional error={errors.fromPlaceId}>
+            <ListPicker id="fromPlaceId" label="From Place" empty="No From Place" choices={choicesOf('places', places)} value={form.fromPlaceId} onChange={(value) => set('fromPlaceId', value)} />
+          </Field>
+          <Field id="toPlaceId" label="To Place" optional error={errors.toPlaceId}>
+            <ListPicker id="toPlaceId" label="To Place" empty="No To Place" choices={choicesOf('places', places)} value={form.toPlaceId} onChange={(value) => set('toPlaceId', value)} />
           </Field>
           <Field id="materialId" label="Material" optional error={errors.materialId}>
             <ListPicker id="materialId" label="Material" empty="No Material" choices={choicesOf('materials', materials)} value={form.materialId} onChange={(value) => set('materialId', value)} />

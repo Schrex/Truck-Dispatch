@@ -13,10 +13,11 @@ import { choicesOf, displayName } from '@/lib/lists';
 
 type Key<L extends ListName> = Exclude<keyof Lists[L], 'id' | 'active'> & string;
 
-/** An optional field of a list: free text, or an entry picked from another list. */
+/** An optional field of a list: free text, an entry picked from another list, or one of a fixed set of values. */
 export type ListField<L extends ListName> =
   | { key: Key<L>; label: string; kind: 'text' }
-  | { key: Key<L>; label: string; kind: 'pick'; list: ListName; empty: string };
+  | { key: Key<L>; label: string; kind: 'pick'; list: ListName; empty: string }
+  | { key: Key<L>; label: string; kind: 'choice'; choices: { value: string; label: string }[]; empty: string };
 
 /**
  * One Settings tab, declared by its fields. Adding a list to Settings is
@@ -58,7 +59,12 @@ export function ListTab<L extends ListName>({ spec }: { spec: ListTabSpec<L> }) 
   };
   const details = (entry: Row) =>
     spec.fields.flatMap((field) => {
-      const value = field.kind === 'pick' ? name(field.list, entry[field.key]) : (entry[field.key] as string | null);
+      const value =
+        field.kind === 'pick'
+          ? name(field.list, entry[field.key])
+          : field.kind === 'choice'
+            ? (field.choices.find((c) => c.value === entry[field.key])?.label ?? null)
+            : (entry[field.key] as string | null);
       return value ? [`${field.label} ${value}`] : [];
     });
 
@@ -196,7 +202,11 @@ function EntryDialog<L extends ListName>({
                   id={field.key}
                   label={field.label}
                   empty={field.empty}
-                  choices={choicesOf(field.list, (others[field.list] as never) ?? null)}
+                  choices={
+                    field.kind === 'choice'
+                      ? field.choices.map((c) => ({ id: c.value, label: c.label, active: true }))
+                      : choicesOf(field.list, (others[field.list] as never) ?? null)
+                  }
                   value={form[field.key] ?? null}
                   onChange={(value) => set(field.key, value)}
                 />

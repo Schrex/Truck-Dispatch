@@ -75,6 +75,8 @@ export function fieldsOf(assignment: Assignment): Required<NewAssignment> {
     date: assignment.date,
     driverId: assignment.driverId,
     truckId: assignment.truckId,
+    fromPlaceId: assignment.fromPlaceId,
+    toPlaceId: assignment.toPlaceId,
     materialId: assignment.materialId,
     foremanId: assignment.foremanId,
     note: assignment.note,

@@ -1,7 +1,7 @@
 # Truck-Dispatch
 Assign work to trucks and drivers, let drivers pick up jobs, and capture trips, miles, hours, and material tickets.
 
-Today: a standalone Cloudflare Worker that serves the **Dispatch board**: it opens on tomorrow (US Eastern), shows one card per Driver with that day's **Assignments**, and adds one with **Add Assignment** (only the date is required; a Driver, a Truck, a Material, a Foreman and a note are optional; picking a Driver fills in their usual Truck). On a day after today, **Copy today** copies today's Assignments onto it without their notes; an open Assignment can be duplicated to another Driver. A second page, **Settings**, has a tab per list (Drivers, Trucks, Materials, Foremen) to add, rename and make entries inactive; nothing is ever deleted. Backed by D1 with **synthetic** Drivers, Trucks, Materials and Foremen only. Hub integration (at `/truck-dispatch/`), sign-in and production are later phases.
+Today: a standalone Cloudflare Worker that serves the **Dispatch board**: it opens on tomorrow (US Eastern), shows one card per Driver with that day's **Assignments**, and adds one with **Add Assignment** (only the date is required; a Driver, a Truck, a From and To Place, a Material, a Foreman and a note are optional; picking a Driver fills in their usual Truck). On a day after today, **Copy today** copies today's Assignments onto it without their notes; an open Assignment can be duplicated to another Driver. A second page, **Settings**, has a tab per list (Drivers, Trucks, Jobs, Places, Materials, Foremen) to add, rename and make entries inactive; nothing is ever deleted. Backed by D1 with **synthetic** Drivers, Trucks, Jobs, Places, Materials and Foremen only. Hub integration (at `/truck-dispatch/`), sign-in and production are later phases.
 
 ## Run it locally
 
@@ -34,7 +34,7 @@ Click **Add Assignment**, optionally pick a Driver (their usual Truck fills in) 
 | `shared/types.ts` | API shapes used by both |
 | `shared/base.ts` | The `/truck-dispatch` prefix, used by both |
 | `migrations/` | D1 schema only. Create with `bunx wrangler d1 migrations create truck-dispatch <name>` |
-| `seed/fixture.sql` | Synthetic Trucks, Drivers with usual Trucks, Materials and Foremen; `INSERT OR IGNORE`, safe to run repeatedly. No Assignments. |
+| `seed/fixture.sql` | Synthetic Trucks, Drivers with usual Trucks, Jobs, Places, Materials and Foremen; `INSERT OR IGNORE`, safe to run repeatedly. No Assignments. |
 | `wrangler.jsonc` | Local app (top level), `env.preview`, `env.staging` |
 
 ## API
@@ -44,13 +44,13 @@ Under `/api/` standalone or `/truck-dispatch/api/` under the Hub. No sign-in yet
 | Route | Answer |
 |---|---|
 | `GET health` | `{ ok, environment, commit }` |
-| `GET drivers`, `GET trucks`, `GET materials`, `GET foremen` | `{ drivers: [{ id, name, defaultTruckId, active }] }`, `{ trucks: [{ id, number, hcssCode, hcssGuid, active }] }`, `{ materials: [{ id, name, active }] }`, `{ foremen: [{ id, name, active }] }` by name or number: active entries only; `?include=inactive` for every entry |
-| `POST drivers`, `POST trucks`, `POST materials`, `POST foremen` | JSON with the name (or number) and any other field → 201 `{ driver }` / `{ truck }` / `{ material }` / `{ foreman }`, or 400 `{ fields }` (missing name, a name already in the list ignoring case, unknown usual Truck) |
-| `PATCH drivers/:id`, `PATCH trucks/:id`, `PATCH materials/:id`, `PATCH foremen/:id` | JSON with only the fields to change, including `active: true/false` → 200 with the entry, as for POST; 400 as for POST; 404 if it does not exist. There is no delete: an entry is made inactive |
+| `GET drivers`, `GET trucks`, `GET jobs`, `GET places`, `GET materials`, `GET foremen` | `{ drivers: [{ id, name, defaultTruckId, active }] }`, `{ trucks: [{ id, number, hcssCode, hcssGuid, active }] }`, `{ jobs: [{ id, name, jobNumber, active }] }`, `{ places: [{ id, shortName, fullName, kind, jobId, active }] }`, `{ materials: [{ id, name, active }] }`, `{ foremen: [{ id, name, active }] }` by display name (name, number or short name): active entries only; `?include=inactive` for every entry. A Place's `kind` is `plant`, `job_site`, `shop`, `yard` or null; its geofence code is not part of the API |
+| `POST drivers`, `POST trucks`, `POST jobs`, `POST places`, `POST materials`, `POST foremen` | JSON with the display name and any other field → 201 `{ driver }` / `{ truck }` / `{ job }` / `{ place }` / `{ material }` / `{ foreman }`, or 400 `{ fields }` (missing name, a name already in the list ignoring case, unknown usual Truck or Job, a kind not in the list) |
+| `PATCH <list>/:id` (drivers, trucks, jobs, places, materials, foremen) | JSON with only the fields to change, including `active: true/false` → 200 with the entry as for POST; 400 as for POST; 404 if it does not exist. There is no delete: an entry is made inactive |
 | `GET today` | `{ today, tomorrow }`, dates in US Eastern time |
-| `GET assignments?date=2026-11-20` | `{ assignments: [{ id, date, driverId, driverName, truckId, truckNumber, materialId, materialName, foremanId, foremanName, note, createdAt, updatedAt }] }` by Driver name, then creation time; no Driver last. 400 `{ fields: { date } }` without a real date |
-| `POST assignments` | JSON `{ date, driverId?, truckId?, materialId?, foremanId?, note? }` → 201 `{ assignment }`, or 400 `{ fields: { name: message } }` (bad date, unknown Driver, Truck, Material or Foreman, note over 1000 characters). Unknown fields are ignored |
-| `PUT assignments/:id` | JSON `{ date, driverId?, truckId?, materialId?, foremanId?, note? }`, every field replaced (one left out or empty is cleared; a new Driver or date moves it) → 200 `{ assignment }` with a new `updatedAt`; 400 `{ fields }` as for POST; 404 if it does not exist |
+| `GET assignments?date=2026-11-20` | `{ assignments: [{ id, date, driverId, driverName, truckId, truckNumber, fromPlaceId, fromPlaceName, toPlaceId, toPlaceName, materialId, materialName, foremanId, foremanName, note, createdAt, updatedAt }] }` (Place names are short names) by Driver name, then creation time; no Driver last. 400 `{ fields: { date } }` without a real date |
+| `POST assignments` | JSON `{ date, driverId?, truckId?, fromPlaceId?, toPlaceId?, materialId?, foremanId?, note? }` → 201 `{ assignment }`, or 400 `{ fields: { name: message } }` (bad date, unknown Driver, Truck, Place, Material or Foreman, note over 1000 characters). From and To may be the same Place. Unknown fields are ignored |
+| `PUT assignments/:id` | JSON `{ date, driverId?, truckId?, fromPlaceId?, toPlaceId?, materialId?, foremanId?, note? }`, every field replaced (one left out or empty is cleared; a new Driver or date moves it) → 200 `{ assignment }` with a new `updatedAt`; 400 `{ fields }` as for POST; 404 if it does not exist |
 | `POST assignments/copy` | JSON `{ from, to }` (dates) → 201 `{ assignments }`: one new Assignment on `to` for each on `from`, every field kept except the note, which is empty. Adds to what `to` already has; copying twice copies twice. Nothing on `from` → 201 `{ assignments: [] }`. 400 `{ fields: { from?, to? } }` for a bad date |
 | `DELETE assignments/:id` | → 204; a real delete, nothing kept. 404 if it does not exist |
 

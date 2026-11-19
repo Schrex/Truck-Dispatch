@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Copy, Loader2, Settings } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
-import type { Assignment, BusinessDay, Driver, Foreman, Material, Truck } from '../../shared/types';
+import type { Assignment, BusinessDay, Driver, Foreman, Material, Place, Truck } from '../../shared/types';
 import { AssignmentDialog } from '@/components/AssignmentDialog';
 import { DriverCards } from '@/components/DriverCards';
 import { PageHeader } from '@/components/PageHeader';
@@ -24,8 +24,10 @@ export function BoardPage() {
   const date = isDate(fromAddress) ? fromAddress : null;
   const [drivers, setDrivers] = useState<Driver[] | null>(null);
   const [trucks, setTrucks] = useState<Truck[] | null>(null);
+  const [places, setPlaces] = useState<Place[] | null>(null);
   const [materials, setMaterials] = useState<Material[] | null>(null);
-  const [foremen, setForemen] = useState<Foreman[] | null>(null);  const [assignments, setAssignments] = useState<Assignment[] | null>(null);
+  const [foremen, setForemen] = useState<Foreman[] | null>(null);
+  const [assignments, setAssignments] = useState<Assignment[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [reloads, setReloads] = useState(0);
   const [businessDay, setBusinessDay] = useState<BusinessDay | null>(null);
@@ -43,6 +45,7 @@ export function BoardPage() {
     // Inactive entries too, so an Assignment that still uses one shows it in its picker.
     fetchList('drivers', { includeInactive: true }).then(setDrivers, () => setDrivers([]));
     fetchList('trucks', { includeInactive: true }).then(setTrucks, () => setTrucks([]));
+    fetchList('places', { includeInactive: true }).then(setPlaces, () => setPlaces([]));
     fetchList('materials', { includeInactive: true }).then(setMaterials, () => setMaterials([]));
     fetchList('foremen', { includeInactive: true }).then(setForemen, () => setForemen([]));
   }, []);
@@ -119,7 +122,9 @@ export function BoardPage() {
             <Settings className="h-4 w-4" /> Settings
           </Link>
         </Button>
-        {date && editable && <AssignmentDialog date={date} drivers={drivers} trucks={trucks} materials={materials} foremen={foremen} onSaved={saved} />}
+        {date && editable && (
+          <AssignmentDialog date={date} drivers={drivers} trucks={trucks} places={places} materials={materials} foremen={foremen} onSaved={saved} />
+        )}
       </PageHeader>
 
       <main className="container space-y-4 py-6">
@@ -152,6 +157,7 @@ export function BoardPage() {
           date={date}
           drivers={drivers}
           trucks={trucks}
+          places={places}
           materials={materials}
           foremen={foremen}
           editing={editing}

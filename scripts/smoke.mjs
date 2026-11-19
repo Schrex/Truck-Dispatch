@@ -1,6 +1,6 @@
 // Checks a deployed Truck Dispatch end to end, standalone and under the
 // /truck-dispatch/ prefix: the page loads, its script loads, the seeded
-// Drivers, Trucks, Materials and Foremen (seed/fixture.sql) come back, and a day's Assignments can be read.
+// Drivers, Trucks, Jobs, Places, Materials and Foremen (seed/fixture.sql) come back, and a day's Assignments can be read.
 // Read-only: it never adds Assignments.
 //
 //   node scripts/smoke.mjs <base url>
@@ -99,10 +99,11 @@ for (const prefix of ['', '/truck-dispatch']) {
     if (!drivers.ok) fail(`drivers: ${drivers.status}`);
     const list = /** @type {{ drivers: unknown[] }} */ (await drivers.json()).drivers;
     if (list.length === 0) fail('no drivers; was seed/fixture.sql applied?');
-    for (const name of ['trucks', 'materials', 'foremen']) {
-      const other = await get(`${prefix}/api/${name}?include=inactive`);
-      if (!other.ok) fail(`${name}: ${other.status}`);
-      if (/** @type {Record<string, unknown[]>} */ (await other.json())[name].length === 0) fail(`no ${name}; was seed/fixture.sql applied?`);
+    for (const list of ['trucks', 'jobs', 'places', 'materials', 'foremen']) {
+      const response = await get(`${prefix}/api/${list}?include=inactive`);
+      if (!response.ok) fail(`${list}: ${response.status}`);
+      const entries = /** @type {Record<string, unknown[]>} */ (await response.json())[list];
+      if (!Array.isArray(entries) || entries.length === 0) fail(`no ${list}; was seed/fixture.sql applied?`);
     }
     const today = await get(`${prefix}/api/today`);
     if (!today.ok) fail(`today: ${today.status}`);

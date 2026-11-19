@@ -23,6 +23,11 @@ const trucks = [
   { id: 'trk-24', number: '24', hcssCode: null, hcssGuid: null, active: true },
   { id: 'trk-99', number: '99', hcssCode: null, hcssGuid: null, active: false },
 ];
+const places = [
+  { id: 'plc-plant', shortName: 'Sample Plant', fullName: null, kind: 'plant', jobId: null, active: true },
+  { id: 'plc-north', shortName: 'Sample Site North', fullName: null, kind: 'job_site', jobId: 'job-n', active: true },
+  { id: 'plc-x', shortName: 'Sample Old Pit', fullName: null, kind: null, jobId: null, active: false },
+];
 const materials = [
   { id: 'mat-minus', name: '2" minus', active: true },
   { id: 'mat-dirt', name: 'Sample Dirt', active: true },
@@ -32,17 +37,21 @@ const foremen = [
   { id: 'frm-a', name: 'Sample Foreman A', active: true },
   { id: 'frm-x', name: 'Sample Foreman X', active: false },
 ];
-/** The saved fields of an Assignment, with the names of its Driver, Truck, Material and Foreman resolved. */
+/** The saved fields of an Assignment, with the names of its Driver, Truck, Places, Material and Foreman resolved. */
 const resolve = (body: {
   date: string;
   driverId?: string | null;
   truckId?: string | null;
+  fromPlaceId?: string | null;
+  toPlaceId?: string | null;
   materialId?: string | null;
   foremanId?: string | null;
   note?: string | null;
 }) => {
   const driver = drivers.find((d) => d.id === body.driverId);
   const truck = trucks.find((t) => t.id === body.truckId);
+  const from = places.find((p) => p.id === body.fromPlaceId);
+  const to = places.find((p) => p.id === body.toPlaceId);
   const material = materials.find((m) => m.id === body.materialId);
   const foreman = foremen.find((f) => f.id === body.foremanId);
   return {
@@ -51,6 +60,10 @@ const resolve = (body: {
     driverName: driver?.name ?? null,
     truckId: truck?.id ?? null,
     truckNumber: truck?.number ?? null,
+    fromPlaceId: from?.id ?? null,
+    fromPlaceName: from?.shortName ?? null,
+    toPlaceId: to?.id ?? null,
+    toPlaceName: to?.shortName ?? null,
     materialId: material?.id ?? null,
     materialName: material?.name ?? null,
     foremanId: foreman?.id ?? null,
@@ -65,6 +78,7 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   if (url.pathname.endsWith('/api/today')) return answer({ today: '2026-11-19', tomorrow: '2026-11-20' });
   if (url.pathname.endsWith('/api/drivers')) return answer({ drivers });
   if (url.pathname.endsWith('/api/trucks')) return answer({ trucks });
+  if (url.pathname.endsWith('/api/places')) return answer({ places });
   if (url.pathname.endsWith('/api/materials')) return answer({ materials });
   if (url.pathname.endsWith('/api/foremen')) return answer({ foremen });
   if (url.pathname.endsWith('/api/assignments/copy')) {
@@ -239,6 +253,7 @@ describe.each([
       `${prefix}/api/drivers?include=inactive`,
       `${prefix}/api/foremen?include=inactive`,
       `${prefix}/api/materials?include=inactive`,
+      `${prefix}/api/places?include=inactive`,
       `${prefix}/api/today`,
       `${prefix}/api/trucks?include=inactive`,
     ]);
@@ -497,6 +512,112 @@ describe('the Truck', () => {
     expect(await screen.findByText('Assignment saved')).toBeTruthy();
     expect(sent).toEqual([expect.objectContaining({ driverId: 'drv-x', truckId: 'trk-99', note: 'Haul topsoil' })]);
     expect(within(card('Sample Driver X')).getByRole('listitem').textContent).toBe('Haul topsoil · Truck 99');
+  });
+});
+
+describe('From and To Places', () => {
+  type Picker = 'fromPlaceId' | 'toPlaceId';
+  /** A picker's own form control (jsdom cannot open the listbox), once its list has loaded. */
+  const picker = async (dialog: HTMLElement, name: Picker) => {
+    await waitFor(() => expect(dialog.querySelectorAll(`select[name="${name}"] option`).length).toBeGreaterThan(1));
+    return dialog.querySelector(`select[name="${name}"]`) as HTMLSelectElement;
+  };
+  const choices = (select: HTMLSelectElement) => [...select.options].map((o) => o.textContent);
+  const addDialog = async () => {
+    open('/?date=2026-11-20');
+    await screen.findByText('No Assignments for this day');
+    fireEvent.click(screen.getByRole('button', { name: 'Add Assignment' }));
+    return screen.getByRole('dialog');
+  };
+  const pick = async (dialog: HTMLElement, name: Picker | 'driverId', value: string) => {
+    await waitFor(() => expect(dialog.querySelector(`select[name="${name}"] option[value="${value}"]`)).toBeTruthy());
+    fireEvent.change(dialog.querySelector(`select[name="${name}"]`)!, { target: { value } });
+  };
+
+  it.each([
+    ['From Place', 'fromPlaceId'],
+    ['To Place', 'toPlaceId'],
+  ] as const)('the %s picker has an empty choice and lists active Places by short name', async (label, name) => {
+    const dialog = await addDialog();
+    expect(within(dialog).getByLabelText(label)).toBeTruthy();
+    const select = await picker(dialog, name);
+    expect(select.value).toBe('none');
+    expect(choices(select)).toEqual([label === 'From Place' ? 'No From Place' : 'No To Place', 'Sample Plant', 'Sample Site North']);
+  });
+
+  it('saves both, and the line reads From → To', async () => {
+    const dialog = await addDialog();
+    await pick(dialog, 'driverId', 'drv-a');
+    await pick(dialog, 'fromPlaceId', 'plc-plant');
+    await pick(dialog, 'toPlaceId', 'plc-north');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
+
+    expect(await screen.findByText('Assignment saved')).toBeTruthy();
+    expect(sent).toEqual([expect.objectContaining({ fromPlaceId: 'plc-plant', toPlaceId: 'plc-north' })]);
+    expect(within(card('Sample Driver A')).getByRole('listitem').textContent).toBe('Sample Plant → Sample Site North · Truck 21');
+  });
+
+  it('saves only a To Place, and the line shows it with no arrow', async () => {
+    const dialog = await addDialog();
+    await pick(dialog, 'toPlaceId', 'plc-north');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
+    expect(await screen.findByText('Assignment saved')).toBeTruthy();
+    expect(within(card('Unassigned')).getByRole('listitem').textContent).toBe('Sample Site North');
+  });
+
+  it('lets the same Place be both From and To', async () => {
+    const dialog = await addDialog();
+    await pick(dialog, 'fromPlaceId', 'plc-plant');
+    await pick(dialog, 'toPlaceId', 'plc-plant');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
+    expect(await screen.findByText('Assignment saved')).toBeTruthy();
+    expect(sent).toEqual([expect.objectContaining({ fromPlaceId: 'plc-plant', toPlaceId: 'plc-plant' })]);
+  });
+
+  it('shows the message for an unknown Place next to that picker', async () => {
+    refuse = { toPlaceId: 'Pick a Place from the list.' };
+    const dialog = await addDialog();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
+    const message = await within(dialog).findByText('Pick a Place from the list.');
+    expect(message.closest('div')?.querySelector('select[name="toPlaceId"]')).toBeTruthy();
+  });
+
+  it('keeps a Place made inactive since, by name, when something else is edited', async () => {
+    assignments = [{
+      id: 'a0', date: '2026-11-20', driverId: 'drv-a', driverName: 'Sample Driver A', truckId: null, truckNumber: null,
+      fromPlaceId: 'plc-x', fromPlaceName: 'Sample Old Pit', toPlaceId: 'plc-north', toPlaceName: 'Sample Site North',
+      note: 'Haul stone', createdAt: '', updatedAt: '',
+    }];
+    open('/?date=2026-11-20');
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit Sample Old Pit → Sample Site North · Haul stone' }));
+    const dialog = screen.getByRole('dialog', { name: 'Edit Assignment' });
+    const from = await picker(dialog, 'fromPlaceId');
+    expect(from.value).toBe('plc-x');
+    expect(choices(from)).toContain('Sample Old Pit (inactive)');
+    expect(choices(await picker(dialog, 'toPlaceId'))).not.toContain('Sample Old Pit (inactive)');
+
+    fireEvent.change(within(dialog).getByLabelText(/Note/), { target: { value: 'Haul topsoil' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
+    expect(await screen.findByText('Assignment saved')).toBeTruthy();
+    expect(sent).toEqual([expect.objectContaining({ fromPlaceId: 'plc-x', toPlaceId: 'plc-north', note: 'Haul topsoil' })]);
+    expect(within(card('Sample Driver A')).getByRole('listitem').textContent).toBe('Sample Old Pit → Sample Site North · Haul topsoil');
+  });
+
+  it('are carried by Duplicate to', async () => {
+    assignments = [{
+      id: 'a0', date: '2026-11-20', driverId: 'drv-a', driverName: 'Sample Driver A', truckId: null, truckNumber: null,
+      fromPlaceId: 'plc-plant', fromPlaceName: 'Sample Plant', toPlaceId: 'plc-north', toPlaceName: 'Sample Site North',
+      note: null, createdAt: '', updatedAt: '',
+    }];
+    open('/?date=2026-11-20');
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit Sample Plant → Sample Site North' }));
+    const dialog = screen.getByRole('dialog', { name: 'Edit Assignment' });
+    const duplicateTo = within(dialog).getByLabelText('Duplicate to').closest('div')!.querySelector('select')!;
+    await waitFor(() => expect(duplicateTo.querySelector('option[value="drv-b"]')).toBeTruthy());
+    fireEvent.change(duplicateTo, { target: { value: 'drv-b' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Duplicate' }));
+    expect(await screen.findByText('Duplicated to Sample Driver B')).toBeTruthy();
+    expect(sent).toEqual([expect.objectContaining({ driverId: 'drv-b', fromPlaceId: 'plc-plant', toPlaceId: 'plc-north' })]);
   });
 });
 

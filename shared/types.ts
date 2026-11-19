@@ -16,6 +16,27 @@ export interface Truck {
   active: boolean;
 }
 
+export interface Job {
+  id: string;
+  name: string;
+  jobNumber: string | null;
+  active: boolean;
+}
+
+/** What a Place is. Stored as these values; the page shows them as words. */
+export const PLACE_KINDS = ['plant', 'job_site', 'shop', 'yard'] as const;
+export type PlaceKind = (typeof PLACE_KINDS)[number];
+
+/** Anywhere a Truck loads, dumps or parks. Its geofence code (for GPS later) is not part of the API. */
+export interface Place {
+  id: string;
+  shortName: string;
+  fullName: string | null;
+  kind: PlaceKind | null;
+  jobId: string | null;
+  active: boolean;
+}
+
 /** What a Load carries, e.g. 2" minus. */
 export interface Material {
   id: string;
@@ -37,6 +58,8 @@ export interface Foreman {
 export interface Lists {
   drivers: Driver;
   trucks: Truck;
+  jobs: Job;
+  places: Place;
   materials: Material;
   foremen: Foreman;
 }
@@ -59,12 +82,14 @@ export interface NewAssignment {
   date: string;
   driverId?: string | null;
   truckId?: string | null;
+  fromPlaceId?: string | null;
+  toPlaceId?: string | null;
   materialId?: string | null;
   foremanId?: string | null;
   note?: string | null;
 }
 
-/** One piece of work given to one Driver for one day, with its Driver's name resolved. */
+/** One piece of work given to one Driver for one day, with the names of its Driver, Truck and Places resolved. */
 export interface Assignment {
   id: string;
   date: string;
@@ -72,6 +97,12 @@ export interface Assignment {
   driverName: string | null;
   truckId: string | null;
   truckNumber: string | null;
+  fromPlaceId: string | null;
+  /** The From Place's short name. */
+  fromPlaceName: string | null;
+  toPlaceId: string | null;
+  /** The To Place's short name. */
+  toPlaceName: string | null;
   materialId: string | null;
   materialName: string | null;
   foremanId: string | null;
