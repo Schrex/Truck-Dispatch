@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/sonner';
 import { Switch } from '@/components/ui/switch';
 import { addEntry, changeEntry, FieldErrors, fetchList } from '@/lib/api';
-import { choicesOf, displayName } from '@/lib/lists';
+import { choicesOf, displayName, LIST_TITLES } from '@/lib/lists';
 
 type Key<L extends ListName> = Exclude<keyof Lists[L], 'id' | 'active'> & string;
 
@@ -42,13 +42,18 @@ export function ListTab<L extends ListName>({ spec }: { spec: ListTabSpec<L> }) 
   const [entries, setEntries] = useState<Row[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [others, setOthers] = useState<Partial<Record<ListName, Row[]>>>({});
+  /** Lists a picker offers that could not be loaded. */
+  const [unloaded, setUnloaded] = useState<ListName[]>([]);
   const [editing, setEditing] = useState<Row | 'new' | null>(null);
   const picked = [...new Set(spec.fields.flatMap((f) => (f.kind === 'pick' ? [f.list] : [])))];
 
   useEffect(() => {
     fetchList(spec.list, { includeInactive: true }).then((list) => setEntries(list as unknown as Row[]), () => setFailed(true));
     for (const list of picked) {
-      fetchList(list, { includeInactive: true }).then((rows) => setOthers((current) => ({ ...current, [list]: rows as unknown as Row[] })));
+      fetchList(list, { includeInactive: true }).then(
+        (rows) => setOthers((current) => ({ ...current, [list]: rows as unknown as Row[] })),
+        () => setUnloaded((current) => [...current, list]),
+      );
     }
     // The spec is declared once and never changes.
   }, [spec.list]);
@@ -93,6 +98,11 @@ export function ListTab<L extends ListName>({ spec }: { spec: ListTabSpec<L> }) 
         </Button>
       </div>
       {failed && <p className="text-sm text-destructive">Could not load the {spec.title}.</p>}
+      {unloaded.map((list) => (
+        <p key={list} className="text-sm text-destructive">
+          Could not load the {LIST_TITLES[list]} to pick from. Reload the page to try again.
+        </p>
+      ))}
       {!entries && !failed && (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading {spec.title}…
@@ -124,7 +134,7 @@ export function ListTab<L extends ListName>({ spec }: { spec: ListTabSpec<L> }) 
           })}
         </ul>
       )}
-      <EntryDialog spec={spec} entry={editing} others={others} onClose={() => setEditing(null)} onSaved={put} />
+      <EntryDialog spec={spec} entry={editing} others={others} unloaded={unloaded} onClose={() => setEditing(null)} onSaved={put} />
     </section>
   );
 }
@@ -134,12 +144,14 @@ function EntryDialog<L extends ListName>({
   spec,
   entry,
   others,
+  unloaded,
   onClose,
   onSaved,
 }: {
   spec: ListTabSpec<L>;
   entry: Row | 'new' | null;
   others: Partial<Record<ListName, Row[]>>;
+  unloaded: ListName[];
   onClose: () => void;
   onSaved: (entry: Row) => void;
 }) {
@@ -193,26 +205,36 @@ function EntryDialog<L extends ListName>({
           <Field id={spec.name.key} label={spec.name.label} error={errors[spec.name.key]}>
             <Input id={spec.name.key} required value={form[spec.name.key] ?? ''} onChange={(e) => set(spec.name.key, e.target.value)} />
           </Field>
-          {spec.fields.map((field) => (
-            <Field key={field.key} id={field.key} label={field.label} optional error={errors[field.key]}>
-              {field.kind === 'text' ? (
-                <Input id={field.key} value={form[field.key] ?? ''} onChange={(e) => set(field.key, e.target.value)} />
-              ) : (
-                <ListPicker
-                  id={field.key}
-                  label={field.label}
-                  empty={field.empty}
-                  choices={
-                    field.kind === 'choice'
-                      ? field.choices.map((c) => ({ id: c.value, label: c.label, active: true }))
-                      : choicesOf(field.list, (others[field.list] as never) ?? null)
-                  }
-                  value={form[field.key] ?? null}
-                  onChange={(value) => set(field.key, value)}
-                />
-              )}
-            </Field>
-          ))}
+          {spec.fields.map((field) => {
+            const failed = field.kind === 'pick' && unloaded.includes(field.list) ? LIST_TITLES[field.list] : null;
+            return (
+              <Field
+                key={field.key}
+                id={field.key}
+                label={field.label}
+                optional
+                error={errors[field.key] ?? (failed ? `Could not load the ${failed}.` : undefined)}
+              >
+                {field.kind === 'text' ? (
+                  <Input id={field.key} value={form[field.key] ?? ''} onChange={(e) => set(field.key, e.target.value)} />
+                ) : (
+                  <ListPicker
+                    id={field.key}
+                    label={field.label}
+                    empty={field.empty}
+                    choices={
+                      field.kind === 'choice'
+                        ? field.choices.map((c) => ({ id: c.value, label: c.label, active: true }))
+                        : choicesOf(field.list, (others[field.list] as never) ?? null)
+                    }
+                    value={form[field.key] ?? null}
+                    onChange={(value) => set(field.key, value)}
+                    failed={Boolean(failed)}
+                  />
+                )}
+              </Field>
+            );
+          })}
         </form>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>

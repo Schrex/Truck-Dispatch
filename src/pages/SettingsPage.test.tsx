@@ -11,6 +11,8 @@ type Entry = Record<string, unknown> & { id: string; active: boolean };
 const NAME: Record<string, string> = { drivers: 'name', trucks: 'number', jobs: 'name', places: 'shortName', materials: 'name', foremen: 'name' };
 let lists: Record<string, Entry[]>;
 const sent: { method: string; path: string; body: unknown }[] = [];
+/** A list whose GET fails, if any. */
+let failing: string | null = null;
 
 const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = new URL(String(input), 'https://td.example');
@@ -18,6 +20,7 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   const [, list, id] = /\/api\/(drivers|trucks|jobs|places|materials|foremen)(?:\/([^/]+))?$/.exec(url.pathname) ?? [];
   if (!list) return answer({ error: 'not_found' }, 404);
   const method = init?.method ?? 'GET';
+  if (method === 'GET' && list === failing) return answer({ error: 'oops' }, 500);
   const entries = lists[list];
   if (method === 'GET') {
     return answer({ [list]: url.searchParams.get('include') === 'inactive' ? entries : entries.filter((e) => e.active) });
@@ -71,6 +74,7 @@ beforeEach(() => {
     ],
   };
   sent.length = 0;
+  failing = null;
   api.mockClear();
   vi.stubGlobal('fetch', api);
 });
@@ -150,6 +154,17 @@ describe('Settings', () => {
     const added = await within(drivers).findByRole('listitem', { name: 'Sample Driver D' });
     expect(added.textContent).toContain('Usual Truck 24');
     expect(sent[0].body).toEqual({ name: 'Sample Driver D', defaultTruckId: 'trk-24' });
+  });
+
+  it('says so when the list a picker offers cannot be loaded, rather than loading forever', async () => {
+    failing = 'trucks';
+    const drivers = await settings();
+    expect(await within(drivers).findByText('Could not load the Trucks to pick from. Reload the page to try again.')).toBeTruthy();
+
+    fireEvent.click(within(drivers).getByRole('button', { name: 'Add Driver' }));
+    const dialog = screen.getByRole('dialog', { name: 'Add Driver' });
+    expect(within(dialog).getByText('Could not load the Trucks.')).toBeTruthy();
+    expect(within(dialog).queryByText('Loading…')).toBeNull();
   });
 
   it('has a Jobs tab listing each Job with its job number, inactive ones marked', async () => {

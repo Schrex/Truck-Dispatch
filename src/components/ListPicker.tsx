@@ -16,6 +16,7 @@ export function ListPicker({
   choices,
   value,
   onChange,
+  failed = false,
 }: {
   /** The field's id; also the name of the picker's form control. */
   id: string;
@@ -26,12 +27,14 @@ export function ListPicker({
   choices: Choice[] | null;
   value: string | null;
   onChange: (value: string | null) => void;
+  /** The list could not be loaded, so it never will be: the picker says so instead of loading. */
+  failed?: boolean;
 }) {
   const shown = choices?.filter((choice) => choice.active || choice.id === value) ?? [];
   return (
     <Select name={id} value={value ?? NONE} onValueChange={(next) => onChange(next === NONE ? null : next)} disabled={!choices}>
       <SelectTrigger id={id} aria-label={label}>
-        <SelectValue placeholder={choices ? empty : 'Loading…'} />
+        <SelectValue placeholder={choices ? empty : failed ? 'Not available' : 'Loading…'} />
       </SelectTrigger>
       <SelectContent>
         <SelectItem value={NONE}>{empty}</SelectItem>

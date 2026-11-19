@@ -10,6 +10,16 @@ const DISPLAY: { [L in ListName]: (entry: Lists[L]) => string } = {
   foremen: (foreman) => foreman.name,
 };
 
+/** Each list's name in words, e.g. for a message that it could not load. */
+export const LIST_TITLES: Record<ListName, string> = {
+  drivers: 'Drivers',
+  trucks: 'Trucks',
+  jobs: 'Jobs',
+  places: 'Places',
+  materials: 'Materials',
+  foremen: 'Foremen',
+};
+
 /** A Place's kind in words, in the order Settings offers them. */
 export const PLACE_KIND_LABELS: Record<PlaceKind, string> = {
   plant: 'Plant',
