@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Loader2, Settings } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Copy, Loader2, Settings } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import type { Assignment, BusinessDay, Driver, Truck } from '../../shared/types';
 import { AssignmentDialog } from '@/components/AssignmentDialog';
@@ -7,7 +7,8 @@ import { DriverCards } from '@/components/DriverCards';
 import { PageHeader } from '@/components/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { fetchAssignments, fetchBusinessDay, fetchList } from '@/lib/api';
+import { toast } from '@/components/ui/sonner';
+import { copyDay, fetchAssignments, fetchBusinessDay, fetchList } from '@/lib/api';
 import { formatDate, isDate, shiftDate } from '@/lib/dates';
 
 /**
@@ -31,6 +32,9 @@ export function BoardPage() {
   const [editing, setEditing] = useState<Assignment | null>(null);
   // Until the Worker says which day is today, nothing on the Board can be changed.
   const editable = Boolean(date && businessDay && date >= businessDay.today);
+  // Copy today brings today's plan onto a later day.
+  const canCopyToday = Boolean(date && businessDay && date > businessDay.today);
+  const [copying, setCopying] = useState(false);
 
   const show = (day: string, replace = false) => setSearch({ date: day }, { replace });
 
@@ -68,6 +72,23 @@ export function BoardPage() {
   };
   const reload = () => setReloads((n) => n + 1);
 
+  async function copyToday() {
+    if (!date || !businessDay) return;
+    setCopying(true);
+    try {
+      const copies = await copyDay(businessDay.today, date);
+      if (copies.length === 0) toast.info('Today has no Assignments to copy');
+      else {
+        toast.success(`Copied ${copies.length} Assignment${copies.length === 1 ? '' : 's'} from today`);
+        reload();
+      }
+    } catch {
+      toast.error('Could not copy today');
+    } finally {
+      setCopying(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-surface">
       <PageHeader title="Dispatch" subtitle={date ? formatDate(date) : 'Loading…'}>
@@ -85,6 +106,11 @@ export function BoardPage() {
             </Button>
           </div>
         </div>
+        {canCopyToday && (
+          <Button variant="outline" size="lg" className="px-5" disabled={copying} onClick={copyToday}>
+            {copying ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />} Copy today
+          </Button>
+        )}
         <Button asChild variant="outline" size="lg" className="px-5">
           <Link to="/settings">
             <Settings className="h-4 w-4" /> Settings

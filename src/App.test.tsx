@@ -43,6 +43,14 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   if (url.pathname.endsWith('/api/today')) return answer({ today: '2026-11-19', tomorrow: '2026-11-20' });
   if (url.pathname.endsWith('/api/drivers')) return answer({ drivers });
   if (url.pathname.endsWith('/api/trucks')) return answer({ trucks });
+  if (url.pathname.endsWith('/api/assignments/copy')) {
+    const { from, to } = JSON.parse(String(init?.body));
+    const copies = assignments
+      .filter((a) => a.date === from)
+      .map((a, i) => ({ ...a, id: `c${assignments.length + i + 1}`, date: to, note: null }));
+    assignments.push(...copies);
+    return answer({ assignments: copies }, 201);
+  }
   if (init?.body) sent.push(JSON.parse(String(init.body)));
   if (init?.method === 'POST') {
     if (failSaves) return answer({ error: 'oops' }, 500);
@@ -463,5 +471,86 @@ describe('the Truck', () => {
     expect(await screen.findByText('Assignment saved')).toBeTruthy();
     expect(sent).toEqual([expect.objectContaining({ driverId: 'drv-x', truckId: 'trk-99', note: 'Haul topsoil' })]);
     expect(within(card('Sample Driver X')).getByRole('listitem').textContent).toBe('Haul topsoil · Truck 99');
+  });
+});
+
+describe('Copy today', () => {
+  // The page's today is 2026-11-19.
+  const planned = (fields: Record<string, unknown> = {}) => ({
+    id: 'a1', date: '2026-11-19', driverId: 'drv-a', driverName: 'Sample Driver A', note: 'Haul stone',
+    createdAt: '2026-11-19T20:00:00.000Z', updatedAt: '2026-11-19T20:00:00.000Z', ...fields,
+  });
+  const todayKnown = async () => {
+    await waitFor(() => expect(api.mock.calls.some(([url]) => String(url).endsWith('/api/today'))).toBe(true));
+    await act(async () => {});
+  };
+
+  it.each([
+    ['tomorrow', '2026-11-20', true],
+    ['a later day', '2026-12-02', true],
+    ['today', '2026-11-19', false],
+    ['a past day', '2026-11-18', false],
+  ])('on %s is shown: %s', async (_day, date, shown) => {
+    open(`/?date=${date}`);
+    await todayKnown();
+    expect(screen.queryByRole('button', { name: 'Copy today' }) != null).toBe(shown);
+  });
+
+  it('copies today\'s Assignments onto the day on screen, without notes, and keeps what was there', async () => {
+    assignments = [planned(), planned({ id: 'a2', date: '2026-11-21', driverId: 'drv-b', driverName: 'Sample Driver B', note: 'Already planned' })];
+    open('/?date=2026-11-21');
+    await screen.findByText('Already planned');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy today' }));
+
+    expect(await screen.findByText('Copied 1 Assignment from today')).toBeTruthy();
+    expect(await within(await screen.findByRole('article', { name: 'Sample Driver A' })).findByText('No details yet')).toBeTruthy();
+    expect(within(card('Sample Driver B')).getByText('Already planned')).toBeTruthy();
+    expect(screen.queryByText('Haul stone')).toBeNull();
+  });
+
+  it('says there is nothing to copy when today has no Assignments', async () => {
+    open('/?date=2026-11-20');
+    await screen.findByText('No Assignments for this day');
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy today' }));
+    expect(await screen.findByText('Today has no Assignments to copy')).toBeTruthy();
+    expect(screen.getByText('No Assignments for this day')).toBeTruthy();
+  });
+});
+
+describe('Duplicate to…', () => {
+  const planned = (fields: Record<string, unknown> = {}) => ({
+    id: 'a1', date: '2026-11-20', driverId: 'drv-a', driverName: 'Sample Driver A', note: 'Haul stone',
+    createdAt: '2026-11-19T20:00:00.000Z', updatedAt: '2026-11-19T20:00:00.000Z', ...fields,
+  });
+
+  it('adds a second Assignment with the same fields, note included, for the chosen Driver on the same day', async () => {
+    assignments = [planned()];
+    open('/?date=2026-11-20');
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit Haul stone' }));
+    const dialog = screen.getByRole('dialog', { name: 'Edit Assignment' });
+    // The picker's own form control: jsdom cannot open the listbox.
+    const picker = within(dialog).getByLabelText('Duplicate to').closest('div')!.querySelector('select')!;
+    await waitFor(() => expect(picker.querySelector('option[value="drv-b"]')).toBeTruthy());
+    expect(picker.querySelector('option[value="drv-a"]')).toBeNull();
+    fireEvent.change(picker, { target: { value: 'drv-b' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Duplicate' }));
+
+    expect(await screen.findByText('Duplicated to Sample Driver B')).toBeTruthy();
+    expect(await within(await screen.findByRole('article', { name: 'Sample Driver B' })).findByText('Haul stone')).toBeTruthy();
+    expect(within(card('Sample Driver A')).getByText('Haul stone')).toBeTruthy();
+    expect(assignments).toHaveLength(2);
+    expect(assignments[1]).toMatchObject({ date: '2026-11-20', driverId: 'drv-b', note: 'Haul stone' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('is not offered on a past day', async () => {
+    assignments = [planned({ date: '2026-11-18' })];
+    open('/?date=2026-11-18');
+    await screen.findByText('Haul stone');
+    await waitFor(() => expect(api.mock.calls.some(([url]) => String(url).endsWith('/api/today'))).toBe(true));
+    await act(async () => {});
+    expect(screen.queryByRole('button', { name: /Edit |Duplicate/ })).toBeNull();
+    expect(screen.queryByText(/Duplicate to/)).toBeNull();
   });
 });

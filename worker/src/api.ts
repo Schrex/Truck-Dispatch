@@ -1,6 +1,6 @@
 import type { Env } from './app';
 import { clock } from './clock';
-import { json, refuse, text } from './http';
+import { json, readJson, refuse, text } from './http';
 import { exists, handleList, isList } from './lists';
 import type { Assignment, NewAssignment } from '../../shared/types';
 
@@ -27,6 +27,11 @@ export async function handleApi(request: Request, env: Env, route: string, query
     return json({ error: 'method_not_allowed' }, 405, { Allow: 'GET, HEAD, POST' });
   }
 
+  if (route === 'assignments/copy') {
+    if (method === 'POST') return copyDay(request, env);
+    return json({ error: 'method_not_allowed' }, 405, { Allow: 'POST' });
+  }
+
   const one = /^assignments\/([^/]+)$/.exec(route);
   if (one) {
     const id = decodeURIComponent(one[1]);
@@ -45,15 +50,61 @@ const SELECT_ASSIGNMENT = `SELECT a.id, a.date, a.driver_id AS driverId, d.name 
        a.created_at AS createdAt, a.updated_at AS updatedAt
   FROM assignments a LEFT JOIN drivers d ON d.id = a.driver_id LEFT JOIN trucks t ON t.id = a.truck_id`;
 
-/** A day's Assignments by Driver name, then in the order they were added; those with no Driver last. */
+/** How a day's Assignments are listed: by Driver name, then in the order they were added; those with no Driver last. */
+const DAY_ORDER = 'ORDER BY a.driver_id IS NULL, d.name COLLATE NOCASE, a.created_at, a.rowid';
+
 async function readDay(env: Env, date: string | null): Promise<Response> {
   if (!isCalendarDate(date)) return refuse({ date: 'Pick a date.' });
-  const { results } = await env.DB.prepare(
-    `${SELECT_ASSIGNMENT} WHERE a.date = ? ORDER BY a.driver_id IS NULL, d.name COLLATE NOCASE, a.created_at, a.rowid`,
-  )
-    .bind(date)
-    .all<Assignment>();
+  const { results } = await env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.date = ? ${DAY_ORDER}`).bind(date).all<Assignment>();
   return json({ assignments: results });
+}
+
+/**
+ * Columns a copy does not take from its source: a copy is a new Assignment on
+ * another day, with an empty note. Every other column, including any a later
+ * migration adds, is copied as it is (an inactive entry stays on the copy).
+ */
+const NOT_COPIED = new Set(['id', 'date', 'note', 'created_at', 'updated_at']);
+
+/**
+ * Copies every Assignment on one day onto another, adding to what the target
+ * day already has. Answers the new Assignments, in the order a day is read.
+ */
+async function copyDay(request: Request, env: Env): Promise<Response> {
+  const body = await readJson<{ from?: unknown; to?: unknown }>(request);
+  if (body instanceof Response) return body;
+  const errors: Record<string, string> = {};
+  if (!isCalendarDate(body.from)) errors.from = 'Pick a day to copy from.';
+  if (!isCalendarDate(body.to)) errors.to = 'Pick a day to copy onto.';
+  else if (isPast(env, body.to)) errors.to = PAST_DATE;
+  if (Object.keys(errors).length > 0) return refuse(errors);
+  const { from, to } = body as { from: string; to: string };
+
+  const { results: sources } = await env.DB.prepare('SELECT * FROM assignments WHERE date = ? ORDER BY created_at, rowid')
+    .bind(from)
+    .all<Record<string, unknown>>();
+  if (sources.length === 0) return json({ assignments: [] }, 201);
+
+  const now = clock(env).now.toISOString();
+  const ids: string[] = [];
+  const inserts = sources.map((source) => {
+    const id = crypto.randomUUID();
+    ids.push(id);
+    const row: Record<string, unknown> = { id, date: to, note: null, created_at: now, updated_at: now };
+    for (const [column, value] of Object.entries(source)) if (!NOT_COPIED.has(column)) row[column] = value;
+    const columns = Object.keys(row);
+    return env.DB.prepare(
+      `INSERT INTO assignments (${columns.map((c) => `"${c}"`).join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
+    ).bind(...columns.map((c) => row[c]));
+  });
+  await env.DB.batch(inserts);
+
+  const { results } = await env.DB.prepare(
+    `${SELECT_ASSIGNMENT} WHERE a.id IN (SELECT value FROM json_each(?)) ${DAY_ORDER}`,
+  )
+    .bind(JSON.stringify(ids))
+    .all<Assignment>();
+  return json({ assignments: results }, 201);
 }
 
 async function addAssignment(request: Request, env: Env): Promise<Response> {
@@ -111,15 +162,8 @@ async function readAssignment(
   request: Request,
   env: Env,
 ): Promise<{ date: string; driverId: string | null; truckId: string | null; note: string | null } | Response> {
-  if (!request.headers.get('Content-Type')?.includes('application/json')) {
-    return json({ error: 'json_required' }, 415);
-  }
-  let body: Partial<NewAssignment>;
-  try {
-    body = (await request.json()) as Partial<NewAssignment>;
-  } catch {
-    return json({ error: 'invalid_json' }, 400);
-  }
+  const body = await readJson<Partial<NewAssignment>>(request);
+  if (body instanceof Response) return body;
 
   const errors = validate(body);
   const driverId = text(body.driverId) || null;
@@ -128,10 +172,12 @@ async function readAssignment(
   }
   const truckId = text(body.truckId) || null;
   if (truckId && !(await exists(env, 'trucks', truckId))) errors.truckId = 'Pick a Truck from the list.';
-  if (!errors.date && isPast(env, body.date as string)) errors.date = 'Days before today are read-only. Pick today or a later day.';
+  if (!errors.date && isPast(env, body.date as string)) errors.date = PAST_DATE;
   if (Object.keys(errors).length > 0) return refuse(errors);
   return { date: body.date as string, driverId, truckId, note: text(body.note) || null };
 }
+
+const PAST_DATE = 'Days before today are read-only. Pick today or a later day.';
 
 const NOTE_LIMIT = 1000;
 

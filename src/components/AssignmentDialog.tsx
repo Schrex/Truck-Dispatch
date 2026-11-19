@@ -1,14 +1,16 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Loader2, Plus, Trash2 } from 'lucide-react';
+import { Copy, Loader2, Plus, Trash2 } from 'lucide-react';
 import type { Assignment, Driver, Truck } from '../../shared/types';
 import { Button } from '@/components/ui/button';
 import { Field } from '@/components/Field';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { ListPicker } from '@/components/ListPicker';
 import { toast } from '@/components/ui/sonner';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { addAssignment, changeAssignment, deleteAssignment, FieldErrors, Refused } from '@/lib/api';
+import { addAssignment, changeAssignment, deleteAssignment, fieldsOf, FieldErrors, Refused } from '@/lib/api';
 import { choicesOf } from '@/lib/lists';
 
 interface Form {
@@ -21,7 +23,7 @@ interface Form {
 /**
  * "Add Assignment" (with its own button), or, given `editing`, the same dialog
  * for an existing Assignment: every field can be changed or cleared, and it
- * can be deleted. Only the date is required. In edit mode the Board opens it by
+ * can be deleted or duplicated to another Driver. Only the date is required. In edit mode the Board opens it by
  * setting `editing` and closes it through onClose.
  */
 export function AssignmentDialog({
@@ -51,6 +53,7 @@ export function AssignmentDialog({
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [duplicateTo, setDuplicateTo] = useState('');
 
   // A new Assignment starts on the day the Board shows; an existing one as it was saved.
   useEffect(() => {
@@ -63,6 +66,7 @@ export function AssignmentDialog({
       setErrors({});
       setFailed(null);
       setConfirmDelete(false);
+      setDuplicateTo('');
     }
   }, [open, date, editing]);
 
@@ -91,6 +95,23 @@ export function AssignmentDialog({
       setOpen(false);
     } catch (error) {
       failWith(error, 'delete');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /** A second Assignment with the same saved fields, note included, for another Driver on the same day. */
+  async function duplicate() {
+    if (!editing || !duplicateTo) return;
+    setSaving(true);
+    setFailed(null);
+    try {
+      const copy = await addAssignment({ ...fieldsOf(editing), driverId: duplicateTo });
+      toast.success(`Duplicated to ${copy.driverName ?? 'another Driver'}`);
+      onSaved(copy);
+      setOpen(false);
+    } catch (error) {
+      failWith(error, 'duplicate');
     } finally {
       setSaving(false);
     }
@@ -164,6 +185,37 @@ export function AssignmentDialog({
             <Textarea id="note" rows={3} maxLength={1000} value={form.note} onChange={(e) => set('note', e.target.value)} />
           </Field>
         </form>
+
+        {editing && (
+          <form
+            className="flex items-end gap-2 border-t pt-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void duplicate();
+            }}
+          >
+            <div className="flex-1 space-y-2">
+              <Label htmlFor="duplicateTo">Duplicate to</Label>
+              <Select value={duplicateTo} onValueChange={setDuplicateTo} disabled={!drivers}>
+                <SelectTrigger id="duplicateTo" aria-label="Duplicate to">
+                  <SelectValue placeholder="Another Driver" />
+                </SelectTrigger>
+                <SelectContent>
+                  {drivers
+                    ?.filter((driver) => driver.active && driver.id !== editing.driverId)
+                    .map((driver) => (
+                      <SelectItem key={driver.id} value={driver.id}>
+                        {driver.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button type="submit" variant="outline" disabled={saving || !duplicateTo}>
+              <Copy className="h-4 w-4" /> Duplicate
+            </Button>
+          </form>
+        )}
 
         {failed && <p className="text-sm text-destructive">{failed}</p>}
 

@@ -65,6 +65,15 @@ export async function addAssignment(assignment: NewAssignment): Promise<Assignme
   ).assignment;
 }
 
+/**
+ * Every field of a saved Assignment, as adding or changing one takes them. A
+ * field added to NewAssignment does not compile until it is set here, so a
+ * duplicate never leaves one behind.
+ */
+export function fieldsOf(assignment: Assignment): Required<NewAssignment> {
+  return { date: assignment.date, driverId: assignment.driverId, truckId: assignment.truckId, note: assignment.note };
+}
+
 /** Replaces every field of an Assignment; one left empty is cleared. */
 export async function changeAssignment(id: string, assignment: NewAssignment): Promise<Assignment> {
   return (
@@ -74,6 +83,17 @@ export async function changeAssignment(id: string, assignment: NewAssignment): P
       body: JSON.stringify(assignment),
     })
   ).assignment;
+}
+
+/** Copies every Assignment on one day onto another, notes left empty; answers the new ones. */
+export async function copyDay(from: string, to: string): Promise<Assignment[]> {
+  return (
+    await request<{ assignments: Assignment[] }>('api/assignments/copy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from, to }),
+    })
+  ).assignments;
 }
 
 export async function deleteAssignment(id: string): Promise<void> {

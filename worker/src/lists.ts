@@ -1,5 +1,5 @@
 import type { Env } from './app';
-import { json, readBody, refuse, text } from './http';
+import { json, readJson, refuse, text } from './http';
 import type { ListName } from '../../shared/types';
 
 /**
@@ -91,9 +91,8 @@ async function read(env: Env, list: ListName, includeInactive: boolean): Promise
 async function save(request: Request, env: Env, list: ListName, id: string | null): Promise<Response> {
   const spec = LISTS[list];
   if (id !== null && !(await exists(env, list, id))) return json({ error: 'not_found' }, 404);
-  const parsed = await readBody<Record<string, unknown>>(request);
-  if ('refusal' in parsed) return parsed.refusal;
-  const body = parsed.body;
+  const body = await readJson<Record<string, unknown>>(request);
+  if (body instanceof Response) return body;
   const adding = id === null;
 
   const errors: Record<string, string> = {};
