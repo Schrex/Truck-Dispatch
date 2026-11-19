@@ -37,8 +37,13 @@ export function localD1() {
     const DB = database();
     // Rows that point at others go first: Assignments and orders at the lists, Drivers at Trucks, Places at Jobs.
     await DB.batch(['assignments', 'orders', 'drivers', 'trucks', 'places', 'jobs', 'materials', 'foremen'].map((table) => DB.prepare(`DELETE FROM ${table}`)));
-    await DB.exec(seed.replace(/--.*$/gm, '').replace(/\s*\n\s*/g, ' '));
+    await reseed();
   });
+
+  /** Runs seed/fixture.sql on the database as it is, as every deploy does. */
+  const reseed = async () => {
+    await database().exec(seed.replace(/--.*$/gm, '').replace(/\s*\n\s*/g, ' '));
+  };
 
   const database = (): D1Database => {
     if (!db) throw new Error('The local D1 is not started yet (use it inside a test).');
@@ -56,5 +61,5 @@ export function localD1() {
     ...vars,
   });
 
-  return { env, database };
+  return { env, database, reseed };
 }

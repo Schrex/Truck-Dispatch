@@ -23,11 +23,6 @@ INSERT OR IGNORE INTO places (id, short_name, full_name, kind, job_id) VALUES
   ('plc-shop', 'Sample Shop', NULL, 'shop', NULL),
   ('plc-yard', 'Sample Yard', NULL, 'yard', NULL);
 
--- Databases seeded before Trucks existed: give those Drivers their usual
--- Truck, but only while they have none, so a choice made in Settings stays.
-UPDATE drivers SET default_truck_id = 'trk-21' WHERE id = 'drv-a' AND default_truck_id IS NULL;
-UPDATE drivers SET default_truck_id = 'trk-24' WHERE id = 'drv-b' AND default_truck_id IS NULL;
-
 -- Synthetic Materials and Foremen to pick on Assignments. Made-up names, never real people.
 INSERT OR IGNORE INTO materials (id, name) VALUES
   ('mat-minus', '2" minus'),

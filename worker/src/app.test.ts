@@ -312,6 +312,17 @@ describe('Drivers', () => {
     expect(Object.keys(fields)).toEqual(['defaultTruckId']);
   });
 
+  it('keep a usual Truck cleared in Settings when the seed runs again, as on every deploy', async () => {
+    await send('PATCH', '/api/drivers/drv-a', { defaultTruckId: null });
+    await send('PATCH', '/api/drivers/drv-b', { defaultTruckId: null });
+    await d1.reseed();
+    expect((await list('/api/drivers')).map((d) => [d.name, d.defaultTruckId])).toEqual([
+      ['Sample Driver A', null],
+      ['Sample Driver B', null],
+      ['Sample Driver C', null],
+    ]);
+  });
+
   it('accept an inactive Truck as their usual Truck', async () => {
     await send('PATCH', '/api/trucks/trk-27', { active: false });
     expect((await send('PATCH', '/api/drivers/drv-c', { defaultTruckId: 'trk-27' })).status).toBe(200);
