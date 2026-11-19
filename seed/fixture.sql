@@ -1,5 +1,5 @@
--- Synthetic drivers to assign orders to. Made-up names, never real people.
--- No orders: the board starts empty and orders are added with "New Order".
+-- Synthetic Drivers to give Assignments to. Made-up names, never real people.
+-- No Assignments: the board starts empty and they are added with "Add Assignment".
 -- Safe to run again and again: INSERT OR IGNORE never changes or duplicates rows.
 
 INSERT OR IGNORE INTO drivers (id, name) VALUES

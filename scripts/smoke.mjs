@@ -1,7 +1,7 @@
 // Checks a deployed Truck Dispatch end to end, standalone and under the
 // /truck-dispatch/ prefix: the page loads, its script loads, the seeded
-// drivers (seed/fixture.sql) come back, and a day's orders can be read.
-// Read-only: it never adds orders.
+// drivers (seed/fixture.sql) come back, and a day's Assignments can be read.
+// Read-only: it never adds Assignments.
 //
 //   node scripts/smoke.mjs <base url>
 //
@@ -94,13 +94,19 @@ for (const prefix of ['', '/truck-dispatch']) {
     if (!page.ok) fail(`${prefix}/settings: ${page.status}`);
     if (!(await page.text()).includes('id="root"')) fail('page has no #root');
   });
-  await step(`${where}: seeded drivers and a day's orders`, async () => {
+  await step(`${where}: seeded drivers and tomorrow's Assignments`, async () => {
     const drivers = await get(`${prefix}/api/drivers`);
     if (!drivers.ok) fail(`drivers: ${drivers.status}`);
     const list = /** @type {{ drivers: unknown[] }} */ (await drivers.json()).drivers;
     if (list.length === 0) fail('no drivers; was seed/fixture.sql applied?');
-    const orders = await get(`${prefix}/api/orders?date=${new Date().toISOString().slice(0, 10)}`);
-    if (!orders.ok) fail(`orders: ${orders.status}`);
+    const today = await get(`${prefix}/api/today`);
+    if (!today.ok) fail(`today: ${today.status}`);
+    const { tomorrow } = /** @type {{ tomorrow: string }} */ (await today.json());
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(tomorrow)) fail(`today: tomorrow is ${tomorrow}`);
+    const day = await get(`${prefix}/api/assignments?date=${tomorrow}`);
+    if (!day.ok) fail(`assignments: ${day.status}`);
+    const { assignments } = /** @type {{ assignments: unknown }} */ (await day.json());
+    if (!Array.isArray(assignments)) fail('assignments: no list');
   });
 }
 

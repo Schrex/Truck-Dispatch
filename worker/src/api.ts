@@ -1,96 +1,102 @@
 import type { Env } from './app';
-import type { Driver, NewOrder, Order } from '../../shared/types';
-
-const DATE = /^\d{4}-\d{2}-\d{2}$/;
-const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+import { clock } from './clock';
+import type { Assignment, Driver, FieldErrorsBody, NewAssignment } from '../../shared/types';
 
 /** The JSON API under /api/ (or /truck-dispatch/api/). */
 export async function handleApi(request: Request, env: Env, route: string, query: URLSearchParams): Promise<Response> {
   const method = request.method;
+  const reading = method === 'GET' || method === 'HEAD';
 
-  if (route === 'health' && (method === 'GET' || method === 'HEAD')) {
+  if (route === 'health' && reading) {
     return json({ ok: true, environment: env.ENVIRONMENT ?? 'unknown', commit: env.COMMIT_SHA ?? null });
   }
 
-  if (route === 'drivers' && (method === 'GET' || method === 'HEAD')) {
+  if (route === 'today' && reading) {
+    const { today, tomorrow } = clock(env);
+    return json({ today, tomorrow });
+  }
+
+  if (route === 'drivers' && reading) {
     const { results } = await env.DB.prepare('SELECT id, name FROM drivers ORDER BY name').all<Driver>();
     return json({ drivers: results });
   }
 
-  if (route === 'orders') {
-    if (method === 'GET' || method === 'HEAD') {
-      const date = query.get('date');
-      if (!date || !DATE.test(date)) return json({ error: 'date_required', hint: 'YYYY-MM-DD' }, 400);
-      const { results } = await env.DB.prepare(`${SELECT_ORDER} WHERE o.work_date = ? ORDER BY o.start_time IS NULL, o.start_time, o.created_at`)
-        .bind(date)
-        .all<Order>();
-      return json({ orders: results });
-    }
-    if (method === 'POST') return createOrder(request, env);
+  if (route === 'assignments') {
+    if (reading) return readDay(env, query.get('date'));
+    if (method === 'POST') return addAssignment(request, env);
     return json({ error: 'method_not_allowed' }, 405, { Allow: 'GET, HEAD, POST' });
   }
 
-  if (['health', 'drivers'].includes(route)) return json({ error: 'method_not_allowed' }, 405, { Allow: 'GET, HEAD' });
+  if (['health', 'today', 'drivers'].includes(route)) return json({ error: 'method_not_allowed' }, 405, { Allow: 'GET, HEAD' });
   return json({ error: 'not_found' }, 404);
 }
 
-const SELECT_ORDER = `SELECT o.id, o.work_date AS workDate, o.start_time AS startTime, o.job, o.work, o.pickup, o.dropoff,
-       o.driver_id AS driverId, d.name AS driverName, o.truck_number AS truckNumber, o.notes, o.created_at AS createdAt
-  FROM orders o JOIN drivers d ON d.id = o.driver_id`;
+/** Each Assignment with its Driver's name, so the page never has to look it up. */
+const SELECT_ASSIGNMENT = `SELECT a.id, a.date, a.driver_id AS driverId, d.name AS driverName, a.note,
+       a.created_at AS createdAt, a.updated_at AS updatedAt
+  FROM assignments a LEFT JOIN drivers d ON d.id = a.driver_id`;
 
-async function createOrder(request: Request, env: Env): Promise<Response> {
+/** A day's Assignments by Driver name, then in the order they were added; those with no Driver last. */
+async function readDay(env: Env, date: string | null): Promise<Response> {
+  if (!isCalendarDate(date)) return refuse({ date: 'Pick a date.' });
+  const { results } = await env.DB.prepare(
+    `${SELECT_ASSIGNMENT} WHERE a.date = ? ORDER BY a.driver_id IS NULL, d.name COLLATE NOCASE, a.created_at, a.rowid`,
+  )
+    .bind(date)
+    .all<Assignment>();
+  return json({ assignments: results });
+}
+
+async function addAssignment(request: Request, env: Env): Promise<Response> {
   if (!request.headers.get('Content-Type')?.includes('application/json')) {
     return json({ error: 'json_required' }, 415);
   }
-  let body: Partial<NewOrder>;
+  let body: Partial<NewAssignment>;
   try {
-    body = (await request.json()) as Partial<NewOrder>;
+    body = (await request.json()) as Partial<NewAssignment>;
   } catch {
     return json({ error: 'invalid_json' }, 400);
   }
 
   const errors = validate(body);
-  if (Object.keys(errors).length > 0) return json({ error: 'invalid', fields: errors }, 400);
-
-  const driver = await env.DB.prepare('SELECT id FROM drivers WHERE id = ?').bind(body.driverId).first();
-  if (!driver) return json({ error: 'invalid', fields: { driverId: 'Pick a driver from the list.' } }, 400);
+  const driverId = text(body.driverId) || null;
+  if (driverId && !(await env.DB.prepare('SELECT 1 FROM drivers WHERE id = ?').bind(driverId).first())) {
+    errors.driverId = 'Pick a Driver from the list.';
+  }
+  if (Object.keys(errors).length > 0) return refuse(errors);
 
   const id = crypto.randomUUID();
+  const now = clock(env).now.toISOString();
   await env.DB.prepare(
-    `INSERT INTO orders (id, work_date, start_time, job, work, pickup, dropoff, driver_id, truck_number, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    'INSERT INTO assignments (id, date, driver_id, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
   )
-    .bind(
-      id,
-      body.workDate,
-      text(body.startTime) || null,
-      text(body.job),
-      text(body.work),
-      text(body.pickup),
-      text(body.dropoff),
-      body.driverId,
-      text(body.truckNumber) || null,
-      text(body.notes),
-    )
+    .bind(id, body.date, driverId, text(body.note) || null, now, now)
     .run();
-  const order = await env.DB.prepare(`${SELECT_ORDER} WHERE o.id = ?`).bind(id).first<Order>();
-  return json({ order }, 201);
+  const assignment = await env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.id = ?`).bind(id).first<Assignment>();
+  return json({ assignment }, 201);
 }
 
-/** Field name to a plain message, for each field that is wrong. */
-export function validate(body: Partial<NewOrder>): Record<string, string> {
+const NOTE_LIMIT = 1000;
+
+/** Field name to a plain message, for each field that is wrong. Fields it does not know are ignored. */
+function validate(body: Partial<NewAssignment>): Record<string, string> {
   const errors: Record<string, string> = {};
-  if (typeof body.workDate !== 'string' || !DATE.test(body.workDate)) errors.workDate = 'Pick a date.';
-  const time = text(body.startTime);
-  if (time && !TIME.test(time)) errors.startTime = 'Use a time like 07:30.';
-  if (!text(body.job)) errors.job = 'Enter the job.';
-  if (!text(body.work)) errors.work = 'Describe the work.';
-  if (typeof body.driverId !== 'string' || !body.driverId) errors.driverId = 'Assign a driver.';
-  const limits: [keyof NewOrder, number][] = [['job', 120], ['work', 500], ['pickup', 200], ['dropoff', 200], ['truckNumber', 20], ['notes', 1000]];
-  for (const [field, max] of limits) {
-    if (text(body[field]).length > max) errors[field] = `Keep it under ${max} characters.`;
-  }
+  if (!isCalendarDate(body.date)) errors.date = 'Pick a date.';
+  if (body.driverId != null && typeof body.driverId !== 'string') errors.driverId = 'Pick a Driver from the list.';
+  if (body.note != null && typeof body.note !== 'string') errors.note = 'Write the note as text.';
+  else if (text(body.note).length > NOTE_LIMIT) errors.note = `Keep the note to ${NOTE_LIMIT} characters or fewer.`;
   return errors;
+}
+
+/** YYYY-MM-DD and a real day on the calendar (2026-02-30 is not). */
+function isCalendarDate(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+function refuse(fields: Record<string, string>): Response {
+  return json({ error: 'invalid', fields } satisfies FieldErrorsBody, 400);
 }
 
 function text(value: unknown): string {

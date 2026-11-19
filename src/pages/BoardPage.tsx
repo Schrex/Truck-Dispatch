@@ -1,106 +1,112 @@
 import { useEffect, useState } from 'react';
-import { CalendarDays, ClipboardList, Loader2, Settings } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Loader2, Settings } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
-import type { Driver, Order } from '../../shared/types';
-import { NewOrderDialog } from '@/components/NewOrderDialog';
-import { OrderCard } from '@/components/OrderCard';
+import type { Assignment, Driver } from '../../shared/types';
+import { AssignmentDialog } from '@/components/AssignmentDialog';
+import { DriverCards } from '@/components/DriverCards';
 import { PageHeader } from '@/components/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { fetchDrivers, fetchOrders } from '@/lib/api';
-import { formatDate, today } from '@/lib/dates';
+import { fetchAssignments, fetchBusinessDay, fetchDrivers } from '@/lib/api';
+import { formatDate, isDate, shiftDate } from '@/lib/dates';
 
-const DATE = /^\d{4}-\d{2}-\d{2}$/;
-
-/** The daily dispatch board: one day's orders, "Jump to" another day, and "New Order". */
+/**
+ * The Dispatch board: one day's Assignments, one card per Driver. The day on
+ * screen is kept in the address (?date=), so a reload or a shared link shows
+ * the same day; with no day there, the Board opens on tomorrow (US Eastern).
+ */
 export function BoardPage() {
-  // The day on the board is kept in the address, so a reload or a shared link shows the same day.
   const [search, setSearch] = useSearchParams();
-  const [date, setDate] = useState(() => {
-    const fromUrl = search.get('date');
-    return fromUrl && DATE.test(fromUrl) ? fromUrl : today();
-  });
+  const fromAddress = search.get('date');
+  const date = isDate(fromAddress) ? fromAddress : null;
   const [drivers, setDrivers] = useState<Driver[] | null>(null);
-  const [orders, setOrders] = useState<Order[] | null>(null);
+  const [assignments, setAssignments] = useState<Assignment[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const [reloads, setReloads] = useState(0);
+
+  const show = (day: string, replace = false) => setSearch({ date: day }, { replace });
 
   useEffect(() => {
     fetchDrivers().then(setDrivers, () => setDrivers([]));
   }, []);
 
   useEffect(() => {
-    if (DATE.test(date)) setSearch({ date }, { replace: true });
-  }, [date, setSearch]);
-
-  useEffect(() => {
-    if (!DATE.test(date)) return;
+    if (date) return;
     let stale = false;
-    setOrders(null);
-    setFailed(false);
-    fetchOrders(date).then(
-      (list) => !stale && setOrders(list),
+    fetchBusinessDay().then(
+      ({ tomorrow }) => !stale && setSearch({ date: tomorrow }, { replace: true }),
       () => !stale && setFailed(true),
     );
     return () => {
       stale = true;
     };
-  }, [date]);
+  }, [date, setSearch]);
 
-  const added = (order: Order) => {
-    if (order.workDate === date) {
-      fetchOrders(date).then(setOrders, () => setFailed(true));
-    } else {
-      setDate(order.workDate);
-    }
+  useEffect(() => {
+    if (!date) return;
+    let stale = false;
+    setAssignments(null);
+    setFailed(false);
+    fetchAssignments(date).then(
+      (list) => !stale && setAssignments(list),
+      () => !stale && setFailed(true),
+    );
+    return () => {
+      stale = true;
+    };
+  }, [date, reloads]);
+
+  const saved = (assignment: Assignment) => {
+    if (assignment.date === date) setReloads((n) => n + 1);
+    else show(assignment.date);
   };
 
   return (
     <div className="min-h-screen bg-surface">
-      <PageHeader title="Dispatch" subtitle="Daily truck dispatch board">
+      <PageHeader title="Dispatch" subtitle={date ? formatDate(date) : 'Loading…'}>
         <div className="space-y-1.5">
           <label htmlFor="jump-to" className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
             <CalendarDays className="h-3.5 w-3.5" /> Jump to
           </label>
-          <Input id="jump-to" type="date" className="h-11 w-48" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} />
+          <div className="flex items-center gap-1">
+            <Button variant="outline" size="icon" className="h-11 w-11" aria-label="Previous day" disabled={!date} onClick={() => date && show(shiftDate(date, -1))}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Input id="jump-to" type="date" className="h-11 w-44" value={date ?? ''} onChange={(e) => isDate(e.target.value) && show(e.target.value)} />
+            <Button variant="outline" size="icon" className="h-11 w-11" aria-label="Next day" disabled={!date} onClick={() => date && show(shiftDate(date, 1))}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
         <Button asChild variant="outline" size="lg" className="px-5">
           <Link to="/settings">
             <Settings className="h-4 w-4" /> Settings
           </Link>
         </Button>
-        <NewOrderDialog date={date} drivers={drivers} onCreated={added} />
+        {date && <AssignmentDialog date={date} drivers={drivers} onSaved={saved} />}
       </PageHeader>
 
       <main className="container space-y-4 py-6">
-        <div className="flex items-baseline justify-between">
-          <h2 className="font-display text-lg font-semibold uppercase tracking-wide">{DATE.test(date) ? formatDate(date) : ''}</h2>
-          {orders && orders.length > 0 && (
-            <span className="text-sm text-muted-foreground">
-              {orders.length} order{orders.length === 1 ? '' : 's'}
-            </span>
-          )}
-        </div>
-
-        {failed && <p className="text-sm text-destructive">Could not load orders.</p>}
-        {!orders && !failed && (
-          <p className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading orders…
+        {assignments && assignments.length > 0 && (
+          <p className="text-sm text-muted-foreground">
+            {assignments.length} Assignment{assignments.length === 1 ? '' : 's'}
           </p>
         )}
-        {orders?.length === 0 && (
+
+        {failed && <p className="text-sm text-destructive">Could not load the Assignments for this day.</p>}
+        {!assignments && !failed && (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading Assignments…
+          </p>
+        )}
+        {assignments?.length === 0 && (
           <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed bg-background py-16 text-center">
             <ClipboardList className="h-8 w-8 text-muted-foreground" />
-            <p className="font-medium">No orders for this day</p>
-            <p className="text-sm text-muted-foreground">Use New Order to add work and assign a driver.</p>
+            <p className="font-medium">No Assignments for this day</p>
+            <p className="text-sm text-muted-foreground">Use Add Assignment to plan the day.</p>
           </div>
         )}
-        {orders && orders.length > 0 && (
-          <div className="grid gap-3 md:grid-cols-2">
-            {orders.map((order) => (
-              <OrderCard key={order.id} order={order} />
-            ))}
-          </div>
-        )}
+        {assignments && assignments.length > 0 && <DriverCards assignments={assignments} />}
       </main>
     </div>
   );

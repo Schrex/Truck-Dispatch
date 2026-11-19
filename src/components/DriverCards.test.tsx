@@ -1,0 +1,78 @@
+// @vitest-environment jsdom
+import { cleanup, render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it } from 'vitest';
+import type { Assignment } from '../../shared/types';
+import { AssignmentLine } from './AssignmentLine';
+import { DriverCards } from './DriverCards';
+
+let next = 0;
+const assignment = (fields: Partial<Assignment>): Assignment => ({
+  id: `a${++next}`,
+  date: '2026-11-20',
+  driverId: null,
+  driverName: null,
+  note: null,
+  createdAt: '2026-11-19T20:00:00.000Z',
+  updatedAt: '2026-11-19T20:00:00.000Z',
+  ...fields,
+});
+const a = { driverId: 'drv-a', driverName: 'Sample Driver A' };
+const b = { driverId: 'drv-b', driverName: 'Sample Driver B' };
+
+afterEach(cleanup);
+
+const cards = () =>
+  screen.getAllByRole('article').map((card) => ({
+    driver: within(card).getByRole('heading').textContent,
+    lines: within(card).getAllByRole('listitem').map((line) => line.textContent),
+  }));
+
+describe('DriverCards', () => {
+  it('shows one card per Driver, each Assignment as one line, in the order the day was read', () => {
+    render(
+      <DriverCards
+        assignments={[
+          assignment({ ...a, note: 'Haul stone to the job' }),
+          assignment({ ...a, note: 'Move the excavator' }),
+          assignment({ ...b, note: 'Topsoil run' }),
+        ]}
+      />,
+    );
+    expect(cards()).toEqual([
+      { driver: 'Sample Driver A', lines: ['Haul stone to the job', 'Move the excavator'] },
+      { driver: 'Sample Driver B', lines: ['Topsoil run'] },
+    ]);
+  });
+
+  it('puts Assignments with no Driver on an "Unassigned" card, last', () => {
+    render(<DriverCards assignments={[assignment({ ...a, note: 'Haul stone' }), assignment({ note: 'Who takes this?' }), assignment({ note: 'And this?' })]} />);
+    expect(cards()).toEqual([
+      { driver: 'Sample Driver A', lines: ['Haul stone'] },
+      { driver: 'Unassigned', lines: ['Who takes this?', 'And this?'] },
+    ]);
+  });
+
+  it('shows no "Unassigned" card when every Assignment has a Driver', () => {
+    render(<DriverCards assignments={[assignment({ ...a }), assignment({ ...b })]} />);
+    expect(screen.queryByRole('heading', { name: 'Unassigned' })).toBeNull();
+  });
+});
+
+describe('AssignmentLine', () => {
+  const line = (fields: Partial<Assignment>) => {
+    render(
+      <ul>
+        <AssignmentLine assignment={assignment(fields)} />
+      </ul>,
+    );
+    return screen.getByRole('listitem').textContent;
+  };
+
+  it('reads as the note', () => {
+    expect(line({ ...a, note: 'Move the excavator to the shop' })).toBe('Move the excavator to the shop');
+  });
+
+  it('still reads sensibly with nothing filled in yet', () => {
+    expect(line({ ...a })).toBe('No details yet');
+  });
+});

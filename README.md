@@ -1,7 +1,7 @@
 # Truck-Dispatch
 Assign work to trucks and drivers, let drivers pick up jobs, and capture trips, miles, hours, and material tickets.
 
-Today: a standalone Cloudflare Worker that serves the **Dispatch board**: pick a day, see its orders, and add one with **New Order** (the work, an assigned driver, an optional truck number). A second page, **Settings**, is linked from the board and empty for now. Backed by D1 with **synthetic** drivers only. Hub integration (at `/truck-dispatch/`), sign-in and production are later phases.
+Today: a standalone Cloudflare Worker that serves the **Dispatch board**: it opens on tomorrow (US Eastern), shows one card per Driver with that day's **Assignments**, and adds one with **Add Assignment** (only the date is required; a Driver and a note are optional). A second page, **Settings**, is linked from the board and empty for now. Backed by D1 with **synthetic** drivers only. Hub integration (at `/truck-dispatch/`), sign-in and production are later phases.
 
 ## Run it locally
 
@@ -13,7 +13,7 @@ bun run setup        # create the local D1, apply migrations, load synthetic dat
 bun run dev          # http://localhost:5173/truck-dispatch/
 ```
 
-Click **New Order**, fill in the work, pick a driver and save; the order appears on that day's board.
+Click **Add Assignment**, optionally pick a Driver and write a note, and save; the Assignment appears on that Driver's card (or on "Unassigned").
 
 | Command | What it does |
 |---|---|
@@ -34,7 +34,7 @@ Click **New Order**, fill in the work, pick a driver and save; the order appears
 | `shared/types.ts` | API shapes used by both |
 | `shared/base.ts` | The `/truck-dispatch` prefix, used by both |
 | `migrations/` | D1 schema only. Create with `bunx wrangler d1 migrations create truck-dispatch <name>` |
-| `seed/fixture.sql` | Synthetic drivers; `INSERT OR IGNORE`, safe to run repeatedly. No orders. |
+| `seed/fixture.sql` | Synthetic Drivers; `INSERT OR IGNORE`, safe to run repeatedly. No Assignments. |
 | `wrangler.jsonc` | Local app (top level), `env.preview`, `env.staging` |
 
 ## API
@@ -45,8 +45,11 @@ Under `/api/` standalone or `/truck-dispatch/api/` under the Hub. No sign-in yet
 |---|---|
 | `GET health` | `{ ok, environment, commit }` |
 | `GET drivers` | `{ drivers: [{ id, name }] }` |
-| `GET orders?date=2026-11-18` | `{ orders: [...] }` by start time, untimed last |
-| `POST orders` | JSON `{ workDate, job, work, driverId, startTime?, pickup?, dropoff?, truckNumber?, notes? }` → 201 `{ order }`, or 400 `{ fields: { name: message } }` |
+| `GET today` | `{ today, tomorrow }`, dates in US Eastern time |
+| `GET assignments?date=2026-11-20` | `{ assignments: [{ id, date, driverId, driverName, note, createdAt, updatedAt }] }` by Driver name, then creation time; no Driver last. 400 `{ fields: { date } }` without a real date |
+| `POST assignments` | JSON `{ date, driverId?, note? }` → 201 `{ assignment }`, or 400 `{ fields: { name: message } }` (bad date, unknown Driver, note over 1000 characters). Unknown fields are ignored |
+
+The Worker reads the current time from its environment: `NOW` (an ISO 8601 moment) fixes it, as the tests do; deployed environments leave it unset. The old `orders` table is still in the database, unused.
 
 ## Workflow
 

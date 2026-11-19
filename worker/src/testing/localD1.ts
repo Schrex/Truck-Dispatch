@@ -35,7 +35,7 @@ export function localD1() {
   afterAll(() => harness.close());
   beforeEach(async () => {
     const DB = database();
-    await DB.batch(['orders', 'drivers'].map((table) => DB.prepare(`DELETE FROM ${table}`)));
+    await DB.batch(['assignments', 'orders', 'drivers'].map((table) => DB.prepare(`DELETE FROM ${table}`)));
     await DB.exec(seed.replace(/--.*$/gm, '').replace(/\s*\n\s*/g, ' '));
   });
 

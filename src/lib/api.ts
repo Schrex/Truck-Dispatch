@@ -1,4 +1,4 @@
-import type { Driver, NewOrder, Order } from '../../shared/types';
+import type { Assignment, BusinessDay, Driver, NewAssignment } from '../../shared/types';
 import { basePath } from './basePath';
 
 // Every call starts at the base path the page was reached under: /api/...
@@ -19,20 +19,25 @@ async function request<T>(route: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+/** Today and tomorrow in US Eastern time, by the Worker's clock. */
+export function fetchBusinessDay(): Promise<BusinessDay> {
+  return request<BusinessDay>('api/today');
+}
+
 export async function fetchDrivers(): Promise<Driver[]> {
   return (await request<{ drivers: Driver[] }>('api/drivers')).drivers;
 }
 
-export async function fetchOrders(date: string): Promise<Order[]> {
-  return (await request<{ orders: Order[] }>(`api/orders?date=${encodeURIComponent(date)}`)).orders;
+export async function fetchAssignments(date: string): Promise<Assignment[]> {
+  return (await request<{ assignments: Assignment[] }>(`api/assignments?date=${encodeURIComponent(date)}`)).assignments;
 }
 
-export async function createOrder(order: NewOrder): Promise<Order> {
+export async function addAssignment(assignment: NewAssignment): Promise<Assignment> {
   return (
-    await request<{ order: Order }>('api/orders', {
+    await request<{ assignment: Assignment }>('api/assignments', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(order),
+      body: JSON.stringify(assignment),
     })
-  ).order;
+  ).assignment;
 }

@@ -10,6 +10,11 @@ export interface Env {
   ENVIRONMENT?: string;
   /** The deployed commit, set by CI with `--var COMMIT_SHA:<sha>`. */
   COMMIT_SHA?: string;
+  /**
+   * Fixes the current time (ISO 8601, e.g. 2026-11-19T20:00:00Z). The tests set
+   * it; deployed environments leave it unset and use the real clock (clock.ts).
+   */
+  NOW?: string;
 }
 
 export interface Options {
