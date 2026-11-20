@@ -1,0 +1,3 @@
+# Match the hub's UI stack exactly, unlike daily-schedule
+
+Truck Dispatch uses the hub's front-end stack at the hub's versions: React 18, Vite 6, TypeScript 5, Tailwind 3, shadcn/ui (slate, CSS variables), lucide, sonner, date-fns and react-router 6. It also copies the hub's design tokens (`index.css`, the Tailwind theme, Oswald and Inter, light mode only). The point is that hub components and tokens copy across unchanged, so the app feels native once the hub forwards `/truck-dispatch/*` to it. daily-schedule chose newer versions and plain CSS, and as a result can only imitate the hub by hand. Do not upgrade React or Tailwind here ahead of the hub.

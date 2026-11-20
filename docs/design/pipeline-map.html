@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trucking Pipeline Map</title>
+<style>
+:root{
+  --bg:#f3f5f7; --paper:#ffffff; --ink:#15232f; --muted:#5a6a78; --line:#cfd8e0;
+  --node:#ffffff; --nodeline:#9fb1bf; --src:#eef2f5;
+  --log:#102a3d; --logink:#ffffff; --logrow:#1d3d55; --logmuted:#b9cbd9;
+  --run:#17643f; --runbg:#e4f5ea; --part:#8a5a00; --partbg:#fff1cc; --todo:#3d5266; --todobg:#e6ecf1;
+  --q:#8a5a00; --qbg:#fff1cc; --hit:#0b6aa8; --hitbg:#e2f1fb; --arrow:#64788a;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e161d; --paper:#162029; --ink:#e7eef4; --muted:#9fb0bf; --line:#2c3b48;
+    --node:#1b2732; --nodeline:#4a6072; --src:#131c24;
+    --log:#0a3352; --logink:#ffffff; --logrow:#124466; --logmuted:#b4cde0;
+    --run:#7fd9a6; --runbg:#12382a; --part:#f2c764; --partbg:#40300a; --todo:#b9c8d6; --todobg:#263442;
+    --q:#f2c764; --qbg:#40300a; --hit:#6cc0f5; --hitbg:#10364f; --arrow:#8aa0b3;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:1180px;margin:auto;padding:28px 16px 48px}
+h1{font-size:clamp(24px,3.4vw,34px);margin:0 0 6px;letter-spacing:-.5px;text-wrap:balance}
+h2{font-size:19px;margin:0 0 4px}
+p{margin:0 0 10px}
+.sub{color:var(--muted);max-width:760px}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:18px;margin-top:18px}
+.legend{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:13px;color:var(--muted);margin:14px 0 0}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.chip{display:inline-block;border-radius:999px;padding:1px 9px;font-size:12px;font-weight:650}
+.run{color:var(--run);background:var(--runbg)} .part{color:var(--part);background:var(--partbg)} .todo{color:var(--todo);background:var(--todobg)}
+.qchip{color:var(--q);background:var(--qbg)}
+.num{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--ink);color:var(--paper);font-size:12px;font-weight:700;font-variant-numeric:tabular-nums}
+.scroll{overflow-x:auto}
+svg{display:block;min-width:940px;width:100%;height:auto}
+svg text{font-family:inherit;fill:var(--ink)}
+.n-box{fill:var(--node);stroke:var(--nodeline);stroke-width:1.5}
+.s-box{fill:var(--src);stroke:var(--nodeline);stroke-width:1.2;stroke-dasharray:5 4}
+.node{cursor:pointer;outline:none}
+.node:hover .n-box,.node:focus-visible .n-box{stroke:var(--hit);stroke-width:2.5}
+.node.sel .n-box{stroke:var(--hit);stroke-width:3;fill:var(--hitbg)}
+.t-title{font-size:13.5px;font-weight:700}
+.legend .num,.meta .num{display:inline-grid}
+.t-line{font-size:12.5px;fill:var(--muted)}
+.t-q{font-size:11.5px;font-weight:650;fill:var(--q)}
+.q-pill{fill:var(--qbg)}
+.b-circ{fill:var(--ink)} .b-num{fill:var(--paper);font-size:12.5px;font-weight:700}
+.arrow{stroke:var(--arrow);stroke-width:2;fill:none}
+.a-lbl{font-size:11.5px;fill:var(--muted)}
+.log-box{fill:var(--log)}
+.log-title{fill:var(--logink);font-size:17px;font-weight:750}
+.log-sub{fill:var(--logmuted);font-size:12px}
+.log-row rect{fill:var(--logrow)}
+.log-row text{fill:var(--logink);font-size:12.5px}
+.log-row .mini{fill:var(--logink)} .log-row .mini-n{fill:var(--log);font-size:11px;font-weight:700}
+.log-row.hit rect{fill:var(--hit)}
+.st-run{fill:var(--runbg)} .st-part{fill:var(--partbg)} .st-todo{fill:var(--todobg)}
+.st-t-run{fill:var(--run)} .st-t-part{fill:var(--part)} .st-t-todo{fill:var(--todo)}
+.st-t{font-size:11px;font-weight:650}
+.tabs{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.tabs button{font:inherit;font-size:14px;display:inline-flex;gap:7px;align-items:center;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--paper);color:var(--ink);cursor:pointer}
+.tabs button[aria-pressed="true"]{border-color:var(--hit);background:var(--hitbg);font-weight:650}
+.detail{display:grid;grid-template-columns:1.2fr 1fr;gap:20px;margin-top:14px}
+.detail h3{font-size:13px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin:14px 0 4px}
+.detail h3:first-child{margin-top:0}
+.detail ul{margin:0;padding-left:20px}.detail li{margin-bottom:4px}
+.detail .head{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.detail .head strong{font-size:19px}
+table{border-collapse:collapse;width:100%;font-size:14px;min-width:760px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-weight:650;white-space:nowrap}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+th .num{margin-left:5px;width:18px;height:18px;font-size:11px}
+.hitcol{background:var(--hitbg)}
+.miss{color:var(--q);font-weight:650}
+.meta{display:flex;flex-wrap:wrap;gap:8px 22px;font-size:14px;margin:10px 0 12px}
+.meta span{display:inline-flex;gap:6px;align-items:center}
+.small{font-size:13px;color:var(--muted)}
+@media(max-width:720px){.detail{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+<h1>From Dave's work order to a finished truck log</h1>
+<p class="sub">Six pieces feed one truck log per driver, per truck, per day. Click any numbered piece to see what it does, what it puts in the log, and what is still unanswered.</p>
+<div class="legend" aria-label="Legend">
+  <span><span class="chip run">Running today</span></span>
+  <span><span class="chip part">Data proven, access open</span></span>
+  <span><span class="chip todo">To build</span></span>
+  <span><span class="chip qchip">?</span> edge case still to settle</span>
+  <span><span class="num">3</span> which piece fills that part of the log</span>
+</div>
+
+<div class="card">
+  <div class="scroll"><svg id="map" viewBox="0 0 1120 510" role="group" aria-label="Pipeline diagram: six pieces feeding the truck log"></svg></div>
+  <div class="tabs" id="tabs" role="group" aria-label="Choose a piece"></div>
+  <div class="detail" id="detail" aria-live="polite"></div>
+</div>
+
+<div class="card">
+  <h2>What the log looks like when the pieces meet</h2>
+  <p class="small">Real movements for truck MCK-55-17 on Mon 16 Nov 2026, taken from one HCSS Fleet export. Trips are read from the truck's movements only; no driver or paper log has confirmed them yet.</p>
+  <div class="meta">
+    <span data-src="2"><span class="num">2</span> Driver: <span class="miss">? not known from the truck</span></span>
+    <span data-src="2"><span class="num">2</span> Truck: MCK-55-17</span>
+    <span data-src="5"><span class="num">5</span> Start odometer: 258,050.6</span>
+    <span data-src="5"><span class="num">5</span> Last reading that day: 258,212.2 (16:12)</span>
+  </div>
+  <div class="scroll"><table>
+    <thead><tr>
+      <th data-src="3">From<span class="num">3</span></th><th data-src="3">Left<span class="num">3</span></th>
+      <th data-src="3">To<span class="num">3</span></th><th data-src="3">Arrived<span class="num">3</span></th>
+      <th class="n" data-src="3">Miles<span class="num">3</span></th>
+      <th data-src="1">Work order<span class="num">1</span></th>
+      <th data-src="6 4">Material<span class="num">6</span><span class="num">4</span></th>
+      <th data-src="6">Ticket<span class="num">6</span></th>
+    </tr></thead>
+    <tbody id="rows"></tbody>
+  </table></div>
+  <p class="small" style="margin-top:10px">Every <span class="miss">?</span> is a blank the truck cannot fill by itself. Pieces 1, 4 and 6 exist to fill them.</p>
+</div>
+</main>
+
+<script>
+const NS = "http://www.w3.org/2000/svg";
+const svg = document.getElementById("map");
+const el = (tag, attrs, text) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; return e; };
+
+const STATUS = { run: "Running today", part: "Data proven, access open", todo: "To build" };
+
+const PIECES = [
+ { n:1, x:30, y:40, icon:"📋", title:"Dave's work order", lines:["Job, pickup, drop-off,","material, which driver"], st:"todo", q:"? changes by phone",
+   what:"Dave enters the day's work in the app instead of posting it in the truck chat. Each work order names the job, where to load, where to deliver and the material if known.",
+   gives:["The job each trip should belong to","Expected material, so a trip with no ticket still has a likely answer"],
+   status:"To build. Today this is a chat message plus phone calls.",
+   open:["How do mid-day phone changes get into the app: Dave edits the order, or the driver reports it?","How much does Dave need to type before it is slower than the chat message?"] },
+ { n:2, x:290, y:40, icon:"👤", title:"Driver picks up work", lines:["Confirms usual truck,","does pre-drive check"], st:"todo", q:"? work Dave never issued",
+   what:"The driver opens the app, takes a work order, confirms the truck (their usual one is pre-selected) and completes the pre-drive inspection. That single step ties driver, truck and job together for the day.",
+   gives:["Driver name","Truck for the day","Which work order the day starts on"],
+   status:"To build. About 6 trucks and 3 to 4 drivers; drivers have usual trucks and swaps are rare.",
+   open:["A driver does work during the day that has no work order. Piece 4 has to catch it.","The truck's location can never prove who is driving, so this confirmation is required."] },
+ { n:3, x:290, y:200, icon:"📡", title:"Truck movements", lines:["Every stop: place, time,","odometer in and out"], st:"part", q:"? how we fetch it daily",
+   what:"For the confirmed truck, pull the day's movements from HCSS Fleet. Each time the truck enters or leaves a known place (shop, job site, plant) there is a row with the time and the odometer. Stops are paired into trips.",
+   gives:["From, to, departure and arrival times for each trip","Miles per trip from the truck's own odometer","Job number, because job-site places are already named with it (J25008, J611)"],
+   status:"Data proven on one truck for one day. Access is the open part: the Fleet report refused our API login (403), so today it only comes out by manual export.",
+   open:["Three routes to automate it: HCSS grants API access to the report; we poll the truck's live position and detect stops ourselves (not yet tested on a moving truck); or Fleet's entry and exit email alerts (not yet checked).","Arriving at a place is not proof of a delivery. Trips stay 'suggested' until a ticket or the driver confirms them.","Very short pass-throughs and boundary flicker need cleaning before pairing."] },
+ { n:5, x:290, y:360, icon:"🔢", title:"Start and end miles", lines:["Odometer at start of day","and at end of day"], st:"run", q:"? driving before 4 am",
+   what:"A scheduled job already records every truck's odometer and engine hours once a day at 04:00 local time. Two readings in a row give the truck's miles for the day in between, without depending on trip data.",
+   gives:["Start-of-day odometer","End-of-day odometer","A day total to check the trip miles against"],
+   status:"Running since 28 Oct 2026 as part of the HeavyJob connector.",
+   open:["If a truck moves before 04:00 the reading lands mid-shift. A second evening reading would close that.","If trip miles and day miles disagree, something was missed: that difference is a useful alarm."] },
+ { n:6, x:880, y:200, icon:"🧾", title:"Tickets and invoices", lines:["Photo attached to the","trip it belongs to"], st:"todo", q:"? loads with no ticket",
+   what:"The driver takes a photo of the material ticket with one tap. The app suggests which trip it belongs to from the time and the plant, and the driver corrects it only if it is wrong. Supplier invoices can be attached to the same trip later.",
+   gives:["Material and quantity for the trip","Ticket number and the original photo as proof","Confirmation that a plant stop really was a load"],
+   status:"To build. Stone invoices and delivery tickets are already collected by the separate stone-matching process; linking the two has not been explored.",
+   open:["Dirt moves have no ticket. Those go to piece 4.","One ticket does not always mean one load. Keep the link flexible."] },
+ { n:4, x:880, y:360, icon:"✍️", title:"Fill the gaps", lines:["Driver answers only","what is still blank"], st:"todo", q:"? who checks the answers",
+   what:"At the end of the day the app shows the driver their day and asks only about the blanks: a trip with no work order, a load with no ticket, a stop it cannot explain. The driver picks an answer and signs.",
+   gives:["Material for ticketless loads","A work order for work picked up during the day","A label for unexplained stops (lunch, waiting, personal)"],
+   status:"To build. It replaces the paper log the driver already fills in at day's end, so the habit stays the same.",
+   open:["Who reviews odd answers? Not yet decided, and it should not land on the accountant.","Can the driver still remember which stop was which after a long day? Showing stops in order with times should help; needs testing with a driver."] },
+];
+
+const SOURCES = [
+ { x:30, y:220, icon:"🛰️", title:"HCSS Fleet", line:"GPS units on the trucks" },
+ { x:30, y:380, icon:"⏰", title:"Daily meter reading", line:"Runs 04:00 every day" },
+];
+
+const LOGROWS = [
+ { y:80,  text:"Driver · truck · job", src:[1,2] },
+ { y:216, text:"Each trip: from, to, times", src:[3] },
+ { y:250, text:"Miles per trip", src:[3] },
+ { y:284, text:"Material · quantity · ticket", src:[6] },
+ { y:340, text:"Blanks answered by driver", src:[4] },
+ { y:398, text:"Day start / end odometer", src:[5] },
+];
+
+// arrow marker
+const defs = el("defs", {});
+const mk = el("marker", { id:"ah", viewBox:"0 0 10 10", refX:"9", refY:"5", markerWidth:"7", markerHeight:"7", orient:"auto-start-reverse" });
+mk.appendChild(el("path", { d:"M0 0 L10 5 L0 10 z", fill:"var(--arrow)" }));
+defs.appendChild(mk); svg.appendChild(defs);
+
+const arrow = (x1,y1,x2,y2,label,ly) => {
+  svg.appendChild(el("path", { class:"arrow", d:`M${x1} ${y1} L${x2} ${y2}`, "marker-end":"url(#ah)" }));
+  if (label) svg.appendChild(el("text", { class:"a-lbl", x:(x1+x2)/2, y:ly ?? y1-7, "text-anchor":"middle" }, label));
+};
+arrow(230,95,288,95);            // 1 -> 2
+arrow(490,95,558,95);            // 2 -> log
+arrow(230,255,288,255);          // fleet -> 3
+arrow(490,255,558,255);          // 3 -> log
+arrow(230,415,288,415);          // meter -> 5
+arrow(490,415,558,415);          // 5 -> log
+arrow(800,95,878,95);            // log -> excel
+arrow(880,255,802,255);          // 6 -> log
+arrow(800,400,878,400,"blanks",393);   // log -> 4
+arrow(880,428,802,428,"answers",445);  // 4 -> log
+
+// sources
+for (const s of SOURCES) {
+  svg.appendChild(el("rect", { class:"s-box", x:s.x, y:s.y, width:200, height:70, rx:10 }));
+  svg.appendChild(el("text", { x:s.x+14, y:s.y+30, "font-size":"20" }, s.icon));
+  svg.appendChild(el("text", { class:"t-title", x:s.x+46, y:s.y+30 }, s.title));
+  svg.appendChild(el("text", { class:"t-line", x:s.x+46, y:s.y+50 }, s.line));
+}
+
+// output
+svg.appendChild(el("rect", { class:"s-box", x:880, y:40, width:210, height:110, rx:10 }));
+svg.appendChild(el("text", { x:894, y:76, "font-size":"22" }, "📊"));
+svg.appendChild(el("text", { class:"t-title", x:928, y:74 }, "Excel log, filled in"));
+svg.appendChild(el("text", { class:"t-line", x:894, y:102 }, "Nobody retypes the paper"));
+svg.appendChild(el("text", { class:"t-line", x:894, y:120 }, "log. Layout not yet mapped."));
+
+// truck log
+svg.appendChild(el("rect", { class:"log-box", x:560, y:20, width:240, height:460, rx:14 }));
+svg.appendChild(el("text", { class:"log-title", x:680, y:48, "text-anchor":"middle" }, "🚚 Truck log"));
+svg.appendChild(el("text", { class:"log-sub", x:680, y:66, "text-anchor":"middle" }, "one driver · one truck · one day"));
+for (const r of LOGROWS) {
+  const g = el("g", { class:"log-row", "data-src":r.src.join(" ") });
+  g.appendChild(el("rect", { x:572, y:r.y, width:216, height:28, rx:6 }));
+  g.appendChild(el("text", { x:582, y:r.y+18 }, r.text));
+  r.src.forEach((n,i) => {
+    const cx = 774 - i*20;
+    g.appendChild(el("circle", { class:"mini", cx, cy:r.y+14, r:8 }));
+    g.appendChild(el("text", { class:"mini-n", x:cx, y:r.y+18, "text-anchor":"middle" }, n));
+  });
+  svg.appendChild(g);
+}
+
+// pieces
+for (const p of PIECES) {
+  const g = el("g", { class:"node", tabindex:"0", role:"button", "data-n":p.n, "aria-label":`Piece ${p.n}: ${p.title}. ${STATUS[p.st]}` });
+  g.appendChild(el("rect", { class:"n-box", x:p.x, y:p.y, width:200, height:110, rx:12 }));
+  g.appendChild(el("circle", { class:"b-circ", cx:p.x+20, cy:p.y+20, r:12 }));
+  g.appendChild(el("text", { class:"b-num", x:p.x+20, y:p.y+24.5, "text-anchor":"middle" }, p.n));
+  g.appendChild(el("text", { x:p.x+180, y:p.y+68, "font-size":"18", "text-anchor":"middle" }, p.icon));
+  g.appendChild(el("text", { class:"t-title", x:p.x+40, y:p.y+25 }, p.title));
+  p.lines.forEach((l,i) => g.appendChild(el("text", { class:"t-line", x:p.x+14, y:p.y+52+i*17 }, l)));
+  const sw = STATUS[p.st].length*6.2+16;
+  g.appendChild(el("rect", { class:"st-"+p.st, x:p.x+12, y:p.y+82, width:sw, height:19, rx:9.5 }));
+  g.appendChild(el("text", { class:"st-t st-t-"+p.st, x:p.x+20, y:p.y+95.5 }, STATUS[p.st]));
+  const qw = p.q.length*6.3+16;
+  g.appendChild(el("rect", { class:"q-pill", x:p.x+200-qw, y:p.y+116, width:qw, height:20, rx:10 }));
+  g.appendChild(el("text", { class:"t-q", x:p.x+200-qw+8, y:p.y+130 }, p.q));
+  g.addEventListener("click", () => select(p.n));
+  g.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(p.n); } });
+  svg.appendChild(g);
+}
+
+// tabs
+const tabs = document.getElementById("tabs");
+for (const p of [...PIECES].sort((a,b) => a.n-b.n)) {
+  const b = document.createElement("button");
+  b.type = "button"; b.dataset.n = p.n;
+  b.innerHTML = `<span class="num">${p.n}</span>${p.title}`;
+  b.addEventListener("click", () => select(p.n));
+  tabs.appendChild(b);
+}
+
+// sample rows
+const ROWS = [
+ ["SHOP","06:24","J25008 Los Flamboyanes","07:02","20.6","?","?","?"],
+ ["J25008 Los Flamboyanes","08:24","Villager City Plant","08:34","3.4","?","?","?"],
+ ["Villager City Plant","08:43","J25008 Los Flamboyanes","08:56","3.6","?","?","?"],
+ ["Villager City Plant","11:30","Walworth Dolomite Plant","11:56","20.4","?","? loaded or empty","?"],
+ ["Walworth Dolomite Plant","12:08","J25008 Los Flamboyanes","12:36","21.2","?","?","?"],
+];
+const SRC = ["3","3","3","3","3","1","6 4","6"];
+document.getElementById("rows").innerHTML = ROWS.map(r => "<tr>" + r.map((c,i) =>
+  `<td data-src="${SRC[i]}" class="${i===4?"n":""}${c.startsWith("?")?" miss":""}">${c}</td>`).join("") + "</tr>").join("");
+
+const li = a => "<ul>" + a.map(x => `<li>${x}</li>`).join("") + "</ul>";
+function select(n) {
+  const p = PIECES.find(x => x.n === n);
+  svg.querySelectorAll(".node").forEach(g => g.classList.toggle("sel", +g.dataset.n === n));
+  tabs.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", +b.dataset.n === n));
+  const has = e => e.dataset.src.split(" ").includes(String(n));
+  svg.querySelectorAll(".log-row").forEach(g => g.classList.toggle("hit", has(g)));
+  document.querySelectorAll("th[data-src],td[data-src],.meta span[data-src]").forEach(e => e.classList.toggle("hitcol", has(e)));
+  document.getElementById("detail").innerHTML =
+    `<div class="head"><span class="num">${p.n}</span><strong>${p.icon} ${p.title}</strong><span class="chip ${p.st}">${STATUS[p.st]}</span></div>
+     <div><h3>What happens</h3><p>${p.what}</p><h3>Where it stands</h3><p>${p.status}</p></div>
+     <div><h3>What it puts in the log</h3>${li(p.gives)}<h3>Still to settle</h3>${li(p.open)}</div>`;
+}
+select(3);
+</script>
+</body>
+</html>

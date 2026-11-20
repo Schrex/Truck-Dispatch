@@ -1,7 +1,7 @@
 // Checks a deployed Truck Dispatch end to end, standalone and under the
 // /truck-dispatch/ prefix: the page loads, its script loads, the seeded
-// drivers (seed/fixture.sql) come back, and a day's orders can be read.
-// Read-only: it never adds orders.
+// Drivers, Trucks, Jobs, Places, Materials and Foremen (seed/fixture.sql) come back, and a day's Assignments can be read.
+// Read-only: it never adds Assignments.
 //
 //   node scripts/smoke.mjs <base url>
 //
@@ -89,13 +89,30 @@ for (const prefix of ['', '/truck-dispatch']) {
     const js = await get(script);
     if (!js.ok) fail(`${script}: ${js.status}`);
   });
-  await step(`${where}: seeded drivers and a day's orders`, async () => {
+  await step(`${where}: Settings loads directly`, async () => {
+    const page = await get(`${prefix}/settings`);
+    if (!page.ok) fail(`${prefix}/settings: ${page.status}`);
+    if (!(await page.text()).includes('id="root"')) fail('page has no #root');
+  });
+  await step(`${where}: seeded Drivers, the other lists and tomorrow's Assignments`, async () => {
     const drivers = await get(`${prefix}/api/drivers`);
     if (!drivers.ok) fail(`drivers: ${drivers.status}`);
     const list = /** @type {{ drivers: unknown[] }} */ (await drivers.json()).drivers;
     if (list.length === 0) fail('no drivers; was seed/fixture.sql applied?');
-    const orders = await get(`${prefix}/api/orders?date=${new Date().toISOString().slice(0, 10)}`);
-    if (!orders.ok) fail(`orders: ${orders.status}`);
+    for (const list of ['trucks', 'jobs', 'places', 'materials', 'foremen']) {
+      const response = await get(`${prefix}/api/${list}?include=inactive`);
+      if (!response.ok) fail(`${list}: ${response.status}`);
+      const entries = /** @type {Record<string, unknown[]>} */ (await response.json())[list];
+      if (!Array.isArray(entries) || entries.length === 0) fail(`no ${list}; was seed/fixture.sql applied?`);
+    }
+    const today = await get(`${prefix}/api/today`);
+    if (!today.ok) fail(`today: ${today.status}`);
+    const { tomorrow } = /** @type {{ tomorrow: string }} */ (await today.json());
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(tomorrow)) fail(`today: tomorrow is ${tomorrow}`);
+    const day = await get(`${prefix}/api/assignments?date=${tomorrow}`);
+    if (!day.ok) fail(`assignments: ${day.status}`);
+    const { assignments } = /** @type {{ assignments: unknown }} */ (await day.json());
+    if (!Array.isArray(assignments)) fail('assignments: no list');
   });
 }
 

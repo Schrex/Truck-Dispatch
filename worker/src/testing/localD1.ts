@@ -35,9 +35,15 @@ export function localD1() {
   afterAll(() => harness.close());
   beforeEach(async () => {
     const DB = database();
-    await DB.batch(['orders', 'drivers'].map((table) => DB.prepare(`DELETE FROM ${table}`)));
-    await DB.exec(seed.replace(/--.*$/gm, '').replace(/\s*\n\s*/g, ' '));
+    // Rows that point at others go first: Assignments and orders at the lists, Drivers at Trucks, Places at Jobs.
+    await DB.batch(['assignments', 'orders', 'drivers', 'trucks', 'places', 'jobs', 'materials', 'foremen'].map((table) => DB.prepare(`DELETE FROM ${table}`)));
+    await reseed();
   });
+
+  /** Runs seed/fixture.sql on the database as it is, as every deploy does. */
+  const reseed = async () => {
+    await database().exec(seed.replace(/--.*$/gm, '').replace(/\s*\n\s*/g, ' '));
+  };
 
   const database = (): D1Database => {
     if (!db) throw new Error('The local D1 is not started yet (use it inside a test).');
@@ -46,11 +52,14 @@ export function localD1() {
 
   /** An environment for handle(), with the local D1 and a stand-in for the page files. */
   const env = (vars: Partial<Env> = {}): Env => ({
-    ASSETS: { fetch: async (input: Request | string) => new Response(`asset ${new URL(input instanceof Request ? input.url : input).pathname}`) } as unknown as Fetcher,
+    ASSETS: { fetch: async (input: Request | string) => {
+      const { pathname, search } = new URL(input instanceof Request ? input.url : input);
+      return new Response(`asset ${pathname}${search}`);
+    } } as unknown as Fetcher,
     DB: database(),
     ENVIRONMENT: 'test',
     ...vars,
   });
 
-  return { env, database };
+  return { env, database, reseed };
 }
