@@ -216,13 +216,14 @@ export function dayState(assignments: (SentTimes & { driverId: string | null })[
  * A day's state as its week strip tile says it, as the Daily Schedule's do:
  * "–" for a day with nothing, "Not sent" for a Draft, or how many are
  * Unassigned on a Draft that still has some ("2 unassigned"), Sent, Changed.
+ * Takes a day state as dayState gives it or as the week read answers it.
  */
-export function stateWord(day: DayState): string {
+export function stateWord(day: { state: DayState['state']; unassigned?: number }): string {
   switch (day.state) {
     case 'none':
       return '–';
     case 'draft':
-      return day.unassigned > 0 ? `${day.unassigned} unassigned` : 'Not sent';
+      return day.unassigned ? `${day.unassigned} unassigned` : 'Not sent';
     case 'sent':
       return 'Sent';
     case 'changed':
