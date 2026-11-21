@@ -4,7 +4,7 @@ import { json, readJson, refuse, text } from './http';
 import { exists, handleList, isList, listOrder } from './lists';
 import { checkTyped, saveLinked, typedIn, type Typed } from './typedNames';
 import { addDays, dayState, holidayName, isCalendarDate, mondayOf, sinceSent, unassignedOn, weekDates } from '../../shared/days';
-import type { Assignment, BusinessDay, Day, ListName, NewAssignment, TypedNames, Week } from '../../shared/types';
+import type { Assignment, BusinessDay, Day, DriverAssignment, DriverDay, ListName, NewAssignment, TypedNames, Was, Week } from '../../shared/types';
 
 /** The JSON API under /api/ (or /truck-dispatch/api/). */
 export async function handleApi(request: Request, env: Env, route: string, query: URLSearchParams): Promise<Response> {
@@ -23,6 +23,12 @@ export async function handleApi(request: Request, env: Env, route: string, query
   const laterOf = /^drivers\/([^/]+)\/later-days$/.exec(route);
   if (laterOf) {
     if (reading) return laterDays(env, decodeURIComponent(laterOf[1]));
+    return json({ error: 'method_not_allowed' }, 405, { Allow: 'GET, HEAD' });
+  }
+
+  const driverDay = /^drivers\/([^/]+)\/days\/([^/]+)$/.exec(route);
+  if (driverDay) {
+    if (reading) return readDriverDay(env, decodeURIComponent(driverDay[1]), decodeURIComponent(driverDay[2]));
     return json({ error: 'method_not_allowed' }, 405, { Allow: 'GET, HEAD' });
   }
 
@@ -136,6 +142,59 @@ async function readDay(env: Env, date: string | null): Promise<Response> {
     env.DB.prepare('SELECT sent_at AS sentAt FROM day_sends WHERE date = ?').bind(date),
   ]);
   return json({ assignments: results.map(marked), sentAt: sends[0]?.sentAt ?? null } satisfies Day);
+}
+
+/**
+ * The fields a Driver reads that can be shown as "was …": each by the id that
+ * says whether it really changed (a rename is not a change) and the name the
+ * Driver is shown. The note has no id; its text is both.
+ */
+const WAS_FIELDS = [
+  ['truckId', 'truckNumber'],
+  ['fromPlaceId', 'fromPlaceName'],
+  ['toPlaceId', 'toPlaceName'],
+  ['materialId', 'materialName'],
+  ['note', 'note'],
+] as const satisfies readonly (readonly [keyof Assignment, keyof Was])[];
+
+/**
+ * One Driver's Assignments on a day, for the Driver view. A Draft answers only
+ * that it is a Draft: Drivers see nothing of a day before Dave Sends it. A
+ * Sent day answers his Assignments in Dave's order, cancelled ones included
+ * (struck through for him), each marked Changed or Added by the shared day
+ * rules; a Changed one also says what its fields were when the day was Sent,
+ * from the first earlier fields kept after the Send (changes are kept only
+ * once a day is Sent, so the first is the day as he was sent it). Days before
+ * today are read like the rest, so the phone still shows today after midnight
+ * Eastern until it refreshes.
+ */
+async function readDriverDay(env: Env, driverId: string, date: string): Promise<Response> {
+  if (!isCalendarDate(date)) return refuse({ date: 'Pick a date.' });
+  if (!(await exists(env, 'drivers', driverId))) return json({ error: 'not_found' }, 404);
+  const [{ results: sends }, { results: rows }, { results: kept }] = await env.DB.batch<{ sentAt: string } & AssignmentRow & { id: string; before: string }>([
+    env.DB.prepare('SELECT sent_at AS sentAt FROM day_sends WHERE date = ?').bind(date),
+    env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.date = ? AND a.driver_id = ? ${DAY_ORDER}`).bind(date, driverId),
+    env.DB.prepare(
+      `SELECT c.assignment_id AS id, c.before FROM assignment_changes c JOIN assignments a ON a.id = c.assignment_id
+        WHERE a.date = ? AND a.driver_id = ? ORDER BY c.changed_at DESC, c.rowid DESC`,
+    ).bind(date, driverId),
+  ]);
+  const sentAt = sends[0]?.sentAt;
+  if (!sentAt) return json({ date, state: 'draft' } satisfies DriverDay);
+  // Newest first, so the last one set for each Assignment is its first.
+  const asSent = new Map(kept.map((row) => [row.id, JSON.parse(row.before) as Partial<Assignment>]));
+  const assignments = rows.map(marked).map((assignment): DriverAssignment => {
+    const before = asSent.get(assignment.id);
+    return { ...assignment, was: assignment.sinceSent === 'changed' && before ? wasWhenSent(assignment, before) : {} };
+  });
+  return json({ date, state: 'sent', sentAt, assignments } satisfies DriverDay);
+}
+
+/** The fields a Driver reads that are not as they were when Sent, each with the name it had then. */
+function wasWhenSent(now: Assignment, before: Partial<Assignment>): Was {
+  const was: Was = {};
+  for (const [id, name] of WAS_FIELDS) if ((before[id] ?? null) !== now[id]) was[name] = (before[name] ?? null) as string | null;
+  return was;
 }
 
 /**
