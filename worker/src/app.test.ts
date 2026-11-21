@@ -1068,6 +1068,73 @@ describe('sending a day', () => {
   });
 });
 
+describe('reading a week', () => {
+  // Today is Thursday 2026-11-19; Dave plans the next week, Monday 2026-11-23 to Sunday 2026-11-29 (Thanksgiving on the Thursday).
+  const PLANNED = { NOW: '2026-11-19T20:00:00.000Z' };
+  const SENT = { NOW: '2026-11-19T21:15:00.000Z' };
+  const LATER = { NOW: '2026-11-19T22:00:00.000Z' };
+  const plan = async (body: Record<string, unknown>, vars = PLANNED) =>
+    ((await (await send('POST', '/api/assignments', body, vars)).json()) as { assignment: Assignment }).assignment;
+  const sendDay = (date: string) => send('POST', `/api/days/${date}/send`, undefined, SENT);
+  const week = async (monday: string) => (await (await get(`/api/weeks/${monday}`)).json()) as { days: unknown[] };
+
+  it('answers each of its seven days with its state, its count Unassigned and its Holiday', async () => {
+    await plan({ date: '2026-11-23', driverId: 'drv-a' });
+    await plan({ date: '2026-11-23' });
+    await plan({ date: '2026-11-23' });
+    await plan({ date: '2026-11-24', driverId: 'drv-a' });
+    await sendDay('2026-11-24');
+    const wednesday = await plan({ date: '2026-11-25' });
+    await sendDay('2026-11-25');
+    await change(wednesday.id, { driverId: 'drv-b' }, LATER);
+    await plan({ date: '2026-11-27', driverId: 'drv-b' });
+    await plan({ date: '2026-11-29' });
+    await plan({ date: '2026-11-30' });
+
+    const response = await get('/api/weeks/2026-11-23');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      days: [
+        { date: '2026-11-23', state: 'draft', unassigned: 2, holiday: null },
+        { date: '2026-11-24', state: 'sent', unassigned: 0, holiday: null },
+        { date: '2026-11-25', state: 'changed', unassigned: 0, holiday: null },
+        { date: '2026-11-26', state: 'none', unassigned: 0, holiday: 'Thanksgiving' },
+        { date: '2026-11-27', state: 'draft', unassigned: 0, holiday: null },
+        { date: '2026-11-28', state: 'none', unassigned: 0, holiday: null },
+        { date: '2026-11-29', state: 'draft', unassigned: 1, holiday: null },
+      ],
+    });
+  });
+
+  it('marks a Sent day Changed once an Assignment is added to it', async () => {
+    await plan({ date: '2026-11-24', driverId: 'drv-a' });
+    await sendDay('2026-11-24');
+    await plan({ date: '2026-11-24', driverId: 'drv-b' }, LATER);
+    expect((await week('2026-11-23')).days[1]).toMatchObject({ date: '2026-11-24', state: 'changed' });
+  });
+
+  it('reads a week before today too', async () => {
+    expect((await week('2026-11-16')).days).toHaveLength(7);
+  });
+
+  it.each([
+    ['a Tuesday', '2026-11-24'],
+    ['a Sunday', '2026-11-22'],
+    ['not a real date', '2026-02-30'],
+    ['written another way', '23-11-2026'],
+  ])('refuses a date that is %s, with a message on the date', async (_why, date) => {
+    const fields = await refusal(await get(`/api/weeks/${date}`));
+    expect(Object.keys(fields)).toEqual(['date']);
+    expect(fields.date).toBeTruthy();
+  });
+
+  it('is only read', async () => {
+    const response = await send('POST', '/api/weeks/2026-11-23', {});
+    expect(response.status).toBe(405);
+    expect(response.headers.get('Allow')).toBe('GET, HEAD');
+  });
+});
+
 describe('past days', () => {
   // The tests' clock says today is 2026-11-19 in US Eastern.
   const pastDay = (response: Response) => {

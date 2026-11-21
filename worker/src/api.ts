@@ -3,8 +3,8 @@ import { clock } from './clock';
 import { json, readJson, refuse, text } from './http';
 import { exists, handleList, isList, listOrder } from './lists';
 import { checkTyped, saveLinked, typedIn, type Typed } from './typedNames';
-import { isCalendarDate, sinceSent } from '../../shared/days';
-import type { Assignment, BusinessDay, Day, ListName, NewAssignment, TypedNames } from '../../shared/types';
+import { addDays, dayState, holidayName, isCalendarDate, mondayOf, sinceSent, weekDates } from '../../shared/days';
+import type { Assignment, BusinessDay, Day, ListName, NewAssignment, TypedNames, Week } from '../../shared/types';
 
 /** The JSON API under /api/ (or /truck-dispatch/api/). */
 export async function handleApi(request: Request, env: Env, route: string, query: URLSearchParams): Promise<Response> {
@@ -30,6 +30,12 @@ export async function handleApi(request: Request, env: Env, route: string, query
   if (sending) {
     if (method === 'POST') return sendDay(env, decodeURIComponent(sending[1]));
     return json({ error: 'method_not_allowed' }, 405, { Allow: 'POST' });
+  }
+
+  const weekOf = /^weeks\/([^/]+)$/.exec(route);
+  if (weekOf) {
+    if (reading) return readWeek(env, decodeURIComponent(weekOf[1]));
+    return json({ error: 'method_not_allowed' }, 405, { Allow: 'GET, HEAD' });
   }
 
   const [list, entryId, ...rest] = route.split('/');
@@ -118,6 +124,31 @@ async function readDay(env: Env, date: string | null): Promise<Response> {
     env.DB.prepare('SELECT sent_at AS sentAt FROM day_sends WHERE date = ?').bind(date),
   ]);
   return json({ assignments: results.map(marked), sentAt: sends[0]?.sentAt ?? null } satisfies Day);
+}
+
+/**
+ * The state of each day of a week, Monday to Sunday, for the week strip: by
+ * the shared day rules from each day's Assignments and its first Send, with
+ * how many are Unassigned and its Holiday. Asked by its Monday, so a week is
+ * always the same seven days; any other date is refused. Days before today
+ * are read like the rest.
+ */
+async function readWeek(env: Env, monday: string): Promise<Response> {
+  if (!isCalendarDate(monday) || mondayOf(monday) !== monday) return refuse({ date: 'Give the Monday the week starts on.' });
+  const sunday = addDays(monday, 6);
+  type Row = { date: string; driverId: string | null; createdAt: string; changedAt: string | null };
+  const [{ results: rows }, { results: sends }] = await env.DB.batch<Row & { sentAt: string }>([
+    env.DB.prepare(
+      'SELECT date, driver_id AS driverId, created_at AS createdAt, changed_at AS changedAt FROM assignments WHERE date BETWEEN ? AND ?',
+    ).bind(monday, sunday),
+    env.DB.prepare('SELECT date, sent_at AS sentAt FROM day_sends WHERE date BETWEEN ? AND ?').bind(monday, sunday),
+  ]);
+  const days = weekDates(monday).map((date) => {
+    const planned = rows.filter((row) => row.date === date);
+    const { state } = dayState(planned, sends.find((send) => send.date === date)?.sentAt ?? null);
+    return { date, state, unassigned: planned.filter((row) => row.driverId === null).length, holiday: holidayName(date) };
+  });
+  return json({ days } satisfies Week);
 }
 
 /**

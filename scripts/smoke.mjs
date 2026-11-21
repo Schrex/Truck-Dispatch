@@ -1,6 +1,6 @@
 // Checks a deployed Truck Dispatch end to end, standalone and under the
 // /truck-dispatch/ prefix: the page loads, its script loads, the seeded
-// Drivers, Trucks, Jobs, Places, Materials and Foremen (seed/fixture.sql) come back, and a day's Assignments can be read.
+// Drivers, Trucks, Jobs, Places, Materials and Foremen (seed/fixture.sql) come back, and a day's Assignments and this week's day states can be read.
 // Read-only: it never adds Assignments.
 //
 //   node scripts/smoke.mjs <base url>
@@ -28,6 +28,18 @@ async function get(path) {
     throw new Error(`${path}: redirected to Cloudflare Access sign-in; set CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET`);
   }
   return response;
+}
+
+/**
+ * The Monday a date's week starts on (weeks run Monday to Sunday), as the
+ * week strip asks for it. A copy of shared/days.ts mondayOf, as this script
+ * runs as plain Node without the app's TypeScript.
+ * @param {string} date YYYY-MM-DD
+ */
+function mondayOf(date) {
+  const day = new Date(`${date}T00:00:00Z`);
+  day.setUTCDate(day.getUTCDate() - ((day.getUTCDay() + 6) % 7));
+  return day.toISOString().slice(0, 10);
 }
 
 /** @param {string} message @returns {never} */
@@ -113,6 +125,17 @@ for (const prefix of ['', '/truck-dispatch']) {
     if (!day.ok) fail(`assignments: ${day.status}`);
     const { assignments } = /** @type {{ assignments: unknown }} */ (await day.json());
     if (!Array.isArray(assignments)) fail('assignments: no list');
+  });
+  await step(`${where}: this week's day states`, async () => {
+    const today = await get(`${prefix}/api/today`);
+    if (!today.ok) fail(`today: ${today.status}`);
+    const monday = mondayOf(/** @type {{ today: string }} */ (await today.json()).today);
+    const week = await get(`${prefix}/api/weeks/${monday}`);
+    if (!week.ok) fail(`weeks/${monday}: ${week.status}`);
+    const { days } = /** @type {{ days: { date: string; state: string }[] }} */ (await week.json());
+    if (!Array.isArray(days) || days.length !== 7) fail(`weeks/${monday}: expected seven days`);
+    if (days[0].date !== monday) fail(`weeks/${monday}: starts on ${days[0].date}`);
+    if (!days.every((d) => ['none', 'draft', 'sent', 'changed'].includes(d.state))) fail(`weeks/${monday}: unknown state`);
   });
 }
 
