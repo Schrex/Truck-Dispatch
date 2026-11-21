@@ -20,6 +20,12 @@ export async function handleApi(request: Request, env: Env, route: string, query
     return json({ today, tomorrow, nextWorkingDay } satisfies BusinessDay);
   }
 
+  const laterOf = /^drivers\/([^/]+)\/later-days$/.exec(route);
+  if (laterOf) {
+    if (reading) return laterDays(env, decodeURIComponent(laterOf[1]));
+    return json({ error: 'method_not_allowed' }, 405, { Allow: 'GET, HEAD' });
+  }
+
   const [list, entryId, ...rest] = route.split('/');
   if (isList(list) && rest.length === 0) return handleList(request, env, list, entryId, query);
 
@@ -44,6 +50,18 @@ export async function handleApi(request: Request, env: Env, route: string, query
 
   if (['health', 'today'].includes(route)) return json({ error: 'method_not_allowed' }, 405, { Allow: 'GET, HEAD' });
   return json({ error: 'not_found' }, 404);
+}
+
+/**
+ * How many days after today a Driver has Assignments on, so Settings can warn
+ * before he is removed that work is still planned for him.
+ */
+async function laterDays(env: Env, driverId: string): Promise<Response> {
+  if (!(await exists(env, 'drivers', driverId))) return json({ error: 'not_found' }, 404);
+  const row = await env.DB.prepare('SELECT COUNT(DISTINCT date) AS days FROM assignments WHERE driver_id = ? AND date > ?')
+    .bind(driverId, clock(env).today)
+    .first<{ days: number }>();
+  return json({ laterDays: row?.days ?? 0 });
 }
 
 /** Each Assignment with the names of its Driver, Truck, Places, Material and Foreman, so the page never has to look them up. */

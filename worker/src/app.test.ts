@@ -364,6 +364,34 @@ describe('Drivers', () => {
   });
 });
 
+describe('a Driver\'s later days', () => {
+  const laterDays = async (id: string) => {
+    const response = await get(`/api/drivers/${id}/later-days`);
+    expect(response.status).toBe(200);
+    return ((await response.json()) as { laterDays: number }).laterDays;
+  };
+
+  it('are none for a Driver with nothing planned', async () => {
+    expect(await laterDays('drv-a')).toBe(0);
+  });
+
+  it('count each day after today with one of his Assignments once, leaving out today, past days and other Drivers', async () => {
+    await add({ date: '2026-11-20', driverId: 'drv-a' });
+    await add({ date: '2026-11-20', driverId: 'drv-a' });
+    await add({ date: '2026-11-23', driverId: 'drv-a' });
+    await add({ date: '2026-11-19', driverId: 'drv-a' });
+    await add({ date: '2026-11-24', driverId: 'drv-b' });
+    await add({ date: '2026-11-24' });
+    await send('POST', '/api/assignments', { date: '2026-11-18', driverId: 'drv-a' }, { NOW: '2026-11-18T15:00:00.000Z' });
+    expect(await laterDays('drv-a')).toBe(2);
+  });
+
+  it('answer 404 for a Driver that does not exist, and only to a read', async () => {
+    expect((await get('/api/drivers/nobody/later-days')).status).toBe(404);
+    expect((await send('POST', '/api/drivers/drv-a/later-days', {})).status).toBe(405);
+  });
+});
+
 describe('Jobs', () => {
   it('list the seeded Jobs by name, with their job number', async () => {
     expect(await list('/api/jobs')).toEqual([
@@ -381,11 +409,19 @@ describe('Jobs', () => {
 });
 
 describe('Places', () => {
-  it('list the seeded Places by short name, with full name, kind and Job, and no geofence code', async () => {
+  it('list the seeded Places by short name, with full name, kind, Job and whether each is on the truck map, and no geofence code', async () => {
     const places = await list('/api/places');
     expect(places.map((p) => p.shortName)).toEqual(['Sample Plant', 'Sample Shop', 'Sample Site North', 'Sample Yard']);
-    expect(places[2]).toEqual({ id: 'plc-north', shortName: 'Sample Site North', fullName: 'Sample Job North site', kind: 'job_site', jobId: 'job-n', active: true });
+    expect(places[2]).toEqual({ id: 'plc-north', shortName: 'Sample Site North', fullName: 'Sample Job North site', kind: 'job_site', jobId: 'job-n', onTruckMap: false, active: true });
+    expect(places.map((p) => p.onTruckMap)).toEqual([true, false, false, false]);
     for (const place of places) expect(Object.keys(place)).not.toContain('geofenceCode');
+  });
+
+  it('are not on the truck map when added, and cannot be put on it from Settings', async () => {
+    const { place } = (await (await post('/api/places', { shortName: 'Sample Pit', onTruckMap: true })).json()) as { place: Entry };
+    expect(place.onTruckMap).toBe(false);
+    const changed = await send('PATCH', `/api/places/${place.id}`, { onTruckMap: true });
+    expect(((await changed.json()) as { place: Entry }).place.onTruckMap).toBe(false);
   });
 
   it('save a short name alone, or with a full name, kind and Job, and clear them', async () => {
@@ -942,7 +978,7 @@ describe('typed Place and Material names', () => {
   it('add a new entry, a Place with no kind, and link to it, on add and on change', async () => {
     const added = await add({ date: '2026-11-20', fromPlaceName: ' Sample Pit ', materialName: 'Sample Fill' });
     expect(added).toMatchObject({ fromPlaceName: 'Sample Pit', materialName: 'Sample Fill' });
-    expect(await list('/api/places')).toContainEqual({ id: added.fromPlaceId, shortName: 'Sample Pit', fullName: null, kind: null, jobId: null, active: true });
+    expect(await list('/api/places')).toContainEqual({ id: added.fromPlaceId, shortName: 'Sample Pit', fullName: null, kind: null, jobId: null, onTruckMap: false, active: true });
     expect(await list('/api/materials')).toContainEqual({ id: added.materialId, name: 'Sample Fill', active: true });
 
     const changed = await change(added.id, { date: '2026-11-20', fromPlaceId: added.fromPlaceId, toPlaceName: 'Sample Dump' });

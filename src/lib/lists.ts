@@ -20,13 +20,16 @@ export const LIST_TITLES: Record<ListName, string> = {
   foremen: 'Foremen',
 };
 
-/** A Place's kind in words, in the order Settings offers them. */
+/** A Place's kind in words. Shop and yard stay apart in the data but read as one. */
 export const PLACE_KIND_LABELS: Record<PlaceKind, string> = {
   plant: 'Plant',
   job_site: 'Job site',
-  shop: 'Shop',
-  yard: 'Yard',
+  shop: 'Shop or yard',
+  yard: 'Shop or yard',
 };
+
+/** The kinds Settings offers, in this order; Shop or yard is saved as shop. */
+export const PLACE_KIND_CHOICES: PlaceKind[] = ['job_site', 'plant', 'shop'];
 
 export function displayName<L extends ListName>(list: L, entry: Lists[L]): string {
   return DISPLAY[list](entry);
