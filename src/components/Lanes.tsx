@@ -1,10 +1,14 @@
-import { User, UserX } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { Plus, User, UserX } from 'lucide-react';
 import type { Assignment, Driver, Truck } from '../../shared/types';
 import { AssignmentBlock } from '@/components/AssignmentBlock';
+import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 
 interface Lane {
   key: string;
+  /** The lane's Driver; null for Unassigned. */
+  driverId: string | null;
   driverName: string | null;
   /** A removed (inactive) Driver keeps a lane only on a day he has work. */
   removed: boolean;
@@ -24,6 +28,7 @@ function lanesOf(assignments: Assignment[], drivers: Driver[] | null, trucks: Tr
   const lanes = new Map<string, Lane>();
   const lane = (key: string, driverName: string, driver?: Driver): Lane => ({
     key,
+    driverId: key,
     driverName,
     removed: driver ? !driver.active : false,
     usualTruck: driver ? truckNumber(driver.defaultTruckId) : null,
@@ -33,7 +38,7 @@ function lanesOf(assignments: Assignment[], drivers: Driver[] | null, trucks: Tr
   for (const driver of drivers ?? []) {
     if (driver.active || working.has(driver.id)) lanes.set(driver.id, lane(driver.id, driver.name, driver));
   }
-  const unassigned: Lane = { key: 'unassigned', driverName: null, removed: false, usualTruck: null, assignments: [] };
+  const unassigned: Lane = { key: 'unassigned', driverId: null, driverName: null, removed: false, usualTruck: null, assignments: [] };
   for (const assignment of assignments) {
     if (!assignment.driverId) {
       unassigned.assignments.push(assignment);
@@ -48,7 +53,10 @@ function lanesOf(assignments: Assignment[], drivers: Driver[] | null, trucks: Tr
 /**
  * The Dispatch board's lanes: each Driver's name and usual Truck, then his
  * Assignments as blocks in the order Dave set, marked First and Then. Blocks
- * open their Assignment through onEdit; without it the lanes are read-only.
+ * open their Assignment through onEdit; with onAdd each lane but a removed
+ * Driver's has a + that asks for the composer, which the lane named by
+ * composingFor (a Driver's id, or null for Unassigned) shows under its
+ * Driver. Without them the lanes are read-only.
  * On a phone a lane's blocks stack under the Driver; from an iPad in portrait
  * up, the Driver sits on the left and the blocks run beside him.
  */
@@ -57,38 +65,63 @@ export function Lanes({
   drivers,
   trucks,
   onEdit,
+  onAdd,
+  composingFor,
+  composer,
 }: {
   assignments: Assignment[];
   drivers: Driver[] | null;
   trucks: Truck[] | null;
   onEdit?: (assignment: Assignment) => void;
+  onAdd?: (driverId: string | null) => void;
+  /** Which lane the composer is open in; undefined when it is closed. */
+  composingFor?: string | null;
+  composer?: ReactNode;
 }) {
   return (
     <div className="space-y-3">
       {lanesOf(assignments, drivers, trucks).map((lane) => {
         const about = [lane.removed && 'Removed', lane.usualTruck && `Truck ${lane.usualTruck}`].filter(Boolean).join(' · ');
+        const name = lane.driverName ?? 'Unassigned';
         return (
-          <Card key={lane.key} role="article" aria-labelledby={`lane-${lane.key}`} className="flex flex-col gap-3 p-4 md:flex-row md:items-start">
-            <div className="md:w-44 md:shrink-0">
-              <h3 id={`lane-${lane.key}`} className="flex items-center gap-2 font-display text-lg font-semibold uppercase tracking-wide">
-                {lane.driverName ? <User className="h-4 w-4 shrink-0 text-muted-foreground" /> : <UserX className="h-4 w-4 shrink-0 text-muted-foreground" />}
-                {lane.driverName ?? 'Unassigned'}
-              </h3>
-              {about && (
-                <p data-lane-about className="text-sm text-muted-foreground">
-                  {about}
-                </p>
+          <Card key={lane.key} role="article" aria-labelledby={`lane-${lane.key}`} className="space-y-3 p-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start">
+              <div className="flex items-start justify-between gap-2 md:w-44 md:shrink-0">
+                <div>
+                  <h3 id={`lane-${lane.key}`} className="flex items-center gap-2 font-display text-lg font-semibold uppercase tracking-wide">
+                    {lane.driverName ? <User className="h-4 w-4 shrink-0 text-muted-foreground" /> : <UserX className="h-4 w-4 shrink-0 text-muted-foreground" />}
+                    {name}
+                  </h3>
+                  {about && (
+                    <p data-lane-about className="text-sm text-muted-foreground">
+                      {about}
+                    </p>
+                  )}
+                </div>
+                {onAdd && !lane.removed && (
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    aria-label={`Add an Assignment for ${name}`}
+                    aria-expanded={composingFor === lane.driverId}
+                    className="h-11 w-11 shrink-0 rounded-full"
+                    onClick={() => onAdd(lane.driverId)}
+                  >
+                    <Plus className="h-5 w-5" />
+                  </Button>
+                )}
+              </div>
+              {lane.assignments.length === 0 ? (
+                <p className="py-2 text-sm text-muted-foreground md:flex-1">Nothing planned yet</p>
+              ) : (
+                <ol className="grid gap-2 sm:grid-cols-2 md:flex-1 lg:grid-cols-3">
+                  {lane.assignments.map((assignment, i) => (
+                    <AssignmentBlock key={assignment.id} assignment={assignment} first={i === 0} usualTruck={lane.usualTruck} onEdit={onEdit} />
+                  ))}
+                </ol>
               )}
             </div>
-            {lane.assignments.length === 0 ? (
-              <p className="py-2 text-sm text-muted-foreground md:flex-1">Nothing planned yet</p>
-            ) : (
-              <ol className="grid gap-2 sm:grid-cols-2 md:flex-1 lg:grid-cols-3">
-                {lane.assignments.map((assignment, i) => (
-                  <AssignmentBlock key={assignment.id} assignment={assignment} first={i === 0} usualTruck={lane.usualTruck} onEdit={onEdit} />
-                ))}
-              </ol>
-            )}
+            {composingFor === lane.driverId && composer}
           </Card>
         );
       })}

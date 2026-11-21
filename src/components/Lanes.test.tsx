@@ -97,6 +97,25 @@ describe('Lanes', () => {
     expect(screen.queryByRole('article', { name: 'Sample Driver X' })).toBeNull();
   });
 
+  it('offers a + on every lane but a removed Driver\'s, naming whose lane it adds to, and opens the composer in the lane it names', () => {
+    const onAdd = vi.fn();
+    const { rerender } = render(
+      <Lanes assignments={[assignment({ ...x, note: 'Haul stone' })]} drivers={drivers} trucks={trucks} onAdd={onAdd} composer={<p>The composer</p>} />,
+    );
+    expect(screen.getAllByRole('button', { name: /^Add an Assignment/ }).map((add) => add.getAttribute('aria-label'))).toEqual([
+      'Add an Assignment for Sample Driver A',
+      'Add an Assignment for Sample Driver B',
+      'Add an Assignment for Unassigned',
+    ]);
+    expect(screen.queryByText('The composer')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Add an Assignment for Unassigned' }));
+    expect(onAdd).toHaveBeenCalledWith(null);
+
+    rerender(<Lanes assignments={[]} drivers={drivers} trucks={trucks} onAdd={onAdd} composingFor="drv-b" composer={<p>The composer</p>} />);
+    expect(within(screen.getByRole('article', { name: 'Sample Driver B' })).getByText('The composer')).toBeTruthy();
+    expect(screen.getAllByText('The composer')).toHaveLength(1);
+  });
+
   it('still shows every Assignment, by its Driver\'s name, while the Drivers have not loaded', () => {
     render(<Lanes assignments={[assignment({ ...b, note: 'Fill the shop' })]} drivers={null} trucks={null} />);
     expect(lanes()).toEqual([
