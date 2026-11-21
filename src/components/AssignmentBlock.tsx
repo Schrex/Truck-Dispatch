@@ -43,6 +43,9 @@ const MARKS: Record<Exclude<SinceSent, null>, { word: string; className: string 
   added: { word: 'Added', className: 'bg-success text-success-foreground' },
 };
 
+/** The mark on a cancelled block, in place of Changed: greyed like the block itself. */
+const CANCELLED = { word: 'Cancelled', className: 'bg-muted text-muted-foreground' };
+
 /**
  * One Assignment as a block in its lane, marked First (the first in the lane)
  * or Then. It reads "From → To" (or the one Place set), or its note when it
@@ -54,7 +57,8 @@ const MARKS: Record<Exclude<SinceSent, null>, { word: string; className: string 
  * with none named the Driver takes his own, so his usual Truck shows in grey, read aloud as "(his own)", or
  * nothing when he has none. Once its day is Sent, a block Changed or Added
  * since is marked so beside First or Then, so Dave sees what the Drivers
- * have had changed. With onEdit (today and later days) tapping the block
+ * have had changed. A cancelled one stays in its place, struck through and
+ * greyed, marked Cancelled (rather than Changed), as the Driver sees it. With onEdit (today and later days) tapping the block
  * opens or closes the Assignment in its lane; without it (past days) it is plain.
  */
 export function AssignmentBlock({
@@ -98,7 +102,7 @@ export function AssignmentBlock({
       .filter((part) => part && !part.hisOwn)
       .map((part) => part?.words)
       .join(' · ') || 'No details yet';
-  const mark = assignment.sinceSent ? MARKS[assignment.sinceSent] : null;
+  const mark = assignment.cancelledAt ? CANCELLED : assignment.sinceSent ? MARKS[assignment.sinceSent] : null;
 
   const body = (
     <>
@@ -112,11 +116,13 @@ export function AssignmentBlock({
         )}
       </span>
       {SEPARATOR}
-      <span className={cn('block whitespace-pre-line font-medium', !title && 'font-normal text-muted-foreground')}>{title?.shown ?? 'No details yet'}</span>
+      <span className={cn('block whitespace-pre-line font-medium', !title && 'font-normal text-muted-foreground', assignment.cancelledAt && 'line-through')}>
+        {title?.shown ?? 'No details yet'}
+      </span>
       {details.length > 0 && (
         <>
           {SEPARATOR}
-          <span className="mt-0.5 block whitespace-pre-line text-muted-foreground">
+          <span className={cn('mt-0.5 block whitespace-pre-line text-muted-foreground', assignment.cancelledAt && 'line-through')}>
             {details.map((part, i) => (
               <span key={i}>
                 {i > 0 && ' · '}
@@ -128,7 +134,7 @@ export function AssignmentBlock({
       )}
     </>
   );
-  const frame = 'block w-full rounded-md border bg-background px-3 py-2 text-left text-sm shadow-sm';
+  const frame = cn('block w-full rounded-md border bg-background px-3 py-2 text-left text-sm shadow-sm', assignment.cancelledAt && 'line-through opacity-60');
   if (!onEdit) return <li className={frame}>{body}</li>;
   return (
     <li>

@@ -8,6 +8,7 @@ import { afterSave, Composer, EMPTY_DRAFT, type Draft } from '@/components/Compo
 import { Lanes } from '@/components/Lanes';
 import { DayNavigation, daySubtitle } from '@/components/DayNavigation';
 import { DaySend } from '@/components/DaySend';
+import { TakeOff } from '@/components/TakeOff';
 import { PageHeader } from '@/components/PageHeader';
 import { WeekStrip } from '@/components/WeekStrip';
 import { Button } from '@/components/ui/button';
@@ -112,17 +113,24 @@ export function BoardPage() {
   };
   const reload = () => setReloads((n) => n + 1);
   /**
-   * Shows Assignments as the Worker answered a change or a move, without
-   * reading the day again (which would close the open one): each replaces
-   * itself, then the day is put back in lane order by position, ties kept in
-   * the order they were read.
+   * Shows Assignments as the Worker answered a change, a move, a cancel or a
+   * Put back, without reading the day again (which would close the open
+   * one): each replaces itself, one the day does not have yet (the copy a Sent
+   * day's new Driver gets) joins it, then the day is put back in lane order
+   * by position, ties kept in the order they were read.
    */
   const changed = (answered: Assignment[]) =>
     setAssignments((day) => {
       if (!day) return day;
       const byId = new Map(answered.map((a) => [a.id, a]));
-      return day.map((a) => byId.get(a.id) ?? a).sort((x, y) => x.position - y.position);
+      const added = answered.filter((a) => !day.some((d) => d.id === a.id));
+      return [...day.map((a) => byId.get(a.id) ?? a), ...added].sort((x, y) => x.position - y.position);
     });
+  /** An Assignment ✕ deleted (on a Draft day) leaves the day, and its editor closes. */
+  const deleted = (id: string) => {
+    setOpenId(null);
+    setAssignments((day) => day && day.filter((a) => a.id !== id));
+  };
   // The day on screen as last read or Sent: each time it changes (an add, a Send, any change), the week strip reads its states again.
   const dayShown = useMemo(() => (assignments ? { assignments, sentAt } : null), [assignments, sentAt]);
   const closeComposer = () => {
@@ -213,9 +221,14 @@ export function BoardPage() {
                 lists={{ drivers, trucks, places, materials, foremen }}
                 first={first}
                 last={last}
-                onSaved={(saved) => changed([saved])}
+                onSaved={({ assignment: saved, cancelled }) => {
+                  changed(cancelled ? [cancelled, saved] : [saved]);
+                  // On a Sent day a new Driver's copy is the one now open, in his lane.
+                  setOpenId(saved.id);
+                }}
                 onMoved={changed}
                 onClose={() => setOpenId(null)}
+                actions={<TakeOff assignment={assignment} sent={sentAt !== null} onDeleted={deleted} onChanged={(a) => changed([a])} />}
               />
             )}
             onAdd={editable ? setComposingFor : undefined}

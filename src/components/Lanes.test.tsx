@@ -26,6 +26,7 @@ const assignment = (fields: Partial<Assignment>): Assignment => ({
   createdAt: '2026-11-19T20:00:00.000Z',
   updatedAt: '2026-11-19T20:00:00.000Z',
   changedAt: null,
+  cancelledAt: null,
   sinceSent: null,
   ...fields,
 });

@@ -1,4 +1,4 @@
-import type { Assignment, AssignmentChange, BusinessDay, Day, EntryFields, ListName, Lists, NewAssignment, OrderedList, TypedNames, WeekDay } from '../../shared/types';
+import type { Assignment, AssignmentChange, BusinessDay, ChangedAssignment, Day, EntryFields, ListName, Lists, NewAssignment, OrderedList, TypedNames, WeekDay } from '../../shared/types';
 import { basePath } from './basePath';
 
 // Every call starts at the base path the page was reached under: /api/...
@@ -97,9 +97,13 @@ export async function addAssignment(assignment: NewAssignment & TypedNames): Pro
   ).assignment;
 }
 
-/** Changes only the fields given; the rest of the Assignment stays as it is. */
-export async function changeAssignment(id: string, changes: AssignmentChange): Promise<Assignment> {
-  return (await request<{ assignment: Assignment }>(`api/assignments/${encodeURIComponent(id)}`, json('PATCH', changes))).assignment;
+/**
+ * Changes only the fields given; the rest of the Assignment stays as it is.
+ * On a Sent day a new Driver answers the copy added in his lane and the
+ * first one, cancelled.
+ */
+export function changeAssignment(id: string, changes: AssignmentChange): Promise<ChangedAssignment> {
+  return request<ChangedAssignment>(`api/assignments/${encodeURIComponent(id)}`, json('PATCH', changes));
 }
 
 /**
@@ -126,6 +130,16 @@ export async function copyTodayOnto(to: string): Promise<Assignment[]> {
   ).assignments;
 }
 
-export async function deleteAssignment(id: string): Promise<void> {
-  await request(`api/assignments/${encodeURIComponent(id)}`, { method: 'DELETE' });
+/**
+ * ✕: the Worker deletes the Assignment on a Draft day (answers null) and
+ * cancels it on a Sent day (answers it, cancelled and kept in its place).
+ */
+export async function takeOffAssignment(id: string): Promise<Assignment | null> {
+  // A delete answers 204 with no body, read as an empty answer.
+  return (await request<{ assignment?: Assignment }>(`api/assignments/${encodeURIComponent(id)}`, { method: 'DELETE' })).assignment ?? null;
+}
+
+/** Put back: a cancelled Assignment is no longer cancelled. Answers it. */
+export async function putBackAssignment(id: string): Promise<Assignment> {
+  return (await request<{ assignment: Assignment }>(`api/assignments/${encodeURIComponent(id)}/put-back`, { method: 'POST' })).assignment;
 }
