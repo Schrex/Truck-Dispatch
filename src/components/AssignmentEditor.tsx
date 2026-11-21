@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { changeAssignment, FieldErrors, moveAssignment, Refused } from '@/lib/api';
-import { cn } from '@/lib/utils';
+import { cancelledText, cn } from '@/lib/utils';
 
 /** Every entry of each list, inactive ones included, so a part that uses one still shows it; null while loading. */
 export interface EditorLists {
@@ -161,8 +161,8 @@ export function AssignmentEditor({
       .join(' ');
     return (
       <section aria-label="Open Assignment" className="space-y-4 rounded-md border bg-background p-4 shadow-sm">
-        <p className="text-base text-muted-foreground line-through">{sentence}</p>
-        {assignment.note && <p className="whitespace-pre-line text-sm text-muted-foreground line-through">{assignment.note}</p>}
+        <p className={cn('text-base', cancelledText)}>{sentence}</p>
+        {assignment.note && <p className={cn('whitespace-pre-line text-sm', cancelledText)}>{assignment.note}</p>}
         <p className="text-sm">Cancelled: the Driver is told it is off his day. Put it back to change it.</p>
         <div data-actions className="flex flex-wrap items-center justify-end gap-2">
           {actions}

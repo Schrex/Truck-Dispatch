@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import type { Assignment, SinceSent } from '../../shared/types';
 import { foremanSite } from '@/lib/lists';
-import { cn } from '@/lib/utils';
+import { cancelledText, cn } from '@/lib/utils';
 
 /**
  * Read aloud and in tests the parts of a block run together as one line
@@ -116,13 +116,13 @@ export function AssignmentBlock({
         )}
       </span>
       {SEPARATOR}
-      <span className={cn('block whitespace-pre-line font-medium', !title && 'font-normal text-muted-foreground', assignment.cancelledAt && 'line-through')}>
+      <span className={cn('block whitespace-pre-line font-medium', !title && 'font-normal text-muted-foreground', assignment.cancelledAt && cancelledText)}>
         {title?.shown ?? 'No details yet'}
       </span>
       {details.length > 0 && (
         <>
           {SEPARATOR}
-          <span className={cn('mt-0.5 block whitespace-pre-line text-muted-foreground', assignment.cancelledAt && 'line-through')}>
+          <span className={cn('mt-0.5 block whitespace-pre-line text-muted-foreground', assignment.cancelledAt && cancelledText)}>
             {details.map((part, i) => (
               <span key={i}>
                 {i > 0 && ' · '}
@@ -134,7 +134,7 @@ export function AssignmentBlock({
       )}
     </>
   );
-  const frame = cn('block w-full rounded-md border bg-background px-3 py-2 text-left text-sm shadow-sm', assignment.cancelledAt && 'line-through opacity-60');
+  const frame = cn('block w-full rounded-md border bg-background px-3 py-2 text-left text-sm shadow-sm', assignment.cancelledAt && [cancelledText, 'opacity-60']);
   if (!onEdit) return <li className={frame}>{body}</li>;
   return (
     <li>
