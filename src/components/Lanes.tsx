@@ -85,7 +85,7 @@ export function Lanes({
             ) : (
               <ol className="grid gap-2 sm:grid-cols-2 md:flex-1 lg:grid-cols-3">
                 {lane.assignments.map((assignment, i) => (
-                  <AssignmentBlock key={assignment.id} assignment={assignment} first={i === 0} onEdit={onEdit} />
+                  <AssignmentBlock key={assignment.id} assignment={assignment} first={i === 0} usualTruck={lane.usualTruck} onEdit={onEdit} />
                 ))}
               </ol>
             )}
