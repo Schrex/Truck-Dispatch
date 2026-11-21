@@ -47,6 +47,11 @@ export async function changeEntry<L extends ListName>(list: L, id: string, field
   return Object.values(await request<Record<string, Lists[L]>>(`api/${list}/${encodeURIComponent(id)}`, json('PATCH', fields)))[0];
 }
 
+/** How many days after today hold one of the Driver's Assignments, to warn before he is removed. */
+export async function fetchLaterDays(driverId: string): Promise<number> {
+  return (await request<{ laterDays: number }>(`api/drivers/${encodeURIComponent(driverId)}/later-days`)).laterDays;
+}
+
 function json(method: string, body: unknown): RequestInit {
   return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
 }
