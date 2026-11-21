@@ -38,6 +38,16 @@ _Avoid_: project lead, super
 A Driver's walk-around check of a Truck before taking it out that day, item by item, with what needs repair. It is the official record of the Truck's condition: once made it is never changed, only followed by a newer one.
 _Avoid_: truck check, pre-trip, DVIR (in the app)
 
+**Inspection item**:
+One line of the Inspection checklist ("Lights", "Air leaks / brake pressure"), answered OK, Needs repair or N/A. The checklist is kept in Settings; an Inspection keeps each item's wording as it was that day.
+
+**Ticket**:
+The paper a plant or supplier gives the Driver for one Load. The Driver photographs it; nobody types its numbers.
+
+**Truck log**:
+The finished record of one Truck for one day: who drove it, its Inspection, its Trips and Loads with their Tickets, its miles and hours, and the sign-offs. Built from what the Truck, the Driver and Dave recorded; nobody types it.
+_Avoid_: daily log, timesheet
+
 **Truck problem**:
 Something wrong with a Truck that a Driver reports during the day. It stays open until Dave marks it fixed.
 _Avoid_: issue, defect, breakdown

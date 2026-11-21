@@ -103,3 +103,57 @@ The schema for all four is designed now; each phase migrates only its own tables
 - **Same people in two apps.** The Daily Schedule already has these Drivers (Crew Type Trucking), Off Work, Jobs and Foremen. The apps stay separate (ADR-0001). Once both are in the Hub, trucking should read the Daily Schedule's Sent day and grey out Drivers who are Off Work.
 - **Inspection is the official record.** Append-only, item by item, with repairs, Driver, Truck and time; a sign-off is its own signed row and a fix adds a new version. To be confirmed with whoever owns DOT compliance.
 - **Truck problems** show on the Driver's lane and on that Truck in the composer until Dave marks them fixed. No Slack or texts.
+
+## Phases 2 to 4
+- **Inspection checklist** is a list in Settings (add, rename, reorder, inactive, optional). Each item is answered OK, Needs repair or N/A; an Inspection keeps each item's wording. No truck types.
+- **Needs repair** opens a Truck problem, shown to Dave until he marks it fixed. The app never grounds a Truck (to confirm with DOT compliance).
+- **Who answers the trip log.** At sign-off the Driver puts each Ticket on its Load and confirms his Trips. Dave answers the rest next morning: Trips with no Assignment (make one, link one, not a haul), "Who was driving?", Assignments with no Trips. The day is finished when both have.
+- **Trips** come from HCSS Fleet place enter/leave events, pulled by the Worker every 10 minutes 4 AM to 8 PM Eastern, kept raw and paired into Trips. The Driver is whoever last inspected that Truck before the Trip; a Trip from an Assignment's From to its To is a Load, the way back is empty.
+- **Tickets** are a photo (R2) on a Load, with empty ticket number, quantity and unit for reading later (from the photo or Jeri's stone matching). The Driver never types numbers.
+- **The finished day** is a read-only Truck log page per Truck per day plus CSV. Pushing to HeavyJob or payroll is a later decision. After 9 AM next day the Driver's part is locked.
+- **Miles and engine hours** are the 4 AM HCSS Fleet readings around the day, read with this app's own token and stored per Truck.
+
+## Reconciled while writing the schema
+- ✕ (Q4a) **deletes only on a Draft day**; on a Sent day, past or future, it cancels, so a Driver who has seen an Assignment sees it cancelled rather than gone.
+
+## Target schema (v2)
+
+Existing tables keep their columns; everything below is added (migrations only add). `orders` is unused and is dropped in a later release.
+
+### Phase 1: planning
+```
+assignments   + position INTEGER NOT NULL DEFAULT 0   order within (date, driver_id); Unassigned too
+              + cancelled_at TEXT                     set by ✕ on a Sent day; row kept
+              truck_id now means "a certain truck"; NULL = his own
+day_sends     date PK, sent_at, sent_by?              one row per Sent day; Changed = updated_at or cancelled_at after sent_at
+drivers       + sort_order INTEGER                     lane order
+places        + sort_order INTEGER, + usual_foreman_id → foremen
+materials     + sort_order INTEGER
+```
+
+### Phase 2: truck check-in
+```
+inspection_items   id, label, optional 0/1, sort_order, active
+inspections        id, date, driver_id, truck_id, done_at          append-only
+inspection_answers inspection_id, position, item_id, label (copied), answer ok|repair|na, repair_note
+truck_problems     id, truck_id, reported_by_driver_id, reported_at, text,
+                   inspection_id? (when it came from an Inspection), fixed_at?, fixed_note?
+```
+
+### Phase 3: trips
+```
+fleet_events    id, truck_id, hcss_event_id UNIQUE, geofence_code, place_id?, kind enter|leave, at, odometer?   raw
+trips           id, truck_id, date, from_place_id?, to_place_id?, left_at, arrived_at, miles?,
+                driver_id?, driver_from inspection|dave,
+                assignment_id?, kind load|empty|not_a_haul|NULL, answered_at?
+meter_readings  truck_id, read_at, odometer, engine_hours   PK (truck_id, read_at)
+```
+An Assignment's Now / Done / "since" are worked out from its Trips, not stored.
+
+### Phase 4: tickets and sign-off
+```
+tickets    id, date, driver_id, truck_id, trip_id? (its Load), photo_key (R2), taken_at,
+           ticket_number?, quantity?, unit?, read_by photo|stone_matching|NULL
+sign_offs  id, date, truck_id, who driver|dave, driver_id?, repairs?, signed_at, version   append-only; latest version counts, Driver's locks 9 AM next day
+```
+The Truck log is a page built from these; it has no table of its own.
