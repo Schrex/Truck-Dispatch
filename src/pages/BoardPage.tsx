@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Copy, Loader2, Settings } from 'lucide-react';
+import { Loader2, Settings } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import type { Assignment, BusinessDay, Driver, Foreman, Material, Place, Truck } from '../../shared/types';
 import { isCalendarDate } from '../../shared/days';
@@ -7,14 +7,14 @@ import { AssignmentEditor } from '@/components/AssignmentEditor';
 import { afterSave, Composer, EMPTY_DRAFT, type Draft } from '@/components/Composer';
 import { Lanes } from '@/components/Lanes';
 import { DayNavigation, daySubtitle } from '@/components/DayNavigation';
+import { DayCopy } from '@/components/DayCopy';
 import { DaySend } from '@/components/DaySend';
 import { TakeOff } from '@/components/TakeOff';
 import { PageHeader } from '@/components/PageHeader';
 import { WeekStrip } from '@/components/WeekStrip';
 import { ViewToggle } from '@/components/ViewToggle';
 import { Button } from '@/components/ui/button';
-import { toast } from '@/components/ui/sonner';
-import { copyTodayOnto, fetchBusinessDay, fetchDay, fetchList, FieldErrors, Refused } from '@/lib/api';
+import { fetchBusinessDay, fetchDay, fetchList } from '@/lib/api';
 
 /**
  * The Dispatch board: one day's Assignments, one lane per Driver. The day on
@@ -54,9 +54,6 @@ export function BoardPage() {
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   // Until the Worker says which day is today, nothing on the Board can be changed.
   const editable = Boolean(date && businessDay && date >= businessDay.today);
-  // Copy today brings today's plan onto a later day.
-  const canCopyToday = Boolean(date && businessDay && date > businessDay.today);
-  const [copying, setCopying] = useState(false);
 
   const show = useCallback((day: string) => setSearch({ date: day }), [setSearch]);
 
@@ -140,26 +137,6 @@ export function BoardPage() {
   };
   const composerLane = composingFor === undefined ? undefined : drivers?.find((driver) => driver.id === composingFor);
 
-  async function copyToday() {
-    if (!date || !businessDay) return;
-    setCopying(true);
-    try {
-      const copies = await copyTodayOnto(date);
-      if (copies.length === 0) toast.info('Today has no Assignments to copy');
-      else {
-        toast.success(`Copied ${copies.length} Assignment${copies.length === 1 ? '' : 's'} from today`);
-        reload();
-      }
-    } catch (error) {
-      // The Worker's own message when it gave one, e.g. the day is now before today.
-      if (error instanceof FieldErrors) toast.error(Object.values(error.fields).join(' '));
-      else if (error instanceof Refused) toast.error(error.message);
-      else toast.error('Could not copy today');
-    } finally {
-      setCopying(false);
-    }
-  }
-
   return (
     <div className="min-h-screen bg-surface">
       <PageHeader
@@ -170,11 +147,6 @@ export function BoardPage() {
         <ViewToggle current="scheduler" />
         <DayNavigation date={date} nextWorkingDay={businessDay?.nextWorkingDay ?? null} onShow={show} />
         {date && <DaySend date={date} assignments={assignments} sentAt={sentAt} editable={editable} onSent={setSentAt} />}
-        {canCopyToday && (
-          <Button variant="outline" size="lg" className="px-5" disabled={copying} onClick={copyToday}>
-            {copying ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />} Copy today
-          </Button>
-        )}
         <Button asChild variant="outline" size="lg" className="px-5">
           <Link to="/settings">
             <Settings className="h-4 w-4" /> Settings
@@ -203,11 +175,16 @@ export function BoardPage() {
             <Loader2 className="h-4 w-4 animate-spin" /> Loading Assignments…
           </p>
         )}
-        {assignments?.length === 0 && (
-          <p className="text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">No Assignments for this day</span>
-            {editable && <span>. Use + on a lane to plan the day.</span>}
-          </p>
+        {date && assignments && (
+          <DayCopy
+            key={date}
+            date={date}
+            assignments={assignments}
+            businessDay={businessDay}
+            onStarted={setAssignments}
+            onRefused={reload}
+            onCopied={show}
+          />
         )}
         {assignments && (
           <Lanes

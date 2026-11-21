@@ -197,6 +197,17 @@ export interface Day {
 }
 
 /**
+ * What Start from or Copy to answers: the day copied, the day it was copied
+ * onto, and that day's Assignments as they now are (all of them copies, as a
+ * copy is made only onto an empty day).
+ */
+export interface CopiedDay {
+  from: string;
+  to: string;
+  assignments: Assignment[];
+}
+
+/**
  * What a Changed Assignment's fields the Driver reads were when its day was
  * Sent ("was Cobblestone"): only those that differ now, each with the name it
  * had then; null when it was empty (for the Truck, his own).

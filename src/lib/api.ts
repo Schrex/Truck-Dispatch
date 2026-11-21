@@ -1,4 +1,4 @@
-import type { Assignment, AssignmentChange, BusinessDay, ChangedAssignment, Day, DriverDay, EntryFields, ListName, Lists, NewAssignment, OrderedList, TypedNames, WeekDay } from '../../shared/types';
+import type { Assignment, AssignmentChange, BusinessDay, ChangedAssignment, CopiedDay, Day, DriverDay, EntryFields, ListName, Lists, NewAssignment, OrderedList, TypedNames, WeekDay } from '../../shared/types';
 import { basePath } from './basePath';
 
 // Every call starts at the base path the page was reached under: /api/...
@@ -115,19 +115,23 @@ export async function moveAssignment(id: string, direction: 'earlier' | 'later')
   return (await request<{ assignments: Assignment[] }>(`api/assignments/${encodeURIComponent(id)}/move`, json('POST', { direction }))).assignments;
 }
 
+/** The day Start from on `date` would copy: the latest earlier day with Assignments, or null when there is none. */
+export async function fetchStartFrom(date: string): Promise<string | null> {
+  return (await request<{ from: string | null }>(`api/days/${encodeURIComponent(date)}/start-from`)).from;
+}
+
 /**
- * Copies every Assignment on today onto a later day, notes left empty; answers
- * the new ones. The Worker decides which day is today, so a page left open past
- * midnight still copies the real today.
+ * Start from: the Worker copies the latest earlier day with Assignments onto
+ * this empty day, notes and cancelled ones left behind. Refused once the day
+ * has Assignments, so a copy never adds to work.
  */
-export async function copyTodayOnto(to: string): Promise<Assignment[]> {
-  return (
-    await request<{ assignments: Assignment[] }>('api/assignments/copy', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ to }),
-    })
-  ).assignments;
+export function startDayFrom(date: string): Promise<CopiedDay> {
+  return request<CopiedDay>(`api/days/${encodeURIComponent(date)}/start-from`, { method: 'POST' });
+}
+
+/** Copy to: the Worker copies a day onto another that is still empty, by the same rules as Start from. */
+export function copyDayTo(from: string, to: string): Promise<CopiedDay> {
+  return request<CopiedDay>(`api/days/${encodeURIComponent(from)}/copy-to`, json('POST', { to }));
 }
 
 /**

@@ -4,7 +4,7 @@ import { json, readJson, refuse, text } from './http';
 import { exists, handleList, isList, listOrder } from './lists';
 import { checkTyped, saveLinked, typedIn, type Typed } from './typedNames';
 import { addDays, dayState, holidayName, isCalendarDate, mondayOf, sinceSent, unassignedOn, weekDates } from '../../shared/days';
-import type { Assignment, BusinessDay, Day, DriverAssignment, DriverDay, ListName, NewAssignment, TypedNames, Was, Week } from '../../shared/types';
+import type { Assignment, BusinessDay, CopiedDay, Day, DriverAssignment, DriverDay, ListName, NewAssignment, TypedNames, Was, Week } from '../../shared/types';
 
 /** The JSON API under /api/ (or /truck-dispatch/api/). */
 export async function handleApi(request: Request, env: Env, route: string, query: URLSearchParams): Promise<Response> {
@@ -38,6 +38,20 @@ export async function handleApi(request: Request, env: Env, route: string, query
     return json({ error: 'method_not_allowed' }, 405, { Allow: 'POST' });
   }
 
+  const startingFrom = /^days\/([^/]+)\/start-from$/.exec(route);
+  if (startingFrom) {
+    const date = decodeURIComponent(startingFrom[1]);
+    if (reading) return readStartFrom(env, date);
+    if (method === 'POST') return startFrom(env, date);
+    return json({ error: 'method_not_allowed' }, 405, { Allow: 'GET, HEAD, POST' });
+  }
+
+  const copyingTo = /^days\/([^/]+)\/copy-to$/.exec(route);
+  if (copyingTo) {
+    if (method === 'POST') return copyTo(request, env, decodeURIComponent(copyingTo[1]));
+    return json({ error: 'method_not_allowed' }, 405, { Allow: 'POST' });
+  }
+
   const weekOf = /^weeks\/([^/]+)$/.exec(route);
   if (weekOf) {
     if (reading) return readWeek(env, decodeURIComponent(weekOf[1]));
@@ -51,11 +65,6 @@ export async function handleApi(request: Request, env: Env, route: string, query
     if (reading) return readDay(env, query.get('date'));
     if (method === 'POST') return addAssignment(request, env);
     return json({ error: 'method_not_allowed' }, 405, { Allow: 'GET, HEAD, POST' });
-  }
-
-  if (route === 'assignments/copy') {
-    if (method === 'POST') return copyDay(request, env);
-    return json({ error: 'method_not_allowed' }, 405, { Allow: 'POST' });
   }
 
   const moving = /^assignments\/([^/]+)\/move$/.exec(route);
@@ -246,53 +255,97 @@ async function sendDay(env: Env, date: string): Promise<Response> {
 }
 
 /**
- * Columns a copy does not take from its source: a copy is a new Assignment on
- * another day, with an empty note, not changed or cancelled. Every other column,
- * including any a later migration adds, is copied as it is (an inactive entry
- * stays on the copy).
+ * The columns a copy takes from its source, each an entry of a list: kept
+ * only while that entry is active, so a copy holds only what exists now (a
+ * removed Driver's work goes to Unassigned). Named rather than skipped, so a
+ * column a later migration adds is never copied by accident. The note, the
+ * times and whether it was cancelled are not copied; the position is new.
  */
-const NOT_COPIED = new Set(['id', 'date', 'note', 'created_at', 'updated_at', 'changed_at', 'cancelled_at']);
+const COPIED = [
+  { column: 'driver_id', table: 'drivers' },
+  { column: 'truck_id', table: 'trucks' },
+  { column: 'from_place_id', table: 'places' },
+  { column: 'to_place_id', table: 'places' },
+  { column: 'material_id', table: 'materials' },
+  { column: 'foreman_id', table: 'foremen' },
+] as const;
 
 /**
- * Copies every Assignment on today (by the Worker's clock, never a day the
- * page sends) onto a later day, adding to what that day already has; today's
- * cancelled ones are left behind, so a call-off is not planned again. Answers
- * the new Assignments, in the order a day is read.
+ * The latest day before `date` that has Assignments to copy, or null when
+ * there is none. Cancelled ones are left out: a copy leaves them behind, so a
+ * day of only call-offs has nothing to start from.
  */
-async function copyDay(request: Request, env: Env): Promise<Response> {
+async function latestEarlierDay(env: Env, date: string): Promise<string | null> {
+  const row = await env.DB.prepare('SELECT MAX(date) AS date FROM assignments WHERE date < ? AND cancelled_at IS NULL')
+    .bind(date)
+    .first<{ date: string | null }>();
+  return row?.date ?? null;
+}
+
+/** The day Start from on `date` would copy, so the page can name it on the button. */
+async function readStartFrom(env: Env, date: string): Promise<Response> {
+  if (!isCalendarDate(date)) return refuse({ date: 'Pick a date.' });
+  return json({ from: await latestEarlierDay(env, date) });
+}
+
+/** Start from: copies the latest earlier day that has Assignments onto an empty day. */
+async function startFrom(env: Env, date: string): Promise<Response> {
+  if (!isCalendarDate(date)) return refuse({ date: 'Pick a day to start.' });
+  if (isPast(env, date)) return refuse({ date: PAST_DATE });
+  const from = await latestEarlierDay(env, date);
+  if (!from) return json({ error: 'nothing_to_copy', message: 'No earlier day has Assignments to start from.' }, 409);
+  return copyOnto(env, from, date);
+}
+
+/** Copy to: copies a day (a past one, on the Board) onto another day that is still empty, the next Working day on the Board. */
+async function copyTo(request: Request, env: Env, from: string): Promise<Response> {
   const body = await readJson<{ to?: unknown }>(request);
   if (body instanceof Response) return body;
-  const { today: from, now } = clock(env);
+  if (!isCalendarDate(from)) return refuse({ date: 'Pick a day to copy.' });
   const to = body.to;
   if (!isCalendarDate(to)) return refuse({ to: 'Pick a day to copy onto.' });
-  if (to < from) return refuse({ to: PAST_DATE });
-  if (to === from) return refuse({ to: 'Today cannot be copied onto itself. Pick a later day.' });
+  if (isPast(env, to)) return refuse({ to: PAST_DATE });
+  return copyOnto(env, from, to);
+}
 
-  const { results: sources } = await env.DB.prepare('SELECT * FROM assignments WHERE date = ? AND cancelled_at IS NULL ORDER BY created_at, rowid')
-    .bind(from)
-    .all<Record<string, unknown>>();
-  if (sources.length === 0) return json({ assignments: [] }, 201);
-
-  const createdAt = now.toISOString();
-  const ids: string[] = [];
-  const inserts = sources.map((source) => {
-    const id = crypto.randomUUID();
-    ids.push(id);
-    const row: Record<string, unknown> = { id, date: to, note: null, created_at: createdAt, updated_at: createdAt };
-    for (const [column, value] of Object.entries(source)) if (!NOT_COPIED.has(column)) row[column] = value;
-    const columns = Object.keys(row);
-    return env.DB.prepare(
-      `INSERT INTO assignments (${columns.map((c) => `"${c}"`).join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
-    ).bind(...columns.map((c) => row[c]));
-  });
-  await env.DB.batch(inserts);
-
-  const { results } = await env.DB.prepare(
-    `${SELECT_ASSIGNMENT} WHERE a.id IN (SELECT value FROM json_each(?)) ${DAY_ORDER}`,
+/**
+ * Copies a day's Assignments that are not cancelled onto an empty day, in the
+ * order the day is read, each with only the COPIED columns (removed entries
+ * left out) and a fresh position in its lane: 0, 1, 2... The check that the
+ * target day is empty (cancelled ones count) and the copy are one statement,
+ * so work added meanwhile is never copied over. Copies on a Sent day that was
+ * emptied are created after its Send, so they are Added.
+ */
+async function copyOnto(env: Env, from: string, to: string): Promise<Response> {
+  const kept = COPIED.map(({ column, table }) => `(SELECT id FROM ${table} WHERE id = a.${column} AND active = 1) AS ${column}`);
+  const { results: sources } = await env.DB.prepare(
+    `SELECT ${kept.join(', ')} FROM assignments a LEFT JOIN drivers d ON d.id = a.driver_id
+      WHERE a.date = ? AND a.cancelled_at IS NULL ${DAY_ORDER}`,
   )
-    .bind(JSON.stringify(ids))
-    .all<AssignmentRow>();
-  return json({ assignments: results.map(marked) }, 201);
+    .bind(from)
+    .all<Record<(typeof COPIED)[number]['column'], string | null>>();
+  if (sources.length === 0) return json({ error: 'nothing_to_copy', message: 'That day has no Assignments to copy.' }, 409);
+
+  // A fresh position in each lane, in the source's order; a removed Driver's work joins Unassigned.
+  const lanes = new Map<string | null, number>();
+  const rows = sources.map((source) => {
+    const position = lanes.get(source.driver_id) ?? 0;
+    lanes.set(source.driver_id, position + 1);
+    return { ...source, id: crypto.randomUUID(), position };
+  });
+  const columns = [...COPIED.map(({ column }) => column), 'id', 'position'];
+  const now = clock(env).now.toISOString();
+  const { meta } = await env.DB.prepare(
+    `INSERT INTO assignments (date, created_at, updated_at, ${columns.join(', ')})
+     SELECT ?, ?, ?, ${columns.map((c) => `json_extract(value, '$.${c}')`).join(', ')} FROM json_each(?)
+      WHERE NOT EXISTS (SELECT 1 FROM assignments WHERE date = ?)`,
+  )
+    .bind(to, now, now, JSON.stringify(rows), to)
+    .run();
+  if (!meta.changes) return json({ error: 'day_planned', message: 'That day already has Assignments, so nothing was copied onto it.' }, 409);
+
+  const { results } = await env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.date = ? ${DAY_ORDER}`).bind(to).all<AssignmentRow>();
+  return json({ from, to, assignments: results.map(marked) } satisfies CopiedDay, 201);
 }
 
 async function addAssignment(request: Request, env: Env): Promise<Response> {
