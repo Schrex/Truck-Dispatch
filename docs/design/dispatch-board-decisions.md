@@ -84,7 +84,7 @@ The schema for all four is designed now; each phase migrates only its own tables
 - **Words.** The UI says "assignment" for the work and "job" only for a project with a job number, even where the mocks say "job".
 - **Unassigned.** An Assignment may have no Driver; F1 keeps an Unassigned lane with its own +. Only the date is required.
 - **No Start / Finished.** Neither Dave nor the Driver marks progress; started and finished come only from telematics (phase 3). Until then an Assignment has one action, ✕.
-- **✕** cancels on today and past days (kept, shown to the Driver as "Cancelled by Dave", kept for the trip log) and deletes on later days.
+- **✕** deletes on a Draft day and cancels on a Sent day (kept, shown to the Driver as "Cancelled by Dave", kept for the trip log). Past days are read-only, so ✕ is not offered there. (Revised; see "Reconciled" and "Independent review" below.)
 - **Order, not Now.** In phase 1 a lane shows its Assignments in order (First, Then…); no Now, "since", Busy or Free until trips exist. Dave can reorder on any editable day; moving one to another Driver puts it last.
 - **Foreman and Jobs stay lists.** A job-site Place gets a usual Foreman that fills in the Assignment's Foreman; the Assignment keeps its own. Settings keeps Jobs (job numbers) and Foremen.
 - **Typed names.** A Place or Material typed in the composer becomes a new list entry on save, flagged "not on the truck map yet".
@@ -116,6 +116,26 @@ The schema for all four is designed now; each phase migrates only its own tables
 ## Reconciled while writing the schema
 - ✕ (Q4a) **deletes only on a Draft day**; on a Sent day, past or future, it cancels, so a Driver who has seen an Assignment sees it cancelled rather than gone.
 
+## Independent review (21 Nov 2026)
+
+A fresh reviewer checked the decisions, the spec and the ticket plan against the code, the mocks and the glossary. Decided after it:
+- **Testing without Drivers.** During the build no Driver gets Cloudflare Access; Sumanth tests both the Scheduler and the Driver view.
+- **Driver view shows today and tomorrow** (calendar days, so a Sent Saturday shows on Friday), and fetches today again when the phone comes back to it.
+- **No warnings on Send** for now.
+- **Giving work to another Driver on a Sent day** cancels it for the first Driver ("Cancelled by Dave") and adds a new one last in the other lane ("Added by Dave"). On a Draft day it is a plain move.
+- **An Assignment's day is fixed.** The Worker refuses a date change; other days are reached by Copy and ✕.
+- **Cancelled Assignments stay in the lane**, struck through, opening only to Put back. A day is empty only with no Assignments at all.
+- **Changed vs Added.** Changed: a field, cancel, Put back, or its own move in the order, after the Send. Renumbered neighbours are not. One added after the Send is Added.
+- **Earlier versions are kept from phase 1**: an add-only record of each Assignment's fields before every change after its day is Sent. Phase 3 matches Trips made before a reroute; the Driver card can say "was Cobblestone".
+- **Removing a Driver who has work planned**: any Driver with Assignments on a day keeps a lane there, marked removed; Remove warns how many later days he has work on.
+- **Usual Foreman** comes from the drop-off if it is a job site, else the pick-up.
+- **Typed names** that match a removed entry bring it back. New and revived entries go last in their list; lists sort by their order, entries without one last, then by name.
+- **Saves are per field** (PATCH); changing the Driver puts it last in the new lane.
+- **The Truck panel keeps the HCSS code and id**, next to "Linked to HCSS Fleet".
+- **Refusals follow the README**: bad or past dates 400 `{ fields }`; an empty day or a day already planned 409 `{ error, message }`.
+- **Do this first / Do this later** move one place each, hidden at the ends.
+- **Copying lists the columns it copies** (not the ones it skips), so a new column is never copied by accident; inactive Trucks and Foremen are dropped like inactive Places and Materials.
+
 ## Target schema (v2)
 
 Existing tables keep their columns; everything below is added (migrations only add). `orders` is unused and is dropped in a later release.
@@ -125,7 +145,9 @@ Existing tables keep their columns; everything below is added (migrations only a
 assignments   + position INTEGER NOT NULL DEFAULT 0   order within (date, driver_id); Unassigned too
               + cancelled_at TEXT                     set by ✕ on a Sent day; row kept
               truck_id now means "a certain truck"; NULL = his own
-day_sends     date PK, sent_at, sent_by?              one row per Sent day; Changed = updated_at or cancelled_at after sent_at
+day_sends     date PK, sent_at                         one row per Sent day; Added = created_at after sent_at; Changed = changed_at after sent_at
+assignments   + changed_at TEXT                        last change the Driver can see (fields, cancel, Put back, own move); not set on renumbered neighbours
+assignment_changes  id, assignment_id, changed_at, before (JSON of the fields)   add-only; written on every change after the day is Sent
 drivers       + sort_order INTEGER                     lane order
 places        + sort_order INTEGER, + usual_foreman_id → foremen
 materials     + sort_order INTEGER

@@ -5,7 +5,7 @@ How Dave plans each driver's day and how the work they actually do becomes a tru
 ## Planning
 
 **Assignment**:
-One piece of work given to one Driver for one day, e.g. haul 2" minus from Villager to TIUNY. It covers any number of Loads. A Driver's Assignments for a day are done in an order Dave sets. Dave can cancel one; a cancelled Assignment is kept and the Driver sees it was cancelled. Whether one has started or finished comes from the Truck, never from Dave or the Driver.
+One piece of work given to one Driver for one day, e.g. haul 2" minus from Villager to TIUNY. It covers any number of Loads. A Driver's Assignments for a day are done in an order Dave sets. Dave can cancel one; a cancelled Assignment is kept and the Driver sees it was cancelled. Its day never changes once it exists. Once its day is Sent, giving it to another Driver cancels it and adds a new one for that Driver. Whether one has started or finished comes from the Truck, never from Dave or the Driver.
 _Avoid_: task, work order, dispatch, dispatch order, job
 
 **Unassigned**:
@@ -19,8 +19,11 @@ _Avoid_: publish, post, dispatch
 A day that has never been Sent. The Drivers have nothing for it yet.
 
 **Changed**:
-An Assignment that Dave altered or cancelled after its day was Sent. The Driver sees it marked "Changed by Dave".
+An Assignment that Dave altered, cancelled, put back or moved within its Driver's order after its day was Sent. The Driver sees it marked "Changed by Dave". Others that shift place because of a move are not Changed.
 _Avoid_: edited, updated
+
+**Added**:
+An Assignment that Dave added to a day after it was Sent, including one given to a Driver from another Driver. The Driver sees it marked "Added by Dave".
 
 **Working day**:
 A weekday that is not one of the six Holidays (New Year's Day, Memorial Day, Independence Day, Labor Day, Thanksgiving, Christmas), the same as the Daily Schedule's. The board opens on the next one. Weekends and Holidays can still be planned.
@@ -29,7 +32,7 @@ A weekday that is not one of the six Holidays (New Year's Day, Memorial Day, Ind
 A person who drives a company Truck and receives Assignments. Each has a usual Truck; an Assignment names a Truck only when the work needs a certain one, otherwise the Driver takes his own.
 
 **Foreman**:
-The person running a Job on a given day. Changes from day to day, so an Assignment names one, not a Place. A job site can have a usual Foreman, who is suggested for new Assignments there.
+The person running a Job on a given day. Changes from day to day, so an Assignment names one, not a Place. A job-site Place can have a usual Foreman, who is suggested for new Assignments that drop off there, or pick up there when the drop-off is not a job site.
 _Avoid_: project lead, super
 
 ## Trucks
