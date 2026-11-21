@@ -11,6 +11,8 @@ import {
   nextWorkingDay,
   previousWorkingDay,
   shortDate,
+  dayState,
+  sinceSent,
 } from './days';
 
 describe('Working days', () => {
@@ -205,5 +207,60 @@ describe('dates', () => {
     ['2026-03-07', 2, '2026-03-09'],
   ])('counts %s plus %i days as %s, across months, years and daylight saving', (date, days, result) => {
     expect(addDays(date, days)).toBe(result);
+  });
+});
+
+describe('Changed and Added', () => {
+  const SENT = '2026-11-20T21:15:00.000Z';
+  const before = '2026-11-20T19:00:00.000Z';
+  const after = '2026-11-20T22:00:00.000Z';
+
+  it('marks nothing on a Draft day, whatever has changed', () => {
+    expect(sinceSent({ createdAt: before, changedAt: after }, null)).toBeNull();
+  });
+
+  it('marks nothing that was added and last changed before the Send', () => {
+    expect(sinceSent({ createdAt: before, changedAt: null }, SENT)).toBeNull();
+    expect(sinceSent({ createdAt: before, changedAt: before }, SENT)).toBeNull();
+  });
+
+  it('calls one changed after the Send Changed', () => {
+    expect(sinceSent({ createdAt: before, changedAt: after }, SENT)).toBe('changed');
+  });
+
+  it('calls one added after the Send Added, even once it is changed too', () => {
+    expect(sinceSent({ createdAt: after, changedAt: null }, SENT)).toBe('added');
+    expect(sinceSent({ createdAt: after, changedAt: '2026-11-20T23:00:00.000Z' }, SENT)).toBe('added');
+  });
+
+  it('does not count a change in the same moment as the Send as after it', () => {
+    expect(sinceSent({ createdAt: before, changedAt: SENT }, SENT)).toBeNull();
+  });
+});
+
+describe('day states', () => {
+  const SENT = '2026-11-20T21:15:00.000Z';
+  const planned = (driverId: string | null, createdAt = '2026-11-20T19:00:00.000Z', changedAt: string | null = null) => ({
+    driverId,
+    createdAt,
+    changedAt,
+  });
+
+  it('is none for a day with no Assignments that was never Sent', () => {
+    expect(dayState([], null)).toEqual({ state: 'none' });
+  });
+
+  it('is Draft, with the count Unassigned, for a planned day not Sent yet', () => {
+    expect(dayState([planned('drv-a'), planned(null), planned(null)], null)).toEqual({ state: 'draft', unassigned: 2 });
+    expect(dayState([planned('drv-a')], null)).toEqual({ state: 'draft', unassigned: 0 });
+  });
+
+  it('is Sent when nothing is Changed or Added since the Send', () => {
+    expect(dayState([planned('drv-a'), planned(null)], SENT)).toEqual({ state: 'sent' });
+  });
+
+  it('is Changed once one Assignment is Changed or Added since the Send', () => {
+    expect(dayState([planned('drv-a'), planned('drv-b', undefined, '2026-11-20T22:00:00.000Z')], SENT)).toEqual({ state: 'changed' });
+    expect(dayState([planned('drv-a'), planned(null, '2026-11-20T22:00:00.000Z')], SENT)).toEqual({ state: 'changed' });
   });
 });

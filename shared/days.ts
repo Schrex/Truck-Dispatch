@@ -10,6 +10,8 @@
  * and Added) belong here too, taking those as plain values, as these take today.
  */
 
+import type { SinceSent } from './types';
+
 /** A real day on the calendar written YYYY-MM-DD (2026-02-30 is not). Checks what a request or an address gives. */
 export function isCalendarDate(value: unknown): value is string {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -151,4 +153,45 @@ export function previousWorkingDay(date: string): string {
   let day = addDays(date, -1);
   while (!isWorkingDay(day)) day = addDays(day, -1);
   return day;
+}
+
+/**
+ * The times of an Assignment the Send rules read. Every time here is an ISO
+ * 8601 moment in UTC, as the Worker writes them, so comparing the text
+ * compares the moments.
+ */
+export interface SentTimes {
+  createdAt: string;
+  /** Its last change a Driver can see (a field, a cancel, Put back, its own move), null until then. */
+  changedAt: string | null;
+}
+
+/**
+ * Whether an Assignment is Added (made after its day's first Send) or Changed
+ * (changed after it), given when the day was Sent, null for a Draft. One added
+ * after the Send stays Added however often it changes: to the Driver it is
+ * new. A change in the very moment of the Send is not after it.
+ */
+export function sinceSent(assignment: SentTimes, sentAt: string | null): SinceSent {
+  if (sentAt === null) return null;
+  if (assignment.createdAt > sentAt) return 'added';
+  if (assignment.changedAt !== null && assignment.changedAt > sentAt) return 'changed';
+  return null;
+}
+
+/**
+ * A day's state, for the header and the week strip: none ("–") for a day with
+ * nothing planned and never Sent; Draft, with how many are Unassigned, until
+ * it is Sent; then Sent, or Changed once any Assignment on it is Changed or
+ * Added since the Send.
+ */
+export type DayState = { state: 'none' } | { state: 'draft'; unassigned: number } | { state: 'sent' } | { state: 'changed' };
+
+/** The state of a day from its Assignments and when it was first Sent (null for a Draft). */
+export function dayState(assignments: (SentTimes & { driverId: string | null })[], sentAt: string | null): DayState {
+  if (sentAt === null) {
+    if (assignments.length === 0) return { state: 'none' };
+    return { state: 'draft', unassigned: assignments.filter((a) => a.driverId === null).length };
+  }
+  return assignments.some((a) => sinceSent(a, sentAt) !== null) ? { state: 'changed' } : { state: 'sent' };
 }
