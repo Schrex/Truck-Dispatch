@@ -33,9 +33,9 @@ const b = { driverId: 'drv-b', driverName: 'Sample Driver B' };
 const x = { driverId: 'drv-x', driverName: 'Sample Driver X' };
 
 const drivers: Driver[] = [
-  { id: 'drv-a', name: 'Sample Driver A', defaultTruckId: 'trk-21', active: true },
-  { id: 'drv-b', name: 'Sample Driver B', defaultTruckId: null, active: true },
-  { id: 'drv-x', name: 'Sample Driver X', defaultTruckId: 'trk-24', active: false },
+  { id: 'drv-a', name: 'Sample Driver A', defaultTruckId: 'trk-21', sortOrder: 1, active: true },
+  { id: 'drv-b', name: 'Sample Driver B', defaultTruckId: null, sortOrder: 2, active: true },
+  { id: 'drv-x', name: 'Sample Driver X', defaultTruckId: 'trk-24', sortOrder: null, active: false },
 ];
 const trucks: Truck[] = [
   { id: 'trk-21', number: '21', hcssCode: null, hcssGuid: null, active: true },
@@ -57,6 +57,11 @@ describe('Lanes', () => {
     render(<Lanes assignments={[]} drivers={drivers} trucks={trucks} />);
     expect(lanes().map((lane) => lane.driver)).toEqual(['Sample Driver A', 'Sample Driver B', 'Unassigned']);
     for (const lane of screen.getAllByRole('article')) expect(within(lane).getByText('Nothing planned yet')).toBeTruthy();
+  });
+
+  it('keeps the Drivers in Dave\'s own order as the list gives it, not by name', () => {
+    render(<Lanes assignments={[]} drivers={[...drivers].reverse()} trucks={trucks} />);
+    expect(lanes().map((lane) => lane.driver)).toEqual(['Sample Driver B', 'Sample Driver A', 'Unassigned']);
   });
 
   it('shows each Driver\'s usual Truck by his name', () => {

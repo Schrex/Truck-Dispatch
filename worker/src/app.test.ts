@@ -413,7 +413,7 @@ describe('Places', () => {
   it('list the seeded Places by short name, with full name, kind, Job and whether each is on the truck map, and no geofence code', async () => {
     const places = await list('/api/places');
     expect(places.map((p) => p.shortName)).toEqual(['Sample Plant', 'Sample Shop', 'Sample Site North', 'Sample Yard']);
-    expect(places[2]).toEqual({ id: 'plc-north', shortName: 'Sample Site North', fullName: 'Sample Job North site', kind: 'job_site', jobId: 'job-n', onTruckMap: false, active: true });
+    expect(places[2]).toEqual({ id: 'plc-north', shortName: 'Sample Site North', fullName: 'Sample Job North site', kind: 'job_site', jobId: 'job-n', onTruckMap: false, sortOrder: null, active: true });
     expect(places.map((p) => p.onTruckMap)).toEqual([true, false, false, false]);
     for (const place of places) expect(Object.keys(place)).not.toContain('geofenceCode');
   });
@@ -542,11 +542,128 @@ describe('Assignments and the lists', () => {
 describe('Materials and Foremen', () => {
   it('list the seeded entries by name', async () => {
     expect(await list('/api/materials')).toEqual([
-      { id: 'mat-minus', name: '2" minus', active: true },
-      { id: 'mat-dirt', name: 'Sample Dirt', active: true },
-      { id: 'mat-stone', name: 'Sample Stone', active: true },
+      { id: 'mat-minus', name: '2" minus', sortOrder: null, active: true },
+      { id: 'mat-dirt', name: 'Sample Dirt', sortOrder: null, active: true },
+      { id: 'mat-stone', name: 'Sample Stone', sortOrder: null, active: true },
     ]);
     expect((await list('/api/foremen')).map((f) => f.name)).toEqual(['Sample Foreman A', 'Sample Foreman B', 'Sample Foreman C']);
+  });
+});
+
+/** Puts a list in Dave's own order: the ids given, first to last; any left out have no order. */
+const reorder = (route: string, order: unknown) => send('PUT', `/api/${route}/order`, { order });
+
+// Drivers, Places and Materials each have an order Dave sets in Settings.
+describe.each([
+  { route: 'drivers', one: 'driver', name: 'name', ids: ['drv-a', 'drv-b', 'drv-c'], names: ['Sample Driver A', 'Sample Driver B', 'Sample Driver C'], fresh: 'Sample Driver D' },
+  { route: 'places', one: 'place', name: 'shortName', ids: ['plc-plant', 'plc-shop', 'plc-north', 'plc-yard'], names: ['Sample Plant', 'Sample Shop', 'Sample Site North', 'Sample Yard'], fresh: 'Sample Pit' },
+  { route: 'materials', one: 'material', name: 'name', ids: ['mat-minus', 'mat-dirt', 'mat-stone'], names: ['2" minus', 'Sample Dirt', 'Sample Stone'], fresh: 'Sample Fill' },
+])('Dave\'s own order of the $route', ({ route, one, name, ids, names, fresh }) => {
+  const read = async (search = '') => (await list(`/api/${route}${search}`)).map((e) => e[name]);
+  const [first, second, third] = ids;
+  const reversed = [...names].reverse();
+
+  it('is none at first: every entry comes without an order, by name', async () => {
+    const entries = await list(`/api/${route}`);
+    expect(entries.map((e) => e[name])).toEqual(names);
+    expect(entries.map((e) => e.sortOrder)).toEqual(names.map(() => null));
+  });
+
+  it('is set for the whole list in one request, and the list answers in it, first to last', async () => {
+    const response = await reorder(route, [...ids].reverse());
+    expect(response.status).toBe(200);
+    const answered = ((await response.json()) as Record<string, Entry[]>)[route];
+    expect(answered.map((e) => e[name])).toEqual(reversed);
+    expect(answered.map((e) => e.sortOrder)).toEqual(names.map((_, i) => i + 1));
+    expect(await read()).toEqual(reversed);
+    expect(await read('?include=inactive')).toEqual(reversed);
+  });
+
+  it('puts entries left out of it after the ordered ones, by name', async () => {
+    await reorder(route, [third, first]);
+    expect(await read()).toEqual([names[2], names[0], ...names.slice(1).filter((n) => n !== names[2])]);
+    expect((await list(`/api/${route}`)).find((e) => e.id === second)?.sortOrder).toBeNull();
+  });
+
+  it('can name a removed entry, which stays out of the default read', async () => {
+    await send('PATCH', `/api/${route}/${third}`, { active: false });
+    await reorder(route, [third, second, first]);
+    expect(await read()).toEqual([names[1], names[0], ...names.slice(3)]);
+    expect(await read('?include=inactive')).toEqual([names[2], names[1], names[0], ...names.slice(3)]);
+  });
+
+  it('puts a new entry last', async () => {
+    await reorder(route, [...ids].reverse());
+    const added = await post(`/api/${route}`, { [name]: fresh });
+    expect(((await added.json()) as Record<string, Entry>)[one]).toMatchObject({ sortOrder: null });
+    expect(await read()).toEqual([...reversed, fresh]);
+  });
+
+  it('puts an entry brought back last, whatever its place before it was removed', async () => {
+    await reorder(route, ids);
+    await send('PATCH', `/api/${route}/${first}`, { active: false });
+    const back = await send('PATCH', `/api/${route}/${first}`, { active: true });
+    expect(((await back.json()) as Record<string, Entry>)[one]).toMatchObject({ active: true, sortOrder: null });
+    expect(await read()).toEqual([...names.slice(1), names[0]]);
+  });
+
+  it('keeps an entry\'s place when it is changed without being brought back', async () => {
+    await reorder(route, [...ids].reverse());
+    await send('PATCH', `/api/${route}/${first}`, { active: true });
+    await send('PATCH', `/api/${route}/${third}`, { [name]: `${names[2]} 2` });
+    expect(await read()).toEqual([...reversed.slice(0, -3), `${names[2]} 2`, names[1], names[0]]);
+  });
+
+  it.each([
+    ['not a list', () => 'drv-a'],
+    ['not a list of ids', () => [1, 2]],
+    ['naming an entry that is not in the list', () => ['nobody']],
+    ['naming an entry twice', () => [first, first]],
+  ])('is refused when %s, with a message on the order, and the list keeps its order', async (_case, order) => {
+    await reorder(route, ids);
+    expect(Object.keys(await refusal(await reorder(route, order())))).toEqual(['order']);
+    expect(await read()).toEqual(names);
+  });
+
+  it('is set only by a PUT of the whole list', async () => {
+    expect((await send('PATCH', `/api/${route}/order`, { order: ids })).status).toBe(405);
+    expect((await send('GET', `/api/${route}/order`)).status).toBe(405);
+  });
+});
+
+describe('the lists Dave does not order', () => {
+  it.each(['trucks', 'jobs', 'foremen'])('have no order: the %s cannot be reordered and come by name', async (route) => {
+    expect((await send('PUT', `/api/${route}/order`, { order: [] })).status).toBe(405);
+    expect((await list(`/api/${route}`)).every((e) => !('sortOrder' in e))).toBe(true);
+  });
+});
+
+describe('Dave\'s own order and the board', () => {
+  it('reads a day\'s lanes in the order of the Drivers, Unassigned last', async () => {
+    await add({ date: '2026-11-20', note: 'Who takes this?' });
+    await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone' });
+    await add({ date: '2026-11-20', driverId: 'drv-c', note: 'Topsoil run' });
+    await add({ date: '2026-11-20', driverId: 'drv-b', note: 'Move the excavator' });
+    await reorder('drivers', ['drv-c', 'drv-a']);
+    expect((await day('2026-11-20')).map((a) => a.note)).toEqual(['Topsoil run', 'Haul stone', 'Move the excavator', 'Who takes this?']);
+  });
+
+  it('puts a Place or Material typed new in the composer last in its list', async () => {
+    await reorder('places', ['plc-yard', 'plc-plant', 'plc-shop', 'plc-north']);
+    await reorder('materials', ['mat-stone', 'mat-dirt', 'mat-minus']);
+    await add({ date: '2026-11-20', fromPlaceName: 'Sample Pit', materialName: 'Sample Fill' });
+    expect((await list('/api/places')).map((p) => p.shortName)).toEqual(['Sample Yard', 'Sample Plant', 'Sample Shop', 'Sample Site North', 'Sample Pit']);
+    expect((await list('/api/materials')).map((m) => m.name)).toEqual(['Sample Stone', 'Sample Dirt', '2" minus', 'Sample Fill']);
+  });
+
+  it('puts a removed Place or Material brought back by typing its name last in its list', async () => {
+    await reorder('places', ['plc-yard', 'plc-plant', 'plc-shop', 'plc-north']);
+    await reorder('materials', ['mat-stone', 'mat-dirt', 'mat-minus']);
+    await send('PATCH', '/api/places/plc-yard', { active: false });
+    await send('PATCH', '/api/materials/mat-stone', { active: false });
+    await add({ date: '2026-11-20', toPlaceName: 'sample yard', materialName: 'sample stone' });
+    expect((await list('/api/places')).map((p) => p.shortName)).toEqual(['Sample Plant', 'Sample Shop', 'Sample Site North', 'Sample Yard']);
+    expect((await list('/api/materials')).map((m) => m.name)).toEqual(['Sample Dirt', '2" minus', 'Sample Stone']);
   });
 });
 
@@ -1092,8 +1209,8 @@ describe('typed Place and Material names', () => {
   it('add a new entry, a Place with no kind, and link to it, on add and on change', async () => {
     const added = await add({ date: '2026-11-20', fromPlaceName: ' Sample Pit ', materialName: 'Sample Fill' });
     expect(added).toMatchObject({ fromPlaceName: 'Sample Pit', materialName: 'Sample Fill' });
-    expect(await list('/api/places')).toContainEqual({ id: added.fromPlaceId, shortName: 'Sample Pit', fullName: null, kind: null, jobId: null, onTruckMap: false, active: true });
-    expect(await list('/api/materials')).toContainEqual({ id: added.materialId, name: 'Sample Fill', active: true });
+    expect(await list('/api/places')).toContainEqual({ id: added.fromPlaceId, shortName: 'Sample Pit', fullName: null, kind: null, jobId: null, onTruckMap: false, sortOrder: null, active: true });
+    expect(await list('/api/materials')).toContainEqual({ id: added.materialId, name: 'Sample Fill', sortOrder: null, active: true });
 
     const changed = await change(added.id, { toPlaceName: 'Sample Dump', materialId: null });
     const { assignment } = (await changed.json()) as { assignment: Assignment };

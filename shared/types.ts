@@ -5,6 +5,8 @@ export interface Driver {
   name: string;
   /** The usual Truck, filled in on a new Assignment when the Driver is picked. */
   defaultTruckId: string | null;
+  /** Dave's own place for it in the list, 1 first; null for none (after the ordered ones, by name). Set only by a reorder. */
+  sortOrder: number | null;
   active: boolean;
 }
 
@@ -38,6 +40,8 @@ export interface Place {
   kind: PlaceKind | null;
   jobId: string | null;
   onTruckMap: boolean;
+  /** Dave's own place for it in the list, 1 first; null for none (after the ordered ones, by name). Set only by a reorder. */
+  sortOrder: number | null;
   active: boolean;
 }
 
@@ -45,6 +49,8 @@ export interface Place {
 export interface Material {
   id: string;
   name: string;
+  /** Dave's own place for it in the list, 1 first; null for none (after the ordered ones, by name). Set only by a reorder. */
+  sortOrder: number | null;
   active: boolean;
 }
 
@@ -71,9 +77,14 @@ export type ListName = keyof Lists;
 
 /**
  * What the page sends to add an entry (the display name is required; active
- * defaults to true) or to change one (only the fields to change).
+ * defaults to true) or to change one (only the fields to change). The order is
+ * set for a whole list at once (PUT api/<list>/order), never per entry.
  */
-export type EntryFields<L extends ListName> = Partial<Omit<Lists[L], 'id' | 'onTruckMap'>>;
+export type EntryFields<L extends ListName> = Partial<Omit<Lists[L], 'id' | 'onTruckMap' | 'sortOrder'>>;
+
+/** The lists Dave puts in his own order. */
+export const ORDERED_LISTS = ['drivers', 'places', 'materials'] as const satisfies readonly ListName[];
+export type OrderedList = (typeof ORDERED_LISTS)[number];
 
 /** Today and tomorrow in US Eastern time, and the next Working day after today, which the board opens on (GET api/today). */
 export interface BusinessDay {

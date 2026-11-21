@@ -1,6 +1,6 @@
 import type { Env } from './app';
 import { text } from './http';
-import { entryNamed, isNameTaken, LISTS, TEXT_LIMIT } from './lists';
+import { bringBack, entryNamed, isNameTaken, LISTS, TEXT_LIMIT } from './lists';
 import type { ListName, NewAssignment, TypedNames } from '../../shared/types';
 
 /**
@@ -69,7 +69,8 @@ export async function saveLinked(
 
 /**
  * The id each typed name links to, and the writes that make it so: none for an
- * active entry, making a removed one active again, or adding a new one.
+ * active entry, making a removed one active again, or adding a new one. Both
+ * of those go last in the list's order, as from Settings.
  */
 async function linkTyped(env: Env, typed: Typed[]) {
   // From and To may type the same name: it is looked up, and added, once.
@@ -90,7 +91,7 @@ async function linkName(env: Env, list: ListName, name: string) {
   const { table, name: display } = LISTS[list];
   const found = await entryNamed(env, list, name);
   if (found) {
-    return { id: found.id, write: found.active ? null : env.DB.prepare(`UPDATE ${table} SET active = 1 WHERE id = ?`).bind(found.id) };
+    return { id: found.id, write: found.active ? null : bringBack(env, list, found.id) };
   }
   const id = crypto.randomUUID();
   return { id, write: env.DB.prepare(`INSERT INTO ${table} (id, ${display.column}) VALUES (?, ?)`).bind(id, name) };
