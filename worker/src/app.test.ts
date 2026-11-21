@@ -47,7 +47,7 @@ describe.each([
 
     const day = await get(`${prefix}/api/assignments?date=2026-11-20`);
     expect(day.status).toBe(200);
-    expect(await day.json()).toEqual({ assignments: [assignment] });
+    expect(await day.json()).toEqual({ assignments: [assignment], sentAt: null });
   });
 
   // The page files answer any address that is not a file with the page itself
@@ -108,7 +108,7 @@ describe('Assignments', () => {
     const response = await post('/api/assignments', { date: '2026-11-20', startTime: '07:30', job: 'Sample Job' });
     expect(response.status).toBe(201);
     expect(Object.keys(((await response.json()) as { assignment: object }).assignment).sort()).toEqual(
-      ['changedAt', 'createdAt', 'date', 'driverId', 'driverName', 'foremanId', 'foremanName', 'fromPlaceId', 'fromPlaceName', 'id', 'materialId', 'materialName', 'note', 'position', 'toPlaceId', 'toPlaceName', 'truckId', 'truckNumber', 'updatedAt'],
+      ['changedAt', 'createdAt', 'date', 'driverId', 'driverName', 'foremanId', 'foremanName', 'fromPlaceId', 'fromPlaceName', 'id', 'materialId', 'materialName', 'note', 'position', 'sinceSent', 'toPlaceId', 'toPlaceName', 'truckId', 'truckNumber', 'updatedAt'],
     );
   });
 
@@ -907,6 +907,161 @@ describe('deleting an Assignment', () => {
     await remove(id);
     expect((await remove(id)).status).toBe(404);
     expect((await remove('nothing')).status).toBe(404);
+  });
+});
+
+describe('sending a day', () => {
+  // Today is Thursday 2026-11-19; Dave plans Friday 2026-11-20 and Sends it at 4:15 PM Eastern.
+  const PLANNED = { NOW: '2026-11-19T20:00:00.000Z' };
+  const SENT = '2026-11-19T21:15:00.000Z';
+  const LATER = { NOW: '2026-11-19T22:00:00.000Z' };
+  const sendDay = (date: string, vars: Parameters<typeof env>[0] = { NOW: SENT }) => send('POST', `/api/days/${date}/send`, undefined, vars);
+  const read = async (date: string) => (await (await get(`/api/assignments?date=${date}`)).json()) as { assignments: Assignment[]; sentAt: string | null };
+  const addAt = async (body: unknown, vars: Parameters<typeof env>[0]) =>
+    ((await (await send('POST', '/api/assignments', body, vars)).json()) as { assignment: Assignment }).assignment;
+  const marks = async (date: string) => Object.fromEntries((await day(date)).map((a) => [a.note, a.sinceSent]));
+  /** The earlier fields kept for an Assignment, oldest first. No route reads them yet; the Driver view will. */
+  const earlier = async (id: string) =>
+    (
+      await d1.database().prepare('SELECT changed_at AS changedAt, before FROM assignment_changes WHERE assignment_id = ? ORDER BY changed_at').bind(id).all<{ changedAt: string; before: string }>()
+    ).results.map((row) => ({ changedAt: row.changedAt, before: JSON.parse(row.before) }));
+
+  it('starts every day as a Draft, with no sent time and nothing marked', async () => {
+    await add({ date: '2026-11-20', note: 'Haul stone' });
+    const { sentAt, assignments } = await read('2026-11-20');
+    expect(sentAt).toBeNull();
+    expect(assignments.map((a) => a.sinceSent)).toEqual([null]);
+  });
+
+  it('records the first Send of a day, and the day then carries its sent time', async () => {
+    await addAt({ date: '2026-11-20', note: 'Haul stone' }, PLANNED);
+    const response = await sendDay('2026-11-20');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ date: '2026-11-20', sentAt: SENT });
+    expect((await read('2026-11-20')).sentAt).toBe(SENT);
+    expect((await read('2026-11-23')).sentAt).toBeNull();
+  });
+
+  it('does nothing when the day is Sent again: it keeps its first sent time', async () => {
+    await addAt({ date: '2026-11-20', note: 'Haul stone' }, PLANNED);
+    await sendDay('2026-11-20');
+    const again = await sendDay('2026-11-20', LATER);
+    expect(again.status).toBe(200);
+    expect(await again.json()).toEqual({ date: '2026-11-20', sentAt: SENT });
+    expect((await read('2026-11-20')).sentAt).toBe(SENT);
+  });
+
+  it('can Send today', async () => {
+    await add({ date: '2026-11-19', note: 'Haul stone' });
+    expect((await sendDay('2026-11-19')).status).toBe(200);
+  });
+
+  it.each([
+    ['not a real date', '2026-02-30'],
+    ['written another way', '20-11-2026'],
+    ['a day before today', '2026-11-18'],
+  ])('refuses a date that is %s, with a message on the date', async (_why, date) => {
+    const fields = await refusal(await sendDay(date));
+    expect(Object.keys(fields)).toEqual(['date']);
+    expect(fields.date).toBeTruthy();
+  });
+
+  it('refuses a day with no Assignments, which stays a Draft', async () => {
+    await add({ date: '2026-11-23', note: 'Another day' });
+    const response = await sendDay('2026-11-20');
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: 'nothing_to_send', message: expect.any(String) });
+    expect((await read('2026-11-20')).sentAt).toBeNull();
+  });
+
+  it('only Sends with POST', async () => {
+    const response = await send('GET', '/api/days/2026-11-20/send');
+    expect(response.status).toBe(405);
+    expect(response.headers.get('Allow')).toBe('POST');
+  });
+
+  it('marks an Assignment changed after the Send Changed, and leaves the rest alone', async () => {
+    const stone = await addAt({ date: '2026-11-20', note: 'Haul stone' }, PLANNED);
+    await addAt({ date: '2026-11-20', note: 'Fill the shop' }, PLANNED);
+    await sendDay('2026-11-20');
+    expect(await marks('2026-11-20')).toEqual({ 'Haul stone': null, 'Fill the shop': null });
+    await change(stone.id, { materialId: 'mat-stone' }, LATER);
+    expect(await marks('2026-11-20')).toEqual({ 'Haul stone': 'changed', 'Fill the shop': null });
+  });
+
+  it('marks an Assignment added after the Send Added, also in the answer that adds it', async () => {
+    await addAt({ date: '2026-11-20', note: 'Haul stone' }, PLANNED);
+    await sendDay('2026-11-20');
+    const added = await addAt({ date: '2026-11-20', note: 'Two more loads' }, LATER);
+    expect(added.sinceSent).toBe('added');
+    expect(await marks('2026-11-20')).toEqual({ 'Haul stone': null, 'Two more loads': 'added' });
+  });
+
+  it('does not mark what changed before the Send', async () => {
+    const stone = await addAt({ date: '2026-11-20', note: 'Haul stone' }, PLANNED);
+    await change(stone.id, { driverId: 'drv-a' }, { NOW: '2026-11-19T20:30:00.000Z' });
+    await sendDay('2026-11-20');
+    expect(await marks('2026-11-20')).toEqual({ 'Haul stone': null });
+  });
+
+  it('keeps an Assignment\'s fields as they were before each change after the Send', async () => {
+    const stone = await addAt(
+      { date: '2026-11-20', driverId: 'drv-a', truckId: 'trk-24', fromPlaceId: 'plc-plant', toPlaceId: 'plc-north', materialId: 'mat-stone', foremanId: 'frm-a', note: 'Haul stone' },
+      PLANNED,
+    );
+    await sendDay('2026-11-20');
+    await change(stone.id, { materialId: 'mat-dirt', note: 'Haul dirt' }, LATER);
+    await change(stone.id, { toPlaceName: 'Sample New Pit' }, { NOW: '2026-11-19T23:00:00.000Z' });
+    expect(await earlier(stone.id)).toEqual([
+      {
+        changedAt: LATER.NOW,
+        before: {
+          driverId: 'drv-a', driverName: 'Sample Driver A', truckId: 'trk-24', truckNumber: '24',
+          fromPlaceId: 'plc-plant', fromPlaceName: 'Sample Plant', toPlaceId: 'plc-north', toPlaceName: 'Sample Site North',
+          materialId: 'mat-stone', materialName: 'Sample Stone', foremanId: 'frm-a', foremanName: 'Sample Foreman A',
+          note: 'Haul stone', position: 0,
+        },
+      },
+      {
+        changedAt: '2026-11-19T23:00:00.000Z',
+        before: expect.objectContaining({ toPlaceId: 'plc-north', toPlaceName: 'Sample Site North', materialName: 'Sample Dirt', note: 'Haul dirt' }),
+      },
+    ]);
+  });
+
+  it('keeps nothing for changes on a Draft day, or for a change that changes nothing', async () => {
+    const stone = await addAt({ date: '2026-11-20', note: 'Haul stone', materialId: 'mat-stone' }, PLANNED);
+    await change(stone.id, { note: 'Haul stone, two loads' }, PLANNED);
+    await sendDay('2026-11-20');
+    await change(stone.id, { note: 'Haul stone, two loads', materialId: 'mat-stone' }, LATER);
+    expect(await earlier(stone.id)).toEqual([]);
+    expect(await marks('2026-11-20')).toEqual({ 'Haul stone, two loads': null });
+  });
+
+  it('marks the Assignment moved one place Changed and keeps its earlier place, but not the neighbour it passed', async () => {
+    await addAt({ date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone' }, PLANNED);
+    const shop = await addAt({ date: '2026-11-20', driverId: 'drv-a', note: 'Fill the shop' }, PLANNED);
+    await sendDay('2026-11-20');
+    await send('POST', `/api/assignments/${shop.id}/move`, { direction: 'earlier' }, LATER);
+    expect(await marks('2026-11-20')).toEqual({ 'Fill the shop': 'changed', 'Haul stone': null });
+    expect(await earlier(shop.id)).toEqual([{ changedAt: LATER.NOW, before: expect.objectContaining({ note: 'Fill the shop', position: 1 }) }]);
+    const stone = (await day('2026-11-20')).find((a) => a.note === 'Haul stone')!;
+    expect(await earlier(stone.id)).toEqual([]);
+  });
+
+  it('keeps nothing for a move on a Draft day', async () => {
+    await addAt({ date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone' }, PLANNED);
+    const shop = await addAt({ date: '2026-11-20', driverId: 'drv-a', note: 'Fill the shop' }, PLANNED);
+    await send('POST', `/api/assignments/${shop.id}/move`, { direction: 'earlier' }, LATER);
+    expect(await earlier(shop.id)).toEqual([]);
+  });
+
+  it('still deletes an Assignment that has earlier fields kept', async () => {
+    const stone = await addAt({ date: '2026-11-20', note: 'Haul stone' }, PLANNED);
+    await sendDay('2026-11-20');
+    await change(stone.id, { note: 'Haul dirt' }, LATER);
+    expect((await remove(stone.id, LATER)).status).toBe(204);
+    expect(await day('2026-11-20')).toEqual([]);
   });
 });
 

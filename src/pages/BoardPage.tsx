@@ -7,10 +7,11 @@ import { AssignmentDialog } from '@/components/AssignmentDialog';
 import { afterSave, Composer, EMPTY_DRAFT, type Draft } from '@/components/Composer';
 import { Lanes } from '@/components/Lanes';
 import { DayNavigation, daySubtitle } from '@/components/DayNavigation';
+import { DaySend } from '@/components/DaySend';
 import { PageHeader } from '@/components/PageHeader';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/sonner';
-import { copyTodayOnto, fetchAssignments, fetchBusinessDay, fetchList, FieldErrors, Refused } from '@/lib/api';
+import { copyTodayOnto, fetchBusinessDay, fetchDay, fetchList, FieldErrors, Refused } from '@/lib/api';
 
 /**
  * The Dispatch board: one day's Assignments, one lane per Driver. The day on
@@ -22,6 +23,8 @@ import { copyTodayOnto, fetchAssignments, fetchBusinessDay, fetchList, FieldErro
  * Adding starts from a lane's +, which opens the composer in that lane; one
  * is open at a time, and its draft is kept here, so the Places and Material
  * carry from one lane to the next until Close.
+ * The header says whether the day is a Draft, Sent or Changed since Sent,
+ * with Send while it is a Draft.
  */
 export function BoardPage() {
   const [search, setSearch] = useSearchParams();
@@ -34,6 +37,8 @@ export function BoardPage() {
   const [foremen, setForemen] = useState<Foreman[] | null>(null);
   const [listsFailed, setListsFailed] = useState(false);
   const [assignments, setAssignments] = useState<Assignment[] | null>(null);
+  // When the day on screen was first Sent; null while it is a Draft.
+  const [sentAt, setSentAt] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   const [reloads, setReloads] = useState(0);
   const [businessDay, setBusinessDay] = useState<BusinessDay | null>(null);
@@ -82,9 +87,14 @@ export function BoardPage() {
     if (!date) return;
     let stale = false;
     setAssignments(null);
+    setSentAt(null);
     setFailed(false);
-    fetchAssignments(date).then(
-      (list) => !stale && setAssignments(list),
+    fetchDay(date).then(
+      (day) => {
+        if (stale) return;
+        setAssignments(day.assignments);
+        setSentAt(day.sentAt);
+      },
       () => !stale && setFailed(true),
     );
     return () => {
@@ -127,6 +137,7 @@ export function BoardPage() {
     <div className="min-h-screen bg-surface">
       <PageHeader title="Dispatch" subtitle={date ? daySubtitle(date, businessDay?.today ?? null) : 'Loading…'}>
         <DayNavigation date={date} nextWorkingDay={businessDay?.nextWorkingDay ?? null} onShow={show} />
+        {date && <DaySend date={date} assignments={assignments} sentAt={sentAt} editable={editable} onSent={setSentAt} />}
         {canCopyToday && (
           <Button variant="outline" size="lg" className="px-5" disabled={copying} onClick={copyToday}>
             {copying ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />} Copy today
