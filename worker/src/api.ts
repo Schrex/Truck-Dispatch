@@ -52,6 +52,12 @@ export async function handleApi(request: Request, env: Env, route: string, query
     return json({ error: 'method_not_allowed' }, 405, { Allow: 'POST' });
   }
 
+  const moving = /^assignments\/([^/]+)\/move$/.exec(route);
+  if (moving) {
+    if (method === 'POST') return moveAssignment(request, env, decodeURIComponent(moving[1]));
+    return json({ error: 'method_not_allowed' }, 405, { Allow: 'POST' });
+  }
+
   const one = /^assignments\/([^/]+)$/.exec(route);
   if (one) {
     const id = decodeURIComponent(one[1]);
@@ -298,6 +304,62 @@ const FIELDS_BEFORE = `SELECT json_object(
   LEFT JOIN places pf ON pf.id = b.from_place_id LEFT JOIN places pt ON pt.id = b.to_place_id
   LEFT JOIN materials m ON m.id = b.material_id LEFT JOIN foremen f ON f.id = b.foreman_id
   WHERE b.id = assignments.id`;
+
+/** Which way "Do this first" ("earlier") and "Do this later" ("later") move an Assignment in its lane. */
+const DIRECTIONS = { earlier: -1, later: 1 } as const;
+
+/**
+ * Moves an Assignment one place in its lane (its day and Driver, or
+ * Unassigned), swapping it with its neighbour, and numbers the lane 0, 1, 2…
+ * in its new order, so Assignments that shared a position (saved before they
+ * had one) each get their own. Only the one moved is recorded as changed: the
+ * neighbour that shifted is not, so a Driver is not told it changed. Answers
+ * the lane in its new order. The first cannot move earlier nor the last later.
+ */
+async function moveAssignment(request: Request, env: Env, id: string): Promise<Response> {
+  const body = await readJson<{ direction?: unknown }>(request);
+  if (body instanceof Response) return body;
+  const existing = await findAssignment(env, id);
+  if (!existing) return json({ error: 'not_found' }, 404);
+  if (isPast(env, existing.date)) return onPastDay();
+  const direction = body.direction;
+  if (direction !== 'earlier' && direction !== 'later') return refuse({ direction: 'Move it earlier or later.' });
+
+  const lane = await readLane(env, existing.date, existing.driverId);
+  const from = lane.findIndex((a) => a.id === id);
+  const to = from + DIRECTIONS[direction];
+  if (to < 0 || to >= lane.length) {
+    const end = direction === 'earlier' ? 'first' : 'last';
+    return json({ error: 'lane_end', message: `This Assignment is already ${end} in its lane.` }, 409);
+  }
+  const order = lane.map((a) => a.id);
+  [order[from], order[to]] = [order[to], order[from]];
+
+  const now = clock(env).now.toISOString();
+  // On a Sent day, the moved one's fields as they were (its place among them),
+  // kept as any change is; the neighbour that shifted keeps nothing.
+  const keep = env.DB.prepare(
+    `INSERT INTO assignment_changes (id, assignment_id, changed_at, before)
+     SELECT ?, id, ?, (${FIELDS_BEFORE}) FROM assignments WHERE id = ? AND date IN (SELECT date FROM day_sends)`,
+  ).bind(crypto.randomUUID(), now, id);
+  // One statement renumbers the lane, so it is never left half renumbered.
+  const renumber = env.DB.prepare(
+    `UPDATE assignments SET position = (SELECT key FROM json_each(?1) WHERE value = assignments.id),
+       updated_at = CASE WHEN id = ?2 THEN ?3 ELSE updated_at END,
+       changed_at = CASE WHEN id = ?2 THEN ?3 ELSE changed_at END
+     WHERE id IN (SELECT value FROM json_each(?1))`,
+  ).bind(JSON.stringify(order), id, now);
+  await env.DB.batch([keep, renumber]);
+  return json({ assignments: await readLane(env, existing.date, existing.driverId) });
+}
+
+/** One lane of a day (a Driver's, or Unassigned for null), in its order. */
+async function readLane(env: Env, date: string, driverId: string | null): Promise<Assignment[]> {
+  const { results } = await env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.date = ? AND a.driver_id IS ? ${DAY_ORDER}`)
+    .bind(date, driverId)
+    .all<AssignmentRow>();
+  return results.map(marked);
+}
 
 function dayFixed(): Response {
   return json({ error: 'day_fixed', message: 'An Assignment stays on its day. Add a new one on the other day instead.' }, 409);

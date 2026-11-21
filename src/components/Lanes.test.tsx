@@ -167,6 +167,17 @@ describe('Lanes', () => {
     expect(lanes()[0].blocks).toEqual(['First · Sample Site North (Sample Foreman A) · Truck 21 (his own)']);
   });
 
+  it('shows the open block pressed and its editor in its own lane, saying whether it is first or last there', () => {
+    const haul = assignment({ ...a, note: 'Haul stone' });
+    const topsoil = assignment({ ...a, note: 'Topsoil run' });
+    const editor = vi.fn((open: Assignment, { first, last }: { first: boolean; last: boolean }) => <p>Open: {open.note} {String(first)} {String(last)}</p>);
+    render(<Lanes assignments={[haul, topsoil, assignment({ ...b, note: 'Fill the shop' })]} drivers={drivers} trucks={trucks} onEdit={vi.fn()} openId={topsoil.id} editor={editor} />);
+    expect(within(screen.getByRole('article', { name: 'Sample Driver A' })).getByText('Open: Topsoil run false true')).toBeTruthy();
+    expect(screen.getAllByText(/^Open:/)).toHaveLength(1);
+    expect(screen.getByRole('button', { name: /^Edit Topsoil run/ }).getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByRole('button', { name: /^Edit Haul stone/ }).getAttribute('aria-expanded')).toBe('false');
+  });
+
   it('opens a block\'s Assignment through onEdit', () => {
     const onEdit = vi.fn();
     const haul = assignment({ ...a, note: 'Haul stone' });

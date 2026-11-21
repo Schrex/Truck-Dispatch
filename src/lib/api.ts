@@ -97,44 +97,18 @@ export async function addAssignment(assignment: NewAssignment & TypedNames): Pro
   ).assignment;
 }
 
-/**
- * Every field of a saved Assignment, as adding or changing one takes them. A
- * field added to NewAssignment does not compile until it is set here, so a
- * duplicate never leaves one behind.
- */
-export function fieldsOf(assignment: Assignment): Required<NewAssignment> {
-  return {
-    date: assignment.date,
-    driverId: assignment.driverId,
-    truckId: assignment.truckId,
-    fromPlaceId: assignment.fromPlaceId,
-    toPlaceId: assignment.toPlaceId,
-    materialId: assignment.materialId,
-    foremanId: assignment.foremanId,
-    note: assignment.note,
-  };
-}
-
-/**
- * The fields of an edited Assignment that differ from it as saved, and only
- * those, so a field changed meanwhile on another device is not sent back as
- * it was. The day is never among them: it is fixed.
- */
-export function changesOf(saved: Assignment, edited: Omit<NewAssignment, 'date'>): AssignmentChange {
-  const { date: _day, ...before } = fieldsOf(saved);
-  const changes: AssignmentChange = {};
-  for (const key of Object.keys(before) as (keyof typeof before)[]) {
-    if (!(key in edited)) continue;
-    // The Worker trims and saves an empty field as null; compare as it would.
-    const tidy = (value: string | null | undefined) => value?.trim() || null;
-    if (tidy(edited[key]) !== tidy(before[key])) changes[key] = edited[key];
-  }
-  return changes;
-}
-
 /** Changes only the fields given; the rest of the Assignment stays as it is. */
 export async function changeAssignment(id: string, changes: AssignmentChange): Promise<Assignment> {
   return (await request<{ assignment: Assignment }>(`api/assignments/${encodeURIComponent(id)}`, json('PATCH', changes))).assignment;
+}
+
+/**
+ * Moves an Assignment one place in its lane: "earlier" for Do this first,
+ * "later" for Do this later. Answers the lane in its new order, numbered
+ * again, so the page can show every block in it where it now is.
+ */
+export async function moveAssignment(id: string, direction: 'earlier' | 'later'): Promise<Assignment[]> {
+  return (await request<{ assignments: Assignment[] }>(`api/assignments/${encodeURIComponent(id)}/move`, json('POST', { direction }))).assignments;
 }
 
 /**

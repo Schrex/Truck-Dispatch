@@ -50,10 +50,17 @@ function lanesOf(assignments: Assignment[], drivers: Driver[] | null, trucks: Tr
   return [...lanes.values(), unassigned];
 }
 
+/** Where an open Assignment sits in its lane, so its editor offers only the moves it can make. */
+export interface InLane {
+  first: boolean;
+  last: boolean;
+}
+
 /**
  * The Dispatch board's lanes: each Driver's name and usual Truck, then his
- * Assignments as blocks in the order Dave set, marked First and Then. Blocks
- * open their Assignment through onEdit; with onAdd each lane but a removed
+ * Assignments as blocks in the order Dave set, marked First and Then. Tapping
+ * a block calls onEdit; the block named by openId is shown open, with what
+ * `editor` gives for it under the lane's blocks. With onAdd each lane but a removed
  * Driver's has a + that asks for the composer, which the lane named by
  * composingFor (a Driver's id, or null for Unassigned) shows under its
  * Driver. Without them the lanes are read-only.
@@ -66,6 +73,8 @@ export function Lanes({
   trucks,
   places = null,
   onEdit,
+  openId,
+  editor,
   onAdd,
   composingFor,
   composer,
@@ -76,6 +85,10 @@ export function Lanes({
   /** The Places, so each block names its Foreman beside the job site; null while they load. */
   places?: Place[] | null;
   onEdit?: (assignment: Assignment) => void;
+  /** The Assignment shown open; null or undefined when none is. */
+  openId?: string | null;
+  /** The open Assignment's editor, shown in its lane. */
+  editor?: (assignment: Assignment, inLane: InLane) => ReactNode;
   onAdd?: (driverId: string | null) => void;
   /** Which lane the composer is open in; undefined when it is closed. */
   composingFor?: string | null;
@@ -87,6 +100,7 @@ export function Lanes({
       {lanesOf(assignments, drivers, trucks).map((lane) => {
         const about = [lane.removed && 'Removed', lane.usualTruck && `Truck ${lane.usualTruck}`].filter(Boolean).join(' · ');
         const name = lane.driverName ?? 'Unassigned';
+        const openAt = lane.assignments.findIndex((assignment) => assignment.id === openId);
         return (
           <Card key={lane.key} role="article" aria-labelledby={`lane-${lane.key}`} className="space-y-3 p-4">
             <div className="flex flex-col gap-3 md:flex-row md:items-start">
@@ -120,11 +134,20 @@ export function Lanes({
               ) : (
                 <ol className="grid gap-2 sm:grid-cols-2 md:flex-1 lg:grid-cols-3">
                   {lane.assignments.map((assignment, i) => (
-                    <AssignmentBlock key={assignment.id} assignment={assignment} first={i === 0} usualTruck={lane.usualTruck} jobSites={jobSites} onEdit={onEdit} />
+                    <AssignmentBlock
+                      key={assignment.id}
+                      assignment={assignment}
+                      first={i === 0}
+                      usualTruck={lane.usualTruck}
+                      jobSites={jobSites}
+                      onEdit={onEdit}
+                      open={i === openAt}
+                    />
                   ))}
                 </ol>
               )}
             </div>
+            {openAt >= 0 && editor?.(lane.assignments[openAt], { first: openAt === 0, last: openAt === lane.assignments.length - 1 })}
             {composingFor === lane.driverId && composer}
           </Card>
         );
