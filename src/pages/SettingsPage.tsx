@@ -67,8 +67,8 @@ const SECTIONS: SectionSpec<ListName>[] = [
         shownWhen: (form) => form.kind === 'job_site',
       },
     ],
-    // A job site with a usual Foreman shows him, as in "TIUNY · Brody"; any other Place its kind.
-    detail: (place, nameOf) => nameOf('foremen', place.usualForemanId) ?? (place.kind && PLACE_KIND_LABELS[place.kind]),
+    // Its kind, and a job site's usual Foreman after it, as in "TIUNY · Job site · Brody".
+    detail: (place, nameOf) => [place.kind && PLACE_KIND_LABELS[place.kind], nameOf('foremen', place.usualForemanId)].filter(Boolean).join(' · ') || null,
     status: (place) => (place.onTruckMap ? 'On the truck map' : 'Not on the truck map yet'),
   }),
   section({ list: 'materials', title: 'Materials', noun: 'Material', name: { key: 'name', label: 'Name' }, fields: [] }),
@@ -109,7 +109,7 @@ export function SettingsPage() {
 
   /**
    * Puts a saved entry back in its place in the list, or last if it is new or,
-   * in an ordered list, brought back: the Worker gives those no order.
+   * in an ordered list, brought back: the Worker puts those last.
    */
   const put = (list: ListName, saved: Row) =>
     setLists((current) => {

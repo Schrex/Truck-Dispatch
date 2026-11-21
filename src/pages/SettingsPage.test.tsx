@@ -292,7 +292,7 @@ describe('Settings', () => {
       fireEvent.change(pick(panel, 'usualForemanId'), { target: { value: 'frm-a' } });
       await waitFor(() => expect(sent).toEqual([{ method: 'PATCH', path: '/api/places/plc-north', body: { usualForemanId: 'frm-a' } }]));
       done(panel);
-      expect(chip('Places', 'Sample Site North').textContent).toBe('Sample Site NorthSample Foreman A');
+      expect(chip('Places', 'Sample Site North').textContent).toBe('Sample Site NorthJob site · Sample Foreman A');
     });
 
     it('asks for a usual Foreman only once it is a job site', async () => {
