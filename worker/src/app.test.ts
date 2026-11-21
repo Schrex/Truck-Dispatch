@@ -57,6 +57,7 @@ describe.each([
     ['Board', '/'],
     ['Board on a given day', '/?date=2026-11-18'],
     ['Settings', '/settings'],
+    ['Driver view', '/driver'],
   ])('serves the %s page on a direct load', async (_page, address) => {
     const response = await get(`${prefix}${address}`);
     expect(response.status).toBe(200);
