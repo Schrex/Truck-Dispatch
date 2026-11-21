@@ -464,7 +464,9 @@ const DIRECTIONS = { earlier: -1, later: 1 } as const;
  * in its new order, so Assignments that shared a position (saved before they
  * had one) each get their own. Only the one moved is recorded as changed: the
  * neighbour that shifted is not, so a Driver is not told it changed. Answers
- * the lane in its new order. The first cannot move earlier nor the last later.
+ * the lane in its new order. Cancelled ones keep their place and are stepped
+ * over: it swaps with the nearest one that is not cancelled, and the first (or
+ * last) not cancelled cannot move earlier (or later).
  */
 async function moveAssignment(request: Request, env: Env, id: string): Promise<Response> {
   const body = await readJson<{ direction?: unknown }>(request);
@@ -478,7 +480,9 @@ async function moveAssignment(request: Request, env: Env, id: string): Promise<R
 
   const lane = await readLane(env, existing.date, existing.driverId);
   const from = lane.findIndex((a) => a.id === id);
-  const to = from + DIRECTIONS[direction];
+  // Cancelled ones keep their place but are stepped over: it swaps with the nearest one still on.
+  let to = from + DIRECTIONS[direction];
+  while (lane[to]?.cancelledAt) to += DIRECTIONS[direction];
   if (to < 0 || to >= lane.length) {
     const end = direction === 'earlier' ? 'first' : 'last';
     return json({ error: 'lane_end', message: `This Assignment is already ${end} in its lane.` }, 409);

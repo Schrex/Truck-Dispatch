@@ -77,7 +77,7 @@ describe('Lanes', () => {
         assignments={[
           assignment({ ...a, note: 'Haul stone to the job' }),
           assignment({ ...a, note: 'Move the excavator' }),
-          assignment({ ...a, note: 'Topsoil run' }),
+          assignment({ ...a, note: 'Topsoil haul' }),
           assignment({ ...b, note: 'Fill the shop' }),
           assignment({ note: 'Who takes this?' }),
         ]}
@@ -86,7 +86,7 @@ describe('Lanes', () => {
       />,
     );
     expect(lanes()).toEqual([
-      { driver: 'Sample Driver A', about: 'Truck 21', blocks: ['First · Haul stone to the job · Truck 21 (his own)', 'Then · Move the excavator · Truck 21 (his own)', 'Then · Topsoil run · Truck 21 (his own)'] },
+      { driver: 'Sample Driver A', about: 'Truck 21', blocks: ['First · Haul stone to the job · Truck 21 (his own)', 'Then · Move the excavator · Truck 21 (his own)', 'Then · Topsoil haul · Truck 21 (his own)'] },
       { driver: 'Sample Driver B', about: '', blocks: ['First · Fill the shop'] },
       { driver: 'Unassigned', about: '', blocks: ['First · Who takes this?'] },
     ]);
@@ -137,13 +137,13 @@ describe('Lanes', () => {
       <Lanes
         assignments={[
           assignment({ ...a, note: 'Haul stone', truckId: 'trk-24', truckNumber: '24' }),
-          assignment({ ...a, note: 'Topsoil run' }),
+          assignment({ ...a, note: 'Topsoil haul' }),
         ]}
         drivers={drivers}
         trucks={trucks}
       />,
     );
-    expect(lanes()[0].blocks).toEqual(['First · Haul stone · Truck 24', 'Then · Topsoil run · Truck 21 (his own)']);
+    expect(lanes()[0].blocks).toEqual(['First · Haul stone · Truck 24', 'Then · Topsoil haul · Truck 21 (his own)']);
     expect(screen.getByText('Truck 24').className).not.toContain('text-muted-foreground');
     expect(screen.getByText('Truck 21', { selector: 'li span' }).className).toContain('text-muted-foreground');
   });
@@ -170,13 +170,24 @@ describe('Lanes', () => {
 
   it('shows the open block pressed and its editor in its own lane, saying whether it is first or last there', () => {
     const haul = assignment({ ...a, note: 'Haul stone' });
-    const topsoil = assignment({ ...a, note: 'Topsoil run' });
+    const topsoil = assignment({ ...a, note: 'Topsoil haul' });
     const editor = vi.fn((open: Assignment, { first, last }: { first: boolean; last: boolean }) => <p>Open: {open.note} {String(first)} {String(last)}</p>);
     render(<Lanes assignments={[haul, topsoil, assignment({ ...b, note: 'Fill the shop' })]} drivers={drivers} trucks={trucks} onEdit={vi.fn()} openId={topsoil.id} editor={editor} />);
-    expect(within(screen.getByRole('article', { name: 'Sample Driver A' })).getByText('Open: Topsoil run false true')).toBeTruthy();
+    expect(within(screen.getByRole('article', { name: 'Sample Driver A' })).getByText('Open: Topsoil haul false true')).toBeTruthy();
     expect(screen.getAllByText(/^Open:/)).toHaveLength(1);
-    expect(screen.getByRole('button', { name: /^Edit Topsoil run/ }).getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByRole('button', { name: /^Edit Topsoil haul/ }).getAttribute('aria-expanded')).toBe('true');
     expect(screen.getByRole('button', { name: /^Edit Haul stone/ }).getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('leaves cancelled ones out when saying whether the open one is first or last in its lane', () => {
+    const haul = assignment({ ...a, note: 'Haul stone' });
+    const off = assignment({ ...a, note: 'Topsoil haul', cancelledAt: '2026-11-19T21:30:00.000Z' });
+    const shop = assignment({ ...a, note: 'Fill the shop' });
+    const editor = (open: Assignment, { first, last }: { first: boolean; last: boolean }) => <p>Open: {open.note} {String(first)} {String(last)}</p>;
+    const { rerender } = render(<Lanes assignments={[haul, off]} drivers={drivers} trucks={trucks} onEdit={vi.fn()} openId={haul.id} editor={editor} />);
+    expect(screen.getByText('Open: Haul stone true true')).toBeTruthy();
+    rerender(<Lanes assignments={[off, shop]} drivers={drivers} trucks={trucks} onEdit={vi.fn()} openId={shop.id} editor={editor} />);
+    expect(screen.getByText('Open: Fill the shop true true')).toBeTruthy();
   });
 
   it('opens a block\'s Assignment through onEdit', () => {
