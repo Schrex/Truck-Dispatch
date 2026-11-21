@@ -1,6 +1,6 @@
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import { ArrowDown, ArrowUp, Loader2, X } from 'lucide-react';
-import type { Assignment, AssignmentChange, Driver, Foreman, Material, Place, Truck } from '../../shared/types';
+import type { Assignment, AssignmentChange, ChangedAssignment, Driver, Foreman, Material, Place, Truck } from '../../shared/types';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -82,7 +82,9 @@ function messageOf(error: unknown, key: string | null, fallback: string): string
  * A new Driver moves it last in his lane; it stays open there.
  * "Do this first" and "Do this later" move it one place in its lane, each
  * left out at that end of the lane. The actions row starts with `actions`,
- * where ✕ and Put back belong.
+ * where ✕ and Put back belong. A cancelled Assignment opens only to them: its
+ * sentence struck through, with no chips, note or moves, since the Worker
+ * refuses changing it until it is put back.
  */
 export function AssignmentEditor({
   assignment,
@@ -100,7 +102,8 @@ export function AssignmentEditor({
   first: boolean;
   /** Whether it is last in its lane, so it cannot be done any later. */
   last: boolean;
-  onSaved: (assignment: Assignment) => void;
+  /** The Worker's answer to a change: the Assignment, or on a Sent day's new Driver, its copy and the first one cancelled. */
+  onSaved: (changed: ChangedAssignment) => void;
   /** Its lane in its new order after a move. */
   onMoved: (lane: Assignment[]) => void;
   onClose: () => void;
@@ -142,6 +145,29 @@ export function AssignmentEditor({
     } finally {
       setSaving(null);
     }
+  }
+
+  if (assignment.cancelledAt) {
+    const sentence = parts
+      .map((part) => {
+        const value = assignment[part.key];
+        const shown = value ? (part.choices?.find((c) => c.id === value)?.label ?? part.saved ?? '…') : part.blankWords;
+        return [part.lead, shown].filter(Boolean).join(' ');
+      })
+      .join(' ');
+    return (
+      <section aria-label="Open Assignment" className="space-y-4 rounded-md border bg-background p-4 shadow-sm">
+        <p className="text-base text-muted-foreground line-through">{sentence}</p>
+        {assignment.note && <p className="whitespace-pre-line text-sm text-muted-foreground line-through">{assignment.note}</p>}
+        <p className="text-sm">Cancelled: the Driver is told it is off his day. Put it back to change it.</p>
+        <div data-actions className="flex flex-wrap items-center justify-end gap-2">
+          {actions}
+          <Button type="button" variant="outline" size="lg" className="px-5" onClick={onClose}>
+            <X className="h-4 w-4" /> Close
+          </Button>
+        </div>
+      </section>
+    );
   }
 
   const open = parts.find((part) => part.key === tapped);

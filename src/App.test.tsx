@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { toast } from './components/ui/sonner';
-import { dayState, holidayName, sinceSent, weekDates } from '../shared/days';
+import { dayState, holidayName, sinceSent, unassignedOn, weekDates } from '../shared/days';
 
 /**
  * The API as the page sees it: today in US Eastern is Thursday 2026-11-19,
@@ -95,6 +95,7 @@ const lastInLane = (date: unknown, driverId: unknown) =>
   Math.max(-1, ...assignments.filter((a) => a.date === date && (a.driverId ?? null) === (driverId ?? null)).map((a) => Number(a.position ?? 0))) + 1;
 /** An Assignment as the Worker answers it: marked Changed or Added since its day was Sent, by the shared day rules. */
 const marked = (a: Record<string, unknown>) => ({
+  cancelledAt: null,
   ...a,
   sinceSent: sinceSent({ createdAt: String(a.createdAt), changedAt: (a.changedAt as string | null) ?? null }, daySends[String(a.date)] ?? null),
 });
@@ -116,8 +117,13 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const days = weekDates(week[1]).map((date) => {
       const planned = assignments
         .filter((a) => a.date === date)
-        .map((a) => ({ driverId: (a.driverId as string | null) ?? null, createdAt: String(a.createdAt), changedAt: (a.changedAt as string | null) ?? null }));
-      const unassigned = planned.filter((a) => a.driverId === null).length;
+        .map((a) => ({
+          driverId: (a.driverId as string | null) ?? null,
+          createdAt: String(a.createdAt),
+          changedAt: (a.changedAt as string | null) ?? null,
+          cancelledAt: (a.cancelledAt as string | null) ?? null,
+        }));
+      const unassigned = unassignedOn(planned);
       return { date, state: dayState(planned, daySends[date] ?? null).state, unassigned, holiday: holidayName(date) };
     });
     return answer({ days });
@@ -136,12 +142,19 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     // The Worker copies from its own today, whatever the page sends.
     const { to } = body;
     const copies = assignments
-      .filter((a) => a.date === '2026-11-19')
+      .filter((a) => a.date === '2026-11-19' && !a.cancelledAt)
       .map((a, i) => ({ ...a, id: `c${assignments.length + i + 1}`, date: to, note: null }));
     assignments.push(...copies);
     return answer({ assignments: copies }, 201);
   }
   if (init?.body) sent.push(JSON.parse(String(init.body)));
+  const puttingBack = /\/api\/assignments\/([^/]+)\/put-back$/.exec(url.pathname);
+  if (puttingBack && init?.method === 'POST') {
+    if (failSaves) return answer({ error: 'oops' }, 500);
+    const back = assignments.find((a) => a.id === puttingBack[1])!;
+    if (back.cancelledAt) Object.assign(back, { cancelledAt: null, updatedAt: '2026-11-19T22:30:00.000Z', changedAt: '2026-11-19T22:30:00.000Z' });
+    return answer({ assignment: marked(back) });
+  }
   const moving = /\/api\/assignments\/([^/]+)\/move$/.exec(url.pathname);
   if (moving && init?.method === 'POST') {
     if (failSaves) return answer({ error: 'oops' }, 500);
@@ -182,6 +195,21 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const { fromPlaceName: _from, toPlaceName: _to, materialName: _material, ...ids } = before;
     const fields = resolve({ ...ids, ...JSON.parse(String(init.body)) } as Parameters<typeof resolve>[0]);
     const sameLane = (before.driverId ?? null) === fields.driverId;
+    // On a Sent day a new Driver cancels it for the first one and adds a copy, last in the new lane.
+    if (!sameLane && daySends[String(before.date)]) {
+      Object.assign(before, { cancelledAt: '2026-11-19T22:00:00.000Z', updatedAt: '2026-11-19T22:00:00.000Z', changedAt: '2026-11-19T22:00:00.000Z' });
+      const copy = {
+        ...fields,
+        id: `a${assignments.length + 1}`,
+        position: lastInLane(fields.date, fields.driverId),
+        createdAt: '2026-11-19T22:00:00.000Z',
+        updatedAt: '2026-11-19T22:00:00.000Z',
+        changedAt: null,
+        cancelledAt: null,
+      };
+      assignments.push(copy);
+      return answer({ assignment: marked(copy), cancelled: marked(before) });
+    }
     assignments[index] = {
       ...before,
       ...fields,
@@ -192,6 +220,15 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     return answer({ assignment: marked(assignments[index]) });
   }
   if (one && init?.method === 'DELETE') {
+    sent.push({ delete: one[1] });
+    if (failSaves) return answer({ error: 'oops' }, 500);
+    // ✕ cancels on a Sent day, keeping the Assignment; on a Draft day it deletes it.
+    const off = assignments.find((a) => a.id === one[1])!;
+    if (daySends[String(off.date)]) {
+      off.cancelledAt ??= '2026-11-19T22:00:00.000Z';
+      Object.assign(off, { updatedAt: off.cancelledAt, changedAt: off.cancelledAt });
+      return answer({ assignment: marked(off) });
+    }
     assignments = assignments.filter((a) => a.id !== one[1]);
     return new Response(null, { status: 204 });
   }
@@ -969,6 +1006,89 @@ describe('opening an Assignment', () => {
       fireEvent.click(within(opened).getByRole('button', { name: 'Do this first' }));
       expect(await within(opened).findByText('Could not move the Assignment. Try again.')).toBeTruthy();
       expect(lineup()).toEqual(['First · Haul stone', 'Then · Topsoil run', 'Then · Fill the shop']);
+    });
+  });
+
+  describe('✕ and Put back', () => {
+    const SENT = { '2026-11-20': SENT_AT };
+    /** A block's frame: the button that opens it. */
+    const frameOf = (words: string) => screen.getByRole('button', { name: `Edit ${words}` });
+
+    it('deletes the Assignment with ✕ on a Draft day, leaving nothing behind', async () => {
+      assignments = [planned()];
+      open('/?date=2026-11-20');
+      fireEvent.click(within(await openBlock('Haul stone')).getByRole('button', { name: 'Delete' }));
+      await waitFor(() => expect(within(lane('Sample Driver A')).getByText('Nothing planned yet')).toBeTruthy());
+      expect(sent).toEqual([{ delete: 'a1' }]);
+      expect(screen.queryByRole('region', { name: 'Open Assignment' })).toBeNull();
+      expect(await screen.findByText('No Assignments for this day')).toBeTruthy();
+    });
+
+    it('cancels it with ✕ on a Sent day: it stays in its place, struck through, greyed and marked Cancelled', async () => {
+      assignments = [planned(), planned({ id: 'a2', note: 'Topsoil run', position: 1 })];
+      daySends = SENT;
+      open('/?date=2026-11-20');
+      fireEvent.click(within(await openBlock('Haul stone')).getByRole('button', { name: 'Cancel' }));
+      await waitFor(() => expect(blocks('Sample Driver A')).toEqual([
+        'First · Cancelled · Haul stone · Truck 21 (his own)',
+        'Then · Topsoil run · Truck 21 (his own)',
+      ]));
+      expect(sent).toEqual([{ delete: 'a1' }]);
+      expect(frameOf('Haul stone · Cancelled').className).toMatch(/line-through/);
+      expect(frameOf('Haul stone · Cancelled').className).toMatch(/opacity/);
+      expect(screen.getByRole('status', { name: 'Day state' }).textContent).toBe('Changed since Sent');
+    });
+
+    it('opens a cancelled Assignment only to Put back, which restores it, marked Changed', async () => {
+      assignments = [planned({ cancelledAt: '2026-11-19T22:00:00.000Z', changedAt: '2026-11-19T22:00:00.000Z' })];
+      daySends = SENT;
+      open('/?date=2026-11-20');
+      fireEvent.click(await screen.findByRole('button', { name: 'Edit Haul stone · Cancelled' }));
+      const opened = screen.getByRole('region', { name: 'Open Assignment' });
+      expect(within(opened).queryByRole('button', { name: /^(Driver|Material|From|To|Truck|Foreman):/ })).toBeNull();
+      expect(within(opened).queryByRole('textbox', { name: 'Note' })).toBeNull();
+      expect(within(opened).getAllByRole('button').map((b) => b.textContent?.trim())).toEqual(['Put back', 'Close']);
+      expect(within(opened).getByText(/cancelled/i)).toBeTruthy();
+
+      fireEvent.click(within(opened).getByRole('button', { name: 'Put back' }));
+      await waitFor(() => expect(blocks('Sample Driver A')).toEqual(['First · Changed · Haul stone · Truck 21 (his own)']));
+      expect(sent).toEqual([]);
+      expect(api.mock.calls.some(([url, init]) => String(url).endsWith('/api/assignments/a1/put-back') && init?.method === 'POST')).toBe(true);
+      // Put back, it opens as any other, with its chips.
+      const reopened = screen.getByRole('region', { name: 'Open Assignment' });
+      expect(within(reopened).getByRole('button', { name: 'Driver: Sample Driver A' })).toBeTruthy();
+    });
+
+    it('cancels it for the first Driver and adds it last in the other Driver\'s lane on a Sent day, still open there', async () => {
+      assignments = [planned(), planned({ id: 'a2', driverId: 'drv-b', driverName: 'Sample Driver B', note: 'Topsoil run' })];
+      daySends = SENT;
+      open('/?date=2026-11-20');
+      pick(await openBlock('Haul stone'), 'Driver', 'Sample Driver B');
+      await waitFor(() => expect(blocks('Sample Driver B')).toEqual(['First · Topsoil run · Truck 24 (his own)', 'Then · Added · Haul stone · Truck 24 (his own)']));
+      expect(blocks('Sample Driver A')).toEqual(['First · Cancelled · Haul stone · Truck 21 (his own)']);
+      expect(within(lane('Sample Driver B')).getByRole('region', { name: 'Open Assignment' })).toBeTruthy();
+    });
+
+    it('says so when ✕ fails, and keeps the Assignment', async () => {
+      assignments = [planned()];
+      open('/?date=2026-11-20');
+      const opened = await openBlock('Haul stone');
+      failSaves = true;
+      fireEvent.click(within(opened).getByRole('button', { name: 'Delete' }));
+      expect(await within(opened).findByText('Could not delete the Assignment. Try again.')).toBeTruthy();
+      expect(blocks('Sample Driver A')).toEqual(['First · Haul stone · Truck 21 (his own)']);
+    });
+
+    it('says so when Put back fails, and keeps it cancelled', async () => {
+      assignments = [planned({ cancelledAt: '2026-11-19T22:00:00.000Z', changedAt: '2026-11-19T22:00:00.000Z' })];
+      daySends = SENT;
+      open('/?date=2026-11-20');
+      fireEvent.click(await screen.findByRole('button', { name: 'Edit Haul stone · Cancelled' }));
+      const opened = screen.getByRole('region', { name: 'Open Assignment' });
+      failSaves = true;
+      fireEvent.click(within(opened).getByRole('button', { name: 'Put back' }));
+      expect(await within(opened).findByText('Could not put the Assignment back. Try again.')).toBeTruthy();
+      expect(blocks('Sample Driver A')).toEqual(['First · Cancelled · Haul stone · Truck 21 (his own)']);
     });
   });
 
