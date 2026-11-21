@@ -13,6 +13,9 @@ import {
   shortDate,
   dayState,
   sinceSent,
+  stateWord,
+  weekDates,
+  weekSpan,
 } from './days';
 
 describe('Working days', () => {
@@ -186,6 +189,18 @@ describe('weeks', () => {
   ])('starts the week of %s on Monday %s', (date, monday) => {
     expect(mondayOf(date)).toBe(monday);
   });
+
+  it('runs Monday to Sunday, across a month and a year', () => {
+    expect(weekDates('2026-12-28')).toEqual(['2026-12-28', '2026-12-29', '2026-12-30', '2026-12-31', '2027-01-01', '2027-01-02', '2027-01-03']);
+  });
+
+  it.each([
+    ['2026-11-16', 'Nov 16 to Nov 22'],
+    ['2026-11-30', 'Nov 30 to Dec 6'],
+    ['2026-12-28', 'Dec 28 to Jan 3'],
+  ])('names the week of Monday %s on its pager as "%s"', (monday, span) => {
+    expect(weekSpan(monday)).toBe(span);
+  });
 });
 
 describe('dates', () => {
@@ -262,5 +277,18 @@ describe('day states', () => {
   it('is Changed once one Assignment is Changed or Added since the Send', () => {
     expect(dayState([planned('drv-a'), planned('drv-b', undefined, '2026-11-20T22:00:00.000Z')], SENT)).toEqual({ state: 'changed' });
     expect(dayState([planned('drv-a'), planned(null, '2026-11-20T22:00:00.000Z')], SENT)).toEqual({ state: 'changed' });
+  });
+});
+
+describe('a day state on its week strip tile', () => {
+  it.each([
+    [{ state: 'none' } as const, '–'],
+    [{ state: 'draft', unassigned: 0 } as const, 'Not sent'],
+    [{ state: 'draft', unassigned: 1 } as const, '1 unassigned'],
+    [{ state: 'draft', unassigned: 2 } as const, '2 unassigned'],
+    [{ state: 'sent' } as const, 'Sent'],
+    [{ state: 'changed' } as const, 'Changed'],
+  ])('reads %o as "%s"', (state, word) => {
+    expect(stateWord(state)).toBe(word);
   });
 });
