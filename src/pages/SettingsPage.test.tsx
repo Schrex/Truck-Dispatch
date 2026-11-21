@@ -6,7 +6,8 @@ import { App } from '../App';
 /**
  * The list API as Settings sees it: every list keeps what is added and
  * changed, refuses a name already used (ignoring case) and has no delete. A
- * Driver answers how many later days hold his Assignments.
+ * Driver answers how many later days hold his Assignments. Drivers, Places and
+ * Materials take a whole new order, the ids first to last, the rest after.
  */
 type Entry = Record<string, unknown> & { id: string; active: boolean };
 const NAME: Record<string, string> = { drivers: 'name', trucks: 'number', jobs: 'name', places: 'shortName', materials: 'name', foremen: 'name' };
@@ -35,6 +36,11 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   const body = JSON.parse(String(init?.body));
   sent.push({ method, path: url.pathname, body });
   if (saveFails) return answer({ error: 'oops' }, 500);
+  if (method === 'PUT' && id === 'order' && ['drivers', 'places', 'materials'].includes(list)) {
+    const rank = (e: Entry) => ((body.order as string[]).indexOf(e.id) + 1 || Infinity);
+    lists[list] = [...entries].sort((a, b) => rank(a) - rank(b));
+    return answer({ [list]: lists[list] });
+  }
   const name = NAME[list];
   const one = list.slice(0, -1);
   if (name in body && entries.some((e) => e.id !== id && String(e[name]).toLowerCase() === String(body[name]).toLowerCase())) {
@@ -391,6 +397,59 @@ describe('Settings', () => {
       expect(await within(panel).findByRole('button', { name: 'Remove' })).toBeTruthy();
       done(panel);
       expect(chips('Places')).toContain('Sample Old Pit');
+    });
+  });
+
+  describe('Dave\'s own order', () => {
+    const move = (title: Title, name: string, way: 'up' | 'down') =>
+      fireEvent.click(within(chip(title, name)).getByRole('button', { name: `Move ${name} ${way}` }));
+
+    it('moves a Driver, Place or Material one place with ▲▼, saving the whole list\'s order in one request', async () => {
+      await settings();
+      move('Drivers', 'Sample Driver C', 'up');
+      expect(chips('Drivers')).toEqual(['Sample Driver C', 'Sample Driver A']);
+      move('Places', 'Sample Plant', 'down');
+      expect(chips('Places')).toEqual(['Sample Site North', 'Sample Plant', 'Sample Yard']);
+      await waitFor(() =>
+        expect(sent).toEqual([
+          { method: 'PUT', path: '/api/drivers/order', body: { order: ['drv-c', 'drv-a'] } },
+          { method: 'PUT', path: '/api/places/order', body: { order: ['plc-north', 'plc-plant', 'plc-yard'] } },
+        ]),
+      );
+    });
+
+    it('offers no ▲ on the first entry and no ▼ on the last', async () => {
+      await settings();
+      const buttons = (title: Title, name: string) =>
+        within(chip(title, name)).queryAllByRole('button', { name: /^Move/ }).map((b) => b.getAttribute('aria-label'));
+      expect(buttons('Places', 'Sample Plant')).toEqual(['Move Sample Plant down']);
+      expect(buttons('Places', 'Sample Site North')).toEqual(['Move Sample Site North up', 'Move Sample Site North down']);
+      expect(buttons('Places', 'Sample Yard')).toEqual(['Move Sample Yard up']);
+      expect(buttons('Materials', '2" minus')).toEqual([]);
+    });
+
+    it('is not offered for Trucks, Jobs or Foremen, nor for removed entries', async () => {
+      await settings();
+      for (const title of ['Trucks', 'Jobs', 'Foremen'] as const) {
+        expect(within(section(title)).queryAllByRole('button', { name: /^Move/ })).toEqual([]);
+      }
+      expect(within(chip('Drivers', 'Sample Driver X')).queryAllByRole('button', { name: /^Move/ })).toEqual([]);
+    });
+
+    it('puts the entry back where it was, and says so, when the order cannot be saved', async () => {
+      saveFails = true;
+      await settings();
+      move('Drivers', 'Sample Driver A', 'down');
+      expect(await screen.findByText('Could not move Sample Driver A')).toBeTruthy();
+      expect(chips('Drivers')).toEqual(['Sample Driver A', 'Sample Driver C']);
+    });
+
+    it('puts an entry brought back last, as the Worker does', async () => {
+      lists.drivers.unshift(lists.drivers.pop()!);
+      await settings();
+      expect(chips('Drivers')).toEqual(['Sample Driver A', 'Sample Driver C']);
+      fireEvent.click(within(chip('Drivers', 'Sample Driver X')).getByRole('button', { name: 'Bring back' }));
+      await waitFor(() => expect(chips('Drivers')).toEqual(['Sample Driver A', 'Sample Driver C', 'Sample Driver X']));
     });
   });
 });

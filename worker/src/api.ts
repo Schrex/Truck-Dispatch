@@ -1,7 +1,7 @@
 import type { Env } from './app';
 import { clock } from './clock';
 import { json, readJson, refuse, text } from './http';
-import { exists, handleList, isList } from './lists';
+import { exists, handleList, isList, listOrder } from './lists';
 import { checkTyped, saveLinked, typedIn, type Typed } from './typedNames';
 import { addDays, dayState, holidayName, isCalendarDate, mondayOf, sinceSent, weekDates } from '../../shared/days';
 import type { Assignment, BusinessDay, Day, ListName, NewAssignment, TypedNames, Week } from '../../shared/types';
@@ -100,11 +100,12 @@ const SELECT_ASSIGNMENT = `SELECT a.id, a.date, a.driver_id AS driverId, d.name 
   LEFT JOIN materials m ON m.id = a.material_id LEFT JOIN foremen f ON f.id = a.foreman_id`;
 
 /**
- * How a day's Assignments are listed: lane by lane (by Driver name, the
- * Unassigned lane last), then in each lane's order, ties (such as Assignments
- * saved before they had a position) in the order they were added.
+ * How a day's Assignments are listed: lane by lane (in the Drivers' order,
+ * as their list is read, the Unassigned lane last), then in each lane's order,
+ * ties (such as Assignments saved before they had a position) in the order
+ * they were added.
  */
-const DAY_ORDER = 'ORDER BY a.driver_id IS NULL, d.name COLLATE NOCASE, a.driver_id, a.position, a.created_at, a.rowid';
+const DAY_ORDER = `ORDER BY a.driver_id IS NULL, ${listOrder('drivers', 'd')}, a.driver_id, a.position, a.created_at, a.rowid`;
 
 /**
  * The position just after the last Assignment in a lane: bind the date and the

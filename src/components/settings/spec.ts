@@ -1,7 +1,10 @@
 import type { ListName, Lists } from '../../../shared/types';
 
-/** A field Settings can edit: everything an entry has except its id, whether it is active, and facts the Worker answers. */
-export type Key<L extends ListName> = Exclude<keyof Lists[L], 'id' | 'active' | 'onTruckMap'> & string;
+/**
+ * A field Settings can edit: everything an entry has except its id, whether it
+ * is active, facts the Worker answers, and its place in the list's order (▲▼).
+ */
+export type Key<L extends ListName> = Exclude<keyof Lists[L], 'id' | 'active' | 'onTruckMap' | 'sortOrder'> & string;
 
 /** One entry of any list, as the page holds it. */
 export type Row = Record<string, unknown> & { id: string; active: boolean };

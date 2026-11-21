@@ -1,4 +1,4 @@
-import type { Assignment, AssignmentChange, BusinessDay, Day, EntryFields, ListName, Lists, NewAssignment, TypedNames, WeekDay } from '../../shared/types';
+import type { Assignment, AssignmentChange, BusinessDay, Day, EntryFields, ListName, Lists, NewAssignment, OrderedList, TypedNames, WeekDay } from '../../shared/types';
 import { basePath } from './basePath';
 
 // Every call starts at the base path the page was reached under: /api/...
@@ -29,7 +29,8 @@ export function fetchBusinessDay(): Promise<BusinessDay> {
 }
 
 /**
- * A list's entries by display name: active ones only, or every entry with
+ * A list's entries in its order (Dave's own for Drivers, Places and Materials,
+ * then by display name): active ones only, or every entry with
  * includeInactive (Settings, and the Board so a saved inactive entry keeps its name).
  */
 export async function fetchList<L extends ListName>(list: L, { includeInactive = false } = {}): Promise<Lists[L][]> {
@@ -45,6 +46,14 @@ export async function addEntry<L extends ListName>(list: L, fields: EntryFields<
 /** Changes only the given fields of an entry, e.g. its name or { active: false }. */
 export async function changeEntry<L extends ListName>(list: L, id: string, fields: EntryFields<L>): Promise<Lists[L]> {
   return Object.values(await request<Record<string, Lists[L]>>(`api/${list}/${encodeURIComponent(id)}`, json('PATCH', fields)))[0];
+}
+
+/**
+ * Sets Dave's own order of a whole list: the ids first to last; any left out
+ * have none. Answers every entry, removed ones too, in the new order.
+ */
+export async function reorderList<L extends OrderedList>(list: L, ids: string[]): Promise<Lists[L][]> {
+  return (await request<Record<L, Lists[L][]>>(`api/${list}/order`, json('PUT', { order: ids })))[list];
 }
 
 /** How many days after today hold one of the Driver's Assignments, to warn before he is removed. */
