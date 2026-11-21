@@ -2198,6 +2198,15 @@ describe('API', () => {
     const response = await handle(new Request('https://td.example/api/health'), env({ COMMIT_SHA: 'abc123' }));
     expect(await response.json()).toEqual({ ok: true, environment: 'test', commit: 'abc123' });
   });
+
+  it('names the commit on every API answer, also under the prefix and for unknown routes', async () => {
+    for (const path of ['/api/today', '/truck-dispatch/api/drivers', '/api/no-such-route']) {
+      const response = await handle(new Request(`https://td.example${path}`), env({ COMMIT_SHA: 'abc123' }));
+      expect(response.headers.get('X-Commit')).toBe('abc123');
+    }
+    const local = await handle(new Request('https://td.example/api/today'), env());
+    expect(local.headers.get('X-Commit')).toBeNull();
+  });
 });
 
 describe('prefix', () => {
