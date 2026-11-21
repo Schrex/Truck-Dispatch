@@ -1,4 +1,4 @@
-import type { Assignment, BusinessDay, EntryFields, ListName, Lists, NewAssignment, TypedNames } from '../../shared/types';
+import type { Assignment, AssignmentChange, BusinessDay, EntryFields, ListName, Lists, NewAssignment, TypedNames } from '../../shared/types';
 import { basePath } from './basePath';
 
 // Every call starts at the base path the page was reached under: /api/...
@@ -92,15 +92,26 @@ export function fieldsOf(assignment: Assignment): Required<NewAssignment> {
   };
 }
 
-/** Replaces every field of an Assignment; one left empty is cleared. */
-export async function changeAssignment(id: string, assignment: NewAssignment): Promise<Assignment> {
-  return (
-    await request<{ assignment: Assignment }>(`api/assignments/${encodeURIComponent(id)}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(assignment),
-    })
-  ).assignment;
+/**
+ * The fields of an edited Assignment that differ from it as saved, and only
+ * those, so a field changed meanwhile on another device is not sent back as
+ * it was. The day is never among them: it is fixed.
+ */
+export function changesOf(saved: Assignment, edited: Omit<NewAssignment, 'date'>): AssignmentChange {
+  const { date: _day, ...before } = fieldsOf(saved);
+  const changes: AssignmentChange = {};
+  for (const key of Object.keys(before) as (keyof typeof before)[]) {
+    if (!(key in edited)) continue;
+    // The Worker trims and saves an empty field as null; compare as it would.
+    const tidy = (value: string | null | undefined) => value?.trim() || null;
+    if (tidy(edited[key]) !== tidy(before[key])) changes[key] = edited[key];
+  }
+  return changes;
+}
+
+/** Changes only the fields given; the rest of the Assignment stays as it is. */
+export async function changeAssignment(id: string, changes: AssignmentChange): Promise<Assignment> {
+  return (await request<{ assignment: Assignment }>(`api/assignments/${encodeURIComponent(id)}`, json('PATCH', changes))).assignment;
 }
 
 /**

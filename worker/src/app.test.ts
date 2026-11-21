@@ -108,7 +108,7 @@ describe('Assignments', () => {
     const response = await post('/api/assignments', { date: '2026-11-20', startTime: '07:30', job: 'Sample Job' });
     expect(response.status).toBe(201);
     expect(Object.keys(((await response.json()) as { assignment: object }).assignment).sort()).toEqual(
-      ['createdAt', 'date', 'driverId', 'driverName', 'foremanId', 'foremanName', 'fromPlaceId', 'fromPlaceName', 'id', 'materialId', 'materialName', 'note', 'position', 'toPlaceId', 'toPlaceName', 'truckId', 'truckNumber', 'updatedAt'],
+      ['changedAt', 'createdAt', 'date', 'driverId', 'driverName', 'foremanId', 'foremanName', 'fromPlaceId', 'fromPlaceName', 'id', 'materialId', 'materialName', 'note', 'position', 'toPlaceId', 'toPlaceName', 'truckId', 'truckNumber', 'updatedAt'],
     );
   });
 
@@ -183,7 +183,8 @@ const send = (method: string, path: string, body?: unknown, vars: Parameters<typ
     }),
     env(vars),
   );
-const change = (id: string, body: unknown, vars = {}) => send('PUT', `/api/assignments/${id}`, body, vars);
+/** Changes only the fields given; the rest stay as they are. */
+const change = (id: string, body: unknown, vars = {}) => send('PATCH', `/api/assignments/${id}`, body, vars);
 const remove = (id: string, vars = {}) => send('DELETE', `/api/assignments/${id}`, undefined, vars);
 
 type Entry = { id: string; active: boolean } & Record<string, unknown>;
@@ -471,15 +472,20 @@ describe('an Assignment\'s Driver, Truck, Places, Material and Foreman', () => {
     expect(await refusal(await change(assignment.id, { date: '2026-11-20', ...every('nothing') }))).toEqual(fields);
   });
 
-  it('are each saved on add and on change, and cleared when left out', async () => {
+  it('are each saved on add and on change, kept when left out, and cleared when empty', async () => {
     const chosen = { driverId: 'drv-a', truckId: 'trk-21', fromPlaceId: 'plc-plant', toPlaceId: 'plc-north', materialId: 'mat-minus', foremanId: 'frm-a' };
     const added = (await (await post('/api/assignments', { date: '2026-11-20', ...chosen })).json()) as { assignment: Assignment };
     expect(added.assignment).toMatchObject(chosen);
     const changed = { driverId: 'drv-b', truckId: 'trk-24', fromPlaceId: 'plc-shop', toPlaceId: 'plc-yard', materialId: 'mat-dirt', foremanId: 'frm-b' };
     const moved = (await (await change(added.assignment.id, { date: '2026-11-20', ...changed })).json()) as { assignment: Assignment };
     expect(moved.assignment).toMatchObject(changed);
-    const cleared = (await (await change(added.assignment.id, { date: '2026-11-20' })).json()) as { assignment: Assignment };
+    const kept = (await (await change(added.assignment.id, { note: 'Only the note' })).json()) as { assignment: Assignment };
+    expect(kept.assignment).toMatchObject(changed);
+    const cleared = (await (await change(added.assignment.id, every(null))).json()) as { assignment: Assignment };
     expect(cleared.assignment).toMatchObject(every(null));
+    await change(added.assignment.id, changed);
+    const blanked = (await (await change(added.assignment.id, every(''))).json()) as { assignment: Assignment };
+    expect(blanked.assignment).toMatchObject(every(null));
   });
 });
 
@@ -630,56 +636,88 @@ describe('Assignments and Places', () => {
     expect(kept.status).toBe(200);
     expect(((await kept.json()) as { assignment: Assignment }).assignment).toMatchObject({ fromPlaceId: 'plc-plant', fromPlaceName: 'Sample Plant', toPlaceId: 'plc-north' });
 
-    await change(id, { date: '2026-11-20', fromPlaceId: 'plc-yard' });
-    expect(await day('2026-11-20')).toEqual([expect.objectContaining({ fromPlaceId: 'plc-yard', fromPlaceName: 'Sample Yard', toPlaceId: null, toPlaceName: null })]);
+    await change(id, { fromPlaceId: 'plc-yard' });
+    expect(await day('2026-11-20')).toEqual([expect.objectContaining({ fromPlaceId: 'plc-yard', fromPlaceName: 'Sample Yard', toPlaceId: 'plc-north', toPlaceName: 'Sample Site North' })]);
   });
 });
 
 describe('changing an Assignment', () => {
-  it('saves every field and the day shows the change', async () => {
+  it('saves the fields sent and the day shows the change', async () => {
     const { id } = await add({ date: '2026-11-20', note: 'Haul stone' });
-    const response = await change(id, { date: '2026-11-20', driverId: 'drv-a', note: 'Haul topsoil' });
+    const response = await change(id, { driverId: 'drv-a', note: 'Haul topsoil' });
     expect(response.status).toBe(200);
     const { assignment } = (await response.json()) as { assignment: Assignment };
     expect(assignment).toMatchObject({ id, date: '2026-11-20', driverId: 'drv-a', driverName: 'Sample Driver A', note: 'Haul topsoil' });
     expect(await day('2026-11-20')).toEqual([assignment]);
   });
 
-  it('clears a field that was set', async () => {
+  it('leaves every field it is not sent as it was, so two changes to different fields both stay', async () => {
+    const { id } = await add({ date: '2026-11-20', driverId: 'drv-a', truckId: 'trk-21', materialId: 'mat-minus', note: 'Haul stone' });
+    await change(id, { truckId: 'trk-24' });
+    await change(id, { note: 'Two loads' });
+    expect(await day('2026-11-20')).toEqual([expect.objectContaining({ id, driverId: 'drv-a', truckId: 'trk-24', materialId: 'mat-minus', note: 'Two loads' })]);
+  });
+
+  it('clears a field sent empty', async () => {
     const { id } = await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone' });
-    await change(id, { date: '2026-11-20', driverId: null, note: '' });
+    await change(id, { driverId: null, note: '' });
     expect(await day('2026-11-20')).toEqual([expect.objectContaining({ id, driverId: null, driverName: null, note: null })]);
   });
 
   it('moves it to another Driver', async () => {
     const { id } = await add({ date: '2026-11-20', driverId: 'drv-a' });
-    await change(id, { date: '2026-11-20', driverId: 'drv-b' });
+    await change(id, { driverId: 'drv-b' });
     expect(await day('2026-11-20')).toEqual([expect.objectContaining({ id, driverId: 'drv-b', driverName: 'Sample Driver B' })]);
   });
 
-  it('moves it to another day', async () => {
-    const { id } = await add({ date: '2026-11-20', note: 'Haul stone' });
-    await change(id, { date: '2026-11-23', note: 'Haul stone' });
-    expect(await day('2026-11-20')).toEqual([]);
-    expect(await day('2026-11-23')).toEqual([expect.objectContaining({ id, note: 'Haul stone' })]);
+  it('refuses a change of day, and leaves the Assignment as it was', async () => {
+    const added = await add({ date: '2026-11-20', note: 'Haul stone' });
+    const response = await change(added.id, { date: '2026-11-23', note: 'Monday instead' });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: 'day_fixed', message: 'An Assignment stays on its day. Add a new one on the other day instead.' });
+    expect(await day('2026-11-20')).toEqual([added]);
+    expect(await day('2026-11-23')).toEqual([]);
   });
 
-  it('updates the updated time and keeps the created time', async () => {
+  it('accepts its own day sent again', async () => {
     const { id } = await add({ date: '2026-11-20' });
-    const response = await change(id, { date: '2026-11-20', note: 'Later' }, { NOW: '2026-11-19T22:15:00.000Z' });
+    expect((await change(id, { date: '2026-11-20', note: 'Same day' })).status).toBe(200);
+  });
+
+  it('records when it was changed, from the clock, and keeps the created time', async () => {
+    const added = await add({ date: '2026-11-20' });
+    expect(added.changedAt).toBeNull();
+    const response = await change(added.id, { note: 'Later' }, { NOW: '2026-11-19T22:15:00.000Z' });
     const { assignment } = (await response.json()) as { assignment: Assignment };
-    expect(assignment).toMatchObject({ createdAt: '2026-11-19T20:00:00.000Z', updatedAt: '2026-11-19T22:15:00.000Z' });
+    expect(assignment).toMatchObject({ createdAt: '2026-11-19T20:00:00.000Z', updatedAt: '2026-11-19T22:15:00.000Z', changedAt: '2026-11-19T22:15:00.000Z' });
+  });
+
+  it('changes nothing, not even the changed time, when every field sent is as it was', async () => {
+    const added = await add({ date: '2026-11-20', driverId: 'drv-a', truckId: 'trk-21', fromPlaceId: 'plc-plant', note: 'Haul stone' });
+    const later = { NOW: '2026-11-19T22:15:00.000Z' };
+    const same = await change(added.id, { date: '2026-11-20', driverId: 'drv-a', truckId: 'trk-21', fromPlaceName: 'sample plant', toPlaceId: '', note: ' Haul stone ' }, later);
+    expect(same.status).toBe(200);
+    expect(((await same.json()) as { assignment: Assignment }).assignment).toEqual(added);
+    const nothing = await change(added.id, {}, later);
+    expect(((await nothing.json()) as { assignment: Assignment }).assignment).toEqual(added);
   });
 
   it('refuses wrong fields as adding does, and leaves the Assignment as it was', async () => {
     const { id } = await add({ date: '2026-11-20', note: 'Haul stone' });
-    const fields = await refusal(await change(id, { date: 'soon', driverId: 'nobody', note: 'x'.repeat(1001) }));
-    expect(Object.keys(fields).sort()).toEqual(['date', 'driverId', 'note']);
+    const fields = await refusal(await change(id, { driverId: 'nobody', truckId: 7, note: 'x'.repeat(1001) }));
+    expect(Object.keys(fields).sort()).toEqual(['driverId', 'note', 'truckId']);
     expect(await day('2026-11-20')).toEqual([expect.objectContaining({ id, note: 'Haul stone' })]);
   });
 
   it('answers not found for an Assignment that does not exist', async () => {
-    expect((await change('nothing', { date: '2026-11-20' })).status).toBe(404);
+    expect((await change('nothing', { note: 'x' })).status).toBe(404);
+  });
+
+  it('can no longer be replaced whole', async () => {
+    const { id } = await add({ date: '2026-11-20' });
+    const response = await send('PUT', `/api/assignments/${id}`, { date: '2026-11-20' });
+    expect(response.status).toBe(405);
+    expect(response.headers.get('Allow')).toBe('PATCH, DELETE');
   });
 });
 
@@ -741,11 +779,22 @@ describe('the order of Assignments in a lane', () => {
     expect(await lanes('2026-11-20')).toEqual(['Sample Driver A: Haul stone, two loads', 'Sample Driver A: Topsoil run']);
   });
 
-  it('puts an Assignment moved to another day last in its lane there', async () => {
-    await add({ date: '2026-11-23', driverId: 'drv-a', note: 'Monday run' });
+  it('leaves the order and the changed time alone when the same Driver is sent again', async () => {
+    const first = await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone' });
+    await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Topsoil run' });
+    const response = await change(first.id, { driverId: 'drv-a' }, { NOW: '2026-11-19T22:15:00.000Z' });
+    expect(((await response.json()) as { assignment: Assignment }).assignment).toEqual(first);
+    expect(await lanes('2026-11-20')).toEqual(['Sample Driver A: Haul stone', 'Sample Driver A: Topsoil run']);
+  });
+
+  it('records a change on the Assignment that moved lanes, not on the ones it moved past', async () => {
+    await add({ date: '2026-11-20', driverId: 'drv-b', note: 'Topsoil run' });
+    await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Fill the shop' });
     const moved = await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone' });
-    await change(moved.id, { date: '2026-11-23', driverId: 'drv-a', note: 'Haul stone' });
-    expect(await lanes('2026-11-23')).toEqual(['Sample Driver A: Monday run', 'Sample Driver A: Haul stone']);
+    await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Two loads' });
+    await change(moved.id, { driverId: 'drv-b' });
+    const changed = Object.fromEntries((await day('2026-11-20')).map((a) => [a.note, a.changedAt !== null]));
+    expect(changed).toEqual({ 'Topsoil run': false, 'Haul stone': true, 'Fill the shop': false, 'Two loads': false });
   });
 });
 
@@ -801,10 +850,9 @@ describe('past days', () => {
     expect(await day('2026-11-20')).toEqual([]);
   });
 
-  it('refuse moving an Assignment into a past day, with a message on the date', async () => {
+  it('refuse moving an Assignment into a past day, as any change of day', async () => {
     const { id } = await add({ date: '2026-11-20' });
-    const fields = await refusal(await change(id, { date: '2026-11-18' }));
-    expect(fields).toEqual({ date: 'Days before today are read-only. Pick today or a later day.' });
+    expect((await change(id, { date: '2026-11-18' })).status).toBe(409);
     expect(await day('2026-11-20')).toEqual([expect.objectContaining({ id })]);
   });
 
@@ -814,13 +862,12 @@ describe('past days', () => {
     expect(await day('2026-11-18')).toEqual([past]);
   });
 
-  it.each(['2026-11-19', '2026-11-20'])('allow adding, changing, moving and deleting on %s (today and tomorrow)', async (date) => {
+  it.each(['2026-11-19', '2026-11-20'])('allow adding, changing and deleting on %s (today and tomorrow)', async (date) => {
     const { id } = await add({ date });
-    expect((await change(id, { date, note: 'changed' })).status).toBe(200);
-    const other = await add({ date: date === '2026-11-19' ? '2026-11-20' : '2026-11-19' });
-    expect((await change(other.id, { date })).status).toBe(200);
-    expect((await remove(id)).status).toBe(204);
-    expect((await day(date)).map((a) => a.id)).toEqual([other.id]);
+    const other = await add({ date });
+    expect((await change(id, { note: 'changed' })).status).toBe(200);
+    expect((await remove(other.id)).status).toBe(204);
+    expect(await day(date)).toEqual([expect.objectContaining({ id, note: 'changed' })]);
   });
 
   // 03:30 UTC on 20 November is still 22:30 on the 19th in US Eastern; 05:01 UTC is just past midnight there.
@@ -941,11 +988,12 @@ describe('copying a day', () => {
    * table, so a column a migration adds must be filled here (or this fails),
    * and the copy must then carry it.
    */
-  it('carries every column of the assignments table except id, date, note and the times', async () => {
+  it('carries every column of the assignments table except id, date, note and the times (a copy is not changed yet)', async () => {
     const source = await add({
       date: '2026-11-19', driverId: 'drv-b', truckId: 'trk-24', fromPlaceId: 'plc-plant', toPlaceId: 'plc-north',
       materialId: 'mat-minus', foremanId: 'frm-a', note: 'Haul stone',
     });
+    await change(source.id, { note: 'Haul stone, two loads' });
     const [copy1] = await copied(await copy({ to: '2026-11-20' }));
 
     const row = (id: string) => d1.database().prepare('SELECT * FROM assignments WHERE id = ?').bind(id).first<Record<string, unknown>>();
@@ -953,10 +1001,10 @@ describe('copying a day', () => {
     const unfilled = Object.keys(from!).filter((column) => from![column] == null);
     expect(unfilled, 'fill these columns in this test\'s source Assignment').toEqual([]);
 
-    const notCopied = ['id', 'date', 'note', 'created_at', 'updated_at'];
+    const notCopied = ['id', 'date', 'note', 'created_at', 'updated_at', 'changed_at'];
     const carried = (r: Record<string, unknown>) => Object.fromEntries(Object.entries(r).filter(([c]) => !notCopied.includes(c)));
     expect(carried(to!)).toEqual(carried(from!));
-    expect(to).toMatchObject({ date: '2026-11-20', note: null });
+    expect(to).toMatchObject({ date: '2026-11-20', note: null, changed_at: null });
     expect(Object.keys(carried(from!)).length).toBeGreaterThan(0);
   });
 
@@ -1025,9 +1073,9 @@ describe('typed Place and Material names', () => {
     const before = { places: await list('/api/places?include=inactive'), materials: await list('/api/materials?include=inactive') };
     const added = await add({ date: '2026-11-20', fromPlaceName: 'sample plant', toPlaceName: 'SAMPLE SITE NORTH', materialName: '2" MINUS' });
     expect(added).toMatchObject({ fromPlaceId: 'plc-plant', toPlaceId: 'plc-north', materialId: 'mat-minus', materialName: '2" minus' });
-    const changed = await change(added.id, { date: '2026-11-20', fromPlaceName: ' sample shop ', materialName: 'sample dirt' });
+    const changed = await change(added.id, { fromPlaceName: ' sample shop ', materialName: 'sample dirt' });
     expect(changed.status).toBe(200);
-    expect(((await changed.json()) as { assignment: Assignment })).toMatchObject({ assignment: { fromPlaceId: 'plc-shop', toPlaceId: null, materialId: 'mat-dirt' } });
+    expect(((await changed.json()) as { assignment: Assignment })).toMatchObject({ assignment: { fromPlaceId: 'plc-shop', toPlaceId: 'plc-north', materialId: 'mat-dirt' } });
     expect(await list('/api/places?include=inactive')).toEqual(before.places);
     expect(await list('/api/materials?include=inactive')).toEqual(before.materials);
   });
@@ -1047,7 +1095,7 @@ describe('typed Place and Material names', () => {
     expect(await list('/api/places')).toContainEqual({ id: added.fromPlaceId, shortName: 'Sample Pit', fullName: null, kind: null, jobId: null, onTruckMap: false, active: true });
     expect(await list('/api/materials')).toContainEqual({ id: added.materialId, name: 'Sample Fill', active: true });
 
-    const changed = await change(added.id, { date: '2026-11-20', fromPlaceId: added.fromPlaceId, toPlaceName: 'Sample Dump' });
+    const changed = await change(added.id, { toPlaceName: 'Sample Dump', materialId: null });
     const { assignment } = (await changed.json()) as { assignment: Assignment };
     expect(assignment).toMatchObject({ fromPlaceName: 'Sample Pit', toPlaceName: 'Sample Dump', materialId: null });
     expect(await list('/api/places')).toContainEqual(expect.objectContaining({ id: assignment.toPlaceId, shortName: 'Sample Dump', kind: null }));
@@ -1065,7 +1113,7 @@ describe('typed Place and Material names', () => {
     const blank = { fromPlaceName: 'Write the Place\'s name.', toPlaceName: 'Write the Place\'s name.', materialName: 'Write the Material\'s name.' };
     expect(await refusal(await post('/api/assignments', { date: '2026-11-20', ...typed('  ') }))).toEqual(blank);
     const assignment = await add({ date: '2026-11-20' });
-    expect(await refusal(await change(assignment.id, { date: '2026-11-20', ...typed('') }))).toEqual(blank);
+    expect(await refusal(await change(assignment.id, typed('')))).toEqual(blank);
   });
 
   it('refuse a name over 100 characters, or not text, with a message on each field', async () => {

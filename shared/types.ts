@@ -95,6 +95,13 @@ export interface NewAssignment {
 }
 
 /**
+ * What the page sends to change an Assignment: only the fields to change (one
+ * left out stays as it is, an empty one is cleared), typed names included.
+ * Never its day, which is fixed.
+ */
+export type AssignmentChange = Partial<Omit<NewAssignment, 'date'> & TypedNames>;
+
+/**
  * A Place or Material an Assignment may give by name instead of by id, when
  * adding or changing it: the Worker links the entry with that name, ignoring
  * case, bringing a removed one back, or adds a new one. A Place added this way
@@ -132,6 +139,12 @@ export interface Assignment {
   position: number;
   createdAt: string;
   updatedAt: string;
+  /**
+   * When it last really changed: a field the Driver reads took a new value, or
+   * it moved in its order (such as to another Driver's lane). Null until then;
+   * saving the same values again, or a neighbour moving, leaves it.
+   */
+  changedAt: string | null;
 }
 
 /** A refusal: each field that is wrong, with a plain message. */

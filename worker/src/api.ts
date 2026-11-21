@@ -43,9 +43,9 @@ export async function handleApi(request: Request, env: Env, route: string, query
   const one = /^assignments\/([^/]+)$/.exec(route);
   if (one) {
     const id = decodeURIComponent(one[1]);
-    if (method === 'PUT') return changeAssignment(request, env, id);
+    if (method === 'PATCH') return changeAssignment(request, env, id);
     if (method === 'DELETE') return deleteAssignment(env, id);
-    return json({ error: 'method_not_allowed' }, 405, { Allow: 'PUT, DELETE' });
+    return json({ error: 'method_not_allowed' }, 405, { Allow: 'PATCH, DELETE' });
   }
 
   if (['health', 'today'].includes(route)) return json({ error: 'method_not_allowed' }, 405, { Allow: 'GET, HEAD' });
@@ -71,7 +71,7 @@ const SELECT_ASSIGNMENT = `SELECT a.id, a.date, a.driver_id AS driverId, d.name 
        a.to_place_id AS toPlaceId, pt.short_name AS toPlaceName,
        a.material_id AS materialId, m.name AS materialName,
        a.foreman_id AS foremanId, f.name AS foremanName, a.note,
-       a.position, a.created_at AS createdAt, a.updated_at AS updatedAt
+       a.position, a.created_at AS createdAt, a.updated_at AS updatedAt, a.changed_at AS changedAt
   FROM assignments a LEFT JOIN drivers d ON d.id = a.driver_id LEFT JOIN trucks t ON t.id = a.truck_id
   LEFT JOIN places pf ON pf.id = a.from_place_id LEFT JOIN places pt ON pt.id = a.to_place_id
   LEFT JOIN materials m ON m.id = a.material_id LEFT JOIN foremen f ON f.id = a.foreman_id`;
@@ -98,10 +98,11 @@ async function readDay(env: Env, date: string | null): Promise<Response> {
 
 /**
  * Columns a copy does not take from its source: a copy is a new Assignment on
- * another day, with an empty note. Every other column, including any a later
- * migration adds, is copied as it is (an inactive entry stays on the copy).
+ * another day, with an empty note, not changed yet. Every other column,
+ * including any a later migration adds, is copied as it is (an inactive entry
+ * stays on the copy).
  */
-const NOT_COPIED = new Set(['id', 'date', 'note', 'created_at', 'updated_at']);
+const NOT_COPIED = new Set(['id', 'date', 'note', 'created_at', 'updated_at', 'changed_at']);
 
 /**
  * Copies every Assignment on today (by the Worker's clock, never a day the
@@ -160,24 +161,45 @@ async function addAssignment(request: Request, env: Env): Promise<Response> {
 }
 
 /**
- * Replaces every field: one left out or empty is cleared. The Assignment may
- * move to another Driver or day, and then goes last in its new lane, so the
- * other Driver's day keeps its order; otherwise it keeps its place.
+ * Changes only the fields the request sends, so a change made on one device
+ * never wipes one made on another; an empty value clears a field. The day is
+ * fixed. A new Driver puts it last in his lane, so his day keeps its order.
+ * Only a real change is saved and recorded as changed: sending a field as it
+ * already is (the same Driver again, say) changes nothing at all.
  */
 async function changeAssignment(request: Request, env: Env, id: string): Promise<Response> {
   const existing = await findAssignment(env, id);
   if (!existing) return json({ error: 'not_found' }, 404);
   if (isPast(env, existing.date)) return onPastDay();
-  const read = await readAssignment(request, env);
+  const read = await readChange(request, env, existing.date);
   if (read instanceof Response) return read;
 
-  // SET reads the row as it was, so the CASE compares the old lane with the new one.
-  await saveLinked(env, read.typed, (typed) =>
-    env.DB.prepare(
-      `UPDATE assignments SET position = CASE WHEN date = ? AND driver_id IS ? THEN position ELSE ${LAST_IN_LANE} END,
-         ${SAVED_COLUMNS.map((c) => `${c} = ?`).join(', ')}, updated_at = ? WHERE id = ?`,
-    ).bind(read.date, read.driverId, read.date, read.driverId, id, ...savedValues({ ...read, ...typed }), clock(env).now.toISOString(), id));
+  const changes = { ...read.changes };
+  for (const { field } of read.typed) changes[field.idKey] = null; // Linked when saved.
+  const keys = Object.keys(changes) as ChangeKey[];
+  if (keys.length === 0) return json({ assignment: existing });
+
+  const now = clock(env).now.toISOString();
+  await saveLinked(env, read.typed, (typed) => {
+    const values = keys.map((key) => (key in typed ? typed[key as keyof typeof typed]! : changes[key]));
+    const set = keys.map((key) => `${COLUMN_OF[key]} = ?`);
+    const binds: unknown[] = [...values];
+    // SET and WHERE read the row as it was: a real change of Driver goes last
+    // in his lane, and a row whose every field is as sent is not written.
+    if ('driverId' in changes) {
+      set.push(`position = CASE WHEN driver_id IS ? THEN position ELSE ${LAST_IN_LANE} END`);
+      binds.push(changes.driverId, existing.date, changes.driverId, id);
+    }
+    const differs = keys.map((key) => `${COLUMN_OF[key]} IS NOT ?`).join(' OR ');
+    return env.DB.prepare(
+      `UPDATE assignments SET ${set.join(', ')}, updated_at = ?, changed_at = ? WHERE id = ? AND (${differs})`,
+    ).bind(...binds, now, now, id, ...values);
+  });
   return json({ assignment: await findAssignment(env, id) });
+}
+
+function dayFixed(): Response {
+  return json({ error: 'day_fixed', message: 'An Assignment stays on its day. Add a new one on the other day instead.' }, 409);
 }
 
 /** A real delete: nothing of the Assignment is kept. */
@@ -231,8 +253,19 @@ void everyFieldDeclared;
  */
 type ReadAssignment = { date: string; note: string | null; typed: Typed[] } & Record<ReferenceKey, string | null>;
 
-/** The columns adding or changing an Assignment saves, in the order savedValues gives them. */
+/** The columns adding an Assignment saves, in the order savedValues gives them. */
 const SAVED_COLUMNS = ['date', ...REFERENCES.map((r) => r.column), 'note'];
+
+/** A field a change may send: any but the day, which is fixed. */
+type ChangeKey = ReferenceKey | 'note';
+
+const COLUMN_OF = Object.fromEntries([...REFERENCES.map((r) => [r.key, r.column]), ['note', 'note']]) as Record<ChangeKey, string>;
+
+/** The fields a change sends, checked and tidied (empty is null), and the names it typed. */
+interface ReadChange {
+  changes: Partial<Record<ChangeKey, string | null>>;
+  typed: Typed[];
+}
 
 function savedValues(read: ReadAssignment): (string | null)[] {
   return [read.date, ...REFERENCES.map((r) => read[r.key]), read.note];
@@ -243,29 +276,54 @@ async function readAssignment(request: Request, env: Env): Promise<ReadAssignmen
   const body = await readJson<Partial<NewAssignment & TypedNames>>(request);
   if (body instanceof Response) return body;
 
-  const errors = { ...validate(body), ...checkTyped(body) };
+  const errors = await checkFields(env, body);
+  if (!isCalendarDate(body.date)) errors.date = 'Pick a date.';
+  else if (isPast(env, body.date)) errors.date = PAST_DATE;
+  if (Object.keys(errors).length > 0) return refuse(errors);
   const ids = Object.fromEntries(REFERENCES.map((r) => [r.key, text(body[r.key]) || null])) as Record<ReferenceKey, string | null>;
-  // Every existence check at once, not one after another.
+  return { date: body.date as string, ...ids, note: text(body.note) || null, typed: typedIn(body) };
+}
+
+/**
+ * The fields a change sends, checked and tidied, or the response refusing it.
+ * A field left out is not in it; the day may be sent only as it already is.
+ */
+async function readChange(request: Request, env: Env, date: string): Promise<ReadChange | Response> {
+  const body = await readJson<Partial<NewAssignment & TypedNames>>(request);
+  if (body instanceof Response) return body;
+  if (body.date !== undefined && body.date !== date) return dayFixed();
+
+  const errors = await checkFields(env, body);
+  if (Object.keys(errors).length > 0) return refuse(errors);
+  const changes: ReadChange['changes'] = {};
+  for (const key of Object.keys(COLUMN_OF) as ChangeKey[]) if (key in body) changes[key] = text(body[key]) || null;
+  return { changes, typed: typedIn(body) };
+}
+
+/**
+ * Field name to a plain message, for each field sent that is wrong, the day
+ * aside: references not text or not in their list (checked all at once),
+ * typed names, and the note. Fields it does not know are ignored.
+ */
+async function checkFields(env: Env, body: Partial<NewAssignment & TypedNames>): Promise<Record<string, string>> {
+  const errors = { ...validate(body), ...checkTyped(body) };
   const found = await Promise.all(REFERENCES.map((r) => {
-    const id = ids[r.key];
-    return id === null || exists(env, r.list, id);
+    const id = text(body[r.key]);
+    return !id || errors[r.key] !== undefined || exists(env, r.list, id);
   }));
   REFERENCES.forEach((r, i) => {
     if (!found[i]) errors[r.key] = r.message;
   });
-  if (!errors.date && isPast(env, body.date as string)) errors.date = PAST_DATE;
-  if (Object.keys(errors).length > 0) return refuse(errors);
-  return { date: body.date as string, ...ids, note: text(body.note) || null, typed: typedIn(body) };
+  return errors;
 }
 
 const PAST_DATE = 'Days before today are read-only. Pick today or a later day.';
 
 const NOTE_LIMIT = 1000;
 
-/** Field name to a plain message, for each field that is wrong. Fields it does not know are ignored. */
+/** Field name to a plain message, for each reference or note that is not text, or a note too long. */
 function validate(body: Partial<NewAssignment>): Record<string, string> {
   const errors: Record<string, string> = {};
-  if (!isCalendarDate(body.date)) errors.date = 'Pick a date.';
   for (const r of REFERENCES) if (body[r.key] != null && typeof body[r.key] !== 'string') errors[r.key] = r.message;
   if (body.note != null && typeof body.note !== 'string') errors.note = 'Write the note as text.';
   else if (text(body.note).length > NOTE_LIMIT) errors.note = `Keep the note to ${NOTE_LIMIT} characters or fewer.`;
