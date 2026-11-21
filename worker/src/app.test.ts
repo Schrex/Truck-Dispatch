@@ -889,7 +889,20 @@ describe('the business day', () => {
     ['at the end of a year', '2026-12-31T23:00:00Z', '2026-12-31', '2027-01-01'],
   ])('knows today and tomorrow %s', async (_when, now, today, tomorrow) => {
     const response = await handle(new Request('https://td.example/api/today'), env({ NOW: now }));
-    expect(await response.json()).toEqual({ today, tomorrow });
+    expect(await response.json()).toMatchObject({ today, tomorrow });
+  });
+
+  // The board opens on the next Working day: a weekday that is not a Holiday.
+  it.each([
+    ['on a Thursday, the Friday', '2026-11-19T20:00:00Z', '2026-11-20'],
+    ['on a Friday, the Monday', '2026-11-20T20:00:00Z', '2026-11-23'],
+    ['late on a Friday in Eastern, already Saturday in UTC, still the Monday', '2026-11-21T03:30:00Z', '2026-11-23'],
+    ['on a Saturday, the Monday', '2026-11-21T15:00:00Z', '2026-11-23'],
+    ['on the day before Thanksgiving, the Friday after it', '2026-11-25T20:00:00Z', '2026-11-27'],
+    ['on the Friday before Memorial Day, the Tuesday', '2026-05-22T20:00:00Z', '2026-05-26'],
+  ])('gives the next Working day %s', async (_when, now, nextWorkingDay) => {
+    const response = await handle(new Request('https://td.example/api/today'), env({ NOW: now }));
+    expect(await response.json()).toMatchObject({ nextWorkingDay });
   });
 
   it.each(['not a moment', '2026-13-45'])('uses the real clock when NOW is set but is not a moment (%s)', async (now) => {
@@ -898,7 +911,7 @@ describe('the business day', () => {
       vi.setSystemTime(new Date('2026-11-25T15:00:00Z'));
       const response = await handle(new Request('https://td.example/api/today'), env({ NOW: now }));
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ today: '2026-11-25', tomorrow: '2026-11-26' });
+      expect(await response.json()).toEqual({ today: '2026-11-25', tomorrow: '2026-11-26', nextWorkingDay: '2026-11-27' });
     } finally {
       vi.useRealTimers();
     }
