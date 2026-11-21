@@ -1,9 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Copy, Loader2, Plus, Trash2 } from 'lucide-react';
+import { Copy, Loader2, Trash2 } from 'lucide-react';
 import type { Assignment, Driver, Foreman, Material, Place, Truck } from '../../shared/types';
 import { Button } from '@/components/ui/button';
 import { Field } from '@/components/Field';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ListPicker } from '@/components/ListPicker';
@@ -27,11 +27,11 @@ interface Form {
 const EMPTY = { driverId: null, truckId: null, fromPlaceId: null, toPlaceId: null, materialId: null, foremanId: null, note: '' };
 
 /**
- * "Add Assignment" (with its own button), or, given `editing`, the same dialog
- * for an existing Assignment: every field can be changed or cleared, and it
- * can be deleted or duplicated to another Driver, but its day is fixed. Only
- * the date is required, and saving an edit sends only the fields that changed. In edit mode the Board opens it by
- * setting `editing` and closes it through onClose.
+ * An existing Assignment, open while `editing` is set: every field can be
+ * changed or cleared, and it can be deleted or duplicated to another Driver,
+ * but its day is fixed, and saving sends only the fields that changed. The
+ * Board opens it by setting `editing` and closes it through onClose. New
+ * Assignments are added from a lane's composer, not here.
  */
 export function AssignmentDialog({
   date,
@@ -53,14 +53,12 @@ export function AssignmentDialog({
   materials: Material[] | null;
   foremen: Foreman[] | null;
   onSaved: (assignment: Assignment) => void;
-  editing?: Assignment | null;
-  onClose?: () => void;
+  editing: Assignment | null;
+  onClose: () => void;
   onDeleted?: (assignment: Assignment) => void;
 }) {
-  const editMode = editing !== undefined;
-  const [adding, setAdding] = useState(false);
-  const open = editMode ? editing != null : adding;
-  const setOpen = (value: boolean) => (editMode ? !value && onClose?.() : setAdding(value));
+  const open = editing != null;
+  const setOpen = (value: boolean) => !value && onClose();
   const [form, setForm] = useState<Form>({ date, ...EMPTY });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -68,20 +66,16 @@ export function AssignmentDialog({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [duplicateTo, setDuplicateTo] = useState('');
 
-  // A new Assignment starts on the day the Board shows; an existing one as it was saved.
+  // The Assignment opens as it was saved.
   useEffect(() => {
-    if (open) {
-      setForm(
-        editing
-          ? { ...fieldsOf(editing), note: editing.note ?? '' }
-          : { date, ...EMPTY },
-      );
+    if (editing) {
+      setForm({ ...fieldsOf(editing), note: editing.note ?? '' });
       setErrors({});
       setFailed(null);
       setConfirmDelete(false);
       setDuplicateTo('');
     }
-  }, [open, date, editing]);
+  }, [editing]);
 
   function failWith(error: unknown, what: string) {
     if (error instanceof FieldErrors) {
@@ -137,21 +131,17 @@ export function AssignmentDialog({
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (!editing) return;
     setSaving(true);
     setFailed(null);
     try {
-      let assignment: Assignment;
-      if (editing) {
-        const { date: _day, ...edited } = form;
-        const changes = changesOf(editing, edited);
-        if (Object.keys(changes).length === 0) {
-          setOpen(false);
-          return;
-        }
-        assignment = await changeAssignment(editing.id, changes);
-      } else {
-        assignment = await addAssignment(form);
+      const { date: _day, ...edited } = form;
+      const changes = changesOf(editing, edited);
+      if (Object.keys(changes).length === 0) {
+        setOpen(false);
+        return;
       }
+      const assignment = await changeAssignment(editing.id, changes);
       toast.success('Assignment saved');
       onSaved(assignment);
       setOpen(false);
@@ -164,26 +154,17 @@ export function AssignmentDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      {!editMode && (
-        <DialogTrigger asChild>
-          <Button size="lg" className="px-5">
-            <Plus className="h-4 w-4" /> Add Assignment
-          </Button>
-        </DialogTrigger>
-      )}
       <DialogContent>
         <DialogHeader>
-          <DialogTitle className="font-display text-xl uppercase tracking-wide">{editing ? 'Edit Assignment' : 'Add Assignment'}</DialogTitle>
+          <DialogTitle className="font-display text-xl uppercase tracking-wide">Edit Assignment</DialogTitle>
           <DialogDescription>
-            {editing
-              ? 'Change any field, clear one, move it to another Driver, or delete it. It stays on its day.'
-              : 'Only the date is needed. Fill in what you know now and the rest later.'}
+            Change any field, clear one, move it to another Driver, or delete it. It stays on its day.
           </DialogDescription>
         </DialogHeader>
 
         <form id="assignment" onSubmit={submit} className="grid gap-4 sm:grid-cols-2" noValidate>
           <Field id="date" label="Date" error={errors.date}>
-            <Input id="date" type="date" required disabled={editMode} value={form.date} onChange={(e) => set('date', e.target.value)} />
+            <Input id="date" type="date" required disabled value={form.date} onChange={(e) => set('date', e.target.value)} />
           </Field>
           <Field id="driverId" label="Driver" optional error={errors.driverId}>
             <ListPicker id="driverId" label="Driver" empty="No Driver" choices={choicesOf('drivers', drivers)} value={form.driverId} onChange={(value) => set('driverId', value)} />
