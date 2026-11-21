@@ -404,11 +404,7 @@ async function changeAssignment(request: Request, env: Env, id: string): Promise
     }
     const differs = keys.map((key) => `${COLUMN_OF[key]} IS NOT ?`).join(' OR ');
     // First, on a Sent day, its fields as they were, kept only when the update below really changes it.
-    const keep = env.DB.prepare(
-      `INSERT INTO assignment_changes (id, assignment_id, changed_at, before)
-       SELECT ?, id, ?, (${FIELDS_BEFORE}) FROM assignments
-        WHERE id = ? AND cancelled_at IS NULL AND date IN (SELECT date FROM day_sends) AND (${differs})`,
-    ).bind(crypto.randomUUID(), now, id, ...values);
+    const keep = keepBefore(env, id, now, `cancelled_at IS NULL AND (${differs})`, ...values);
     if (!('driverId' in changes)) {
       const update = env.DB.prepare(
         `UPDATE assignments SET ${set.join(', ')}, updated_at = ?, changed_at = ? WHERE id = ? AND cancelled_at IS NULL AND (${differs})`,
@@ -456,6 +452,20 @@ const FIELDS_BEFORE = `SELECT json_object(
   LEFT JOIN materials m ON m.id = b.material_id LEFT JOIN foremen f ON f.id = b.foreman_id
   WHERE b.id = assignments.id`;
 
+/**
+ * On a Sent day, keeps an Assignment's fields as they were before a change
+ * (FIELDS_BEFORE) in the add-only assignment_changes record, so the Driver
+ * can be shown what it was. Kept only when its day is Sent and `when` (SQL on
+ * its row, with `binds` for its ?s) holds; put it in the same batch, before
+ * the write that changes it, so it reads the row as it was.
+ */
+function keepBefore(env: Env, id: string, now: string, when = 'TRUE', ...binds: unknown[]): D1PreparedStatement {
+  return env.DB.prepare(
+    `INSERT INTO assignment_changes (id, assignment_id, changed_at, before)
+     SELECT ?, id, ?, (${FIELDS_BEFORE}) FROM assignments WHERE id = ? AND date IN (SELECT date FROM day_sends) AND (${when})`,
+  ).bind(crypto.randomUUID(), now, id, ...binds);
+}
+
 /** Which way "Do this first" ("earlier") and "Do this later" ("later") move an Assignment in its lane. */
 const DIRECTIONS = { earlier: -1, later: 1 } as const;
 
@@ -494,10 +504,7 @@ async function moveAssignment(request: Request, env: Env, id: string): Promise<R
   const now = clock(env).now.toISOString();
   // On a Sent day, the moved one's fields as they were (its place among them),
   // kept as any change is; the neighbour that shifted keeps nothing.
-  const keep = env.DB.prepare(
-    `INSERT INTO assignment_changes (id, assignment_id, changed_at, before)
-     SELECT ?, id, ?, (${FIELDS_BEFORE}) FROM assignments WHERE id = ? AND date IN (SELECT date FROM day_sends)`,
-  ).bind(crypto.randomUUID(), now, id);
+  const keep = keepBefore(env, id, now);
   // One statement renumbers the lane, so it is never left half renumbered.
   const renumber = env.DB.prepare(
     `UPDATE assignments SET position = (SELECT key FROM json_each(?1) WHERE value = assignments.id),
@@ -540,10 +547,7 @@ async function takeOff(env: Env, id: string): Promise<Response> {
   const now = clock(env).now.toISOString();
   const sent = 'date IN (SELECT date FROM day_sends)';
   await env.DB.batch([
-    env.DB.prepare(
-      `INSERT INTO assignment_changes (id, assignment_id, changed_at, before)
-       SELECT ?, id, ?, (${FIELDS_BEFORE}) FROM assignments WHERE id = ? AND cancelled_at IS NULL AND ${sent}`,
-    ).bind(crypto.randomUUID(), now, id),
+    keepBefore(env, id, now, 'cancelled_at IS NULL'),
     env.DB.prepare(`DELETE FROM assignments WHERE id = ? AND NOT ${sent}`).bind(id),
     env.DB.prepare(
       `UPDATE assignments SET cancelled_at = ?1, changed_at = ?1, updated_at = ?1 WHERE id = ?2 AND cancelled_at IS NULL AND ${sent}`,
@@ -565,10 +569,7 @@ async function putBack(env: Env, id: string): Promise<Response> {
   if (isPast(env, existing.date)) return onPastDay();
   const now = clock(env).now.toISOString();
   await env.DB.batch([
-    env.DB.prepare(
-      `INSERT INTO assignment_changes (id, assignment_id, changed_at, before)
-       SELECT ?, id, ?, (${FIELDS_BEFORE}) FROM assignments WHERE id = ? AND cancelled_at IS NOT NULL AND date IN (SELECT date FROM day_sends)`,
-    ).bind(crypto.randomUUID(), now, id),
+    keepBefore(env, id, now, 'cancelled_at IS NOT NULL'),
     env.DB.prepare(
       'UPDATE assignments SET cancelled_at = NULL, changed_at = ?1, updated_at = ?1 WHERE id = ?2 AND cancelled_at IS NOT NULL',
     ).bind(now, id),
