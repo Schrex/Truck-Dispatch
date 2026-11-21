@@ -2,7 +2,8 @@ import type { Env } from './app';
 import { clock } from './clock';
 import { json, readJson, refuse, text } from './http';
 import { exists, handleList, isList } from './lists';
-import type { Assignment, ListName, NewAssignment } from '../../shared/types';
+import { checkTyped, saveLinked, typedIn, type Typed } from './typedNames';
+import type { Assignment, ListName, NewAssignment, TypedNames } from '../../shared/types';
 
 /** The JSON API under /api/ (or /truck-dispatch/api/). */
 export async function handleApi(request: Request, env: Env, route: string, query: URLSearchParams): Promise<Response> {
@@ -120,9 +121,9 @@ async function addAssignment(request: Request, env: Env): Promise<Response> {
   const id = crypto.randomUUID();
   const now = clock(env).now.toISOString();
   const columns = ['id', ...SAVED_COLUMNS, 'created_at', 'updated_at'];
-  await env.DB.prepare(`INSERT INTO assignments (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`)
-    .bind(id, ...savedValues(read), now, now)
-    .run();
+  await saveLinked(env, read.typed, (typed) =>
+    env.DB.prepare(`INSERT INTO assignments (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`)
+      .bind(id, ...savedValues({ ...read, ...typed }), now, now));
   return json({ assignment: await findAssignment(env, id) }, 201);
 }
 
@@ -134,9 +135,9 @@ async function changeAssignment(request: Request, env: Env, id: string): Promise
   const read = await readAssignment(request, env);
   if (read instanceof Response) return read;
 
-  await env.DB.prepare(`UPDATE assignments SET ${SAVED_COLUMNS.map((c) => `${c} = ?`).join(', ')}, updated_at = ? WHERE id = ?`)
-    .bind(...savedValues(read), clock(env).now.toISOString(), id)
-    .run();
+  await saveLinked(env, read.typed, (typed) =>
+    env.DB.prepare(`UPDATE assignments SET ${SAVED_COLUMNS.map((c) => `${c} = ?`).join(', ')}, updated_at = ? WHERE id = ?`)
+      .bind(...savedValues({ ...read, ...typed }), clock(env).now.toISOString(), id));
   return json({ assignment: await findAssignment(env, id) });
 }
 
@@ -185,8 +186,11 @@ type Undeclared = Exclude<keyof NewAssignment, 'date' | 'note' | ReferenceKey>;
 const everyFieldDeclared: [Undeclared] extends [never] ? true : Undeclared = true;
 void everyFieldDeclared;
 
-/** An Assignment as a request sends it, checked and tidied. */
-type ReadAssignment = { date: string; note: string | null } & Record<ReferenceKey, string | null>;
+/**
+ * An Assignment as a request sends it, checked and tidied. A Place or Material
+ * it typed by name is linked only when it is saved (see saveLinked).
+ */
+type ReadAssignment = { date: string; note: string | null; typed: Typed[] } & Record<ReferenceKey, string | null>;
 
 /** The columns adding or changing an Assignment saves, in the order savedValues gives them. */
 const SAVED_COLUMNS = ['date', ...REFERENCES.map((r) => r.column), 'note'];
@@ -197,10 +201,10 @@ function savedValues(read: ReadAssignment): (string | null)[] {
 
 /** The Assignment a request sends, checked and tidied, or the response refusing it. */
 async function readAssignment(request: Request, env: Env): Promise<ReadAssignment | Response> {
-  const body = await readJson<Partial<NewAssignment>>(request);
+  const body = await readJson<Partial<NewAssignment & TypedNames>>(request);
   if (body instanceof Response) return body;
 
-  const errors = validate(body);
+  const errors = { ...validate(body), ...checkTyped(body) };
   const ids = Object.fromEntries(REFERENCES.map((r) => [r.key, text(body[r.key]) || null])) as Record<ReferenceKey, string | null>;
   // Every existence check at once, not one after another.
   const found = await Promise.all(REFERENCES.map((r) => {
@@ -212,7 +216,7 @@ async function readAssignment(request: Request, env: Env): Promise<ReadAssignmen
   });
   if (!errors.date && isPast(env, body.date as string)) errors.date = PAST_DATE;
   if (Object.keys(errors).length > 0) return refuse(errors);
-  return { date: body.date as string, ...ids, note: text(body.note) || null };
+  return { date: body.date as string, ...ids, note: text(body.note) || null, typed: typedIn(body) };
 }
 
 const PAST_DATE = 'Days before today are read-only. Pick today or a later day.';
