@@ -1,4 +1,4 @@
-import type { Assignment, AssignmentChange, BusinessDay, EntryFields, ListName, Lists, NewAssignment } from '../../shared/types';
+import type { Assignment, AssignmentChange, BusinessDay, Day, EntryFields, ListName, Lists, NewAssignment } from '../../shared/types';
 import { basePath } from './basePath';
 
 // Every call starts at the base path the page was reached under: /api/...
@@ -56,8 +56,17 @@ function json(method: string, body: unknown): RequestInit {
   return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
 }
 
-export async function fetchAssignments(date: string): Promise<Assignment[]> {
-  return (await request<{ assignments: Assignment[] }>(`api/assignments?date=${encodeURIComponent(date)}`)).assignments;
+/** A day's Assignments, each marked Changed or Added since the Send, and when the day was first Sent (null for a Draft). */
+export function fetchDay(date: string): Promise<Day> {
+  return request<Day>(`api/assignments?date=${encodeURIComponent(date)}`);
+}
+
+/**
+ * Sends a day to the Drivers; answers when it was first Sent. Sending a Sent
+ * day again changes nothing. Refused for a day with no Assignments or before today.
+ */
+export async function sendDay(date: string): Promise<string> {
+  return (await request<{ sentAt: string }>(`api/days/${encodeURIComponent(date)}/send`, { method: 'POST' })).sentAt;
 }
 
 export async function addAssignment(assignment: NewAssignment): Promise<Assignment> {
