@@ -162,6 +162,12 @@ export interface Assignment {
    * saving the same values again, or a neighbour moving, leaves it.
    */
   changedAt: string | null;
+  /**
+   * When ✕ cancelled it on its Sent day; null when it is not cancelled. A
+   * cancelled Assignment is kept in its place, struck through, and opens only
+   * to Put back, which empties this again.
+   */
+  cancelledAt: string | null;
   /** Whether it is Changed or Added since its day was Sent; null on a Draft day or when neither. */
   sinceSent: SinceSent;
 }
@@ -172,6 +178,17 @@ export interface Assignment {
  * "Changed by Dave" or "Added by Dave".
  */
 export type SinceSent = 'changed' | 'added' | null;
+
+/**
+ * What a change answers (PATCH api/assignments/:id): the Assignment as it now
+ * is. On a Sent day a new Driver cancels the Assignment for the first one and
+ * adds a copy in the new lane: then `assignment` is the copy and `cancelled`
+ * the first one, kept in its place.
+ */
+export interface ChangedAssignment {
+  assignment: Assignment;
+  cancelled?: Assignment;
+}
 
 /** A day's Assignments and when it was first Sent, null while it is a Draft (GET api/assignments?date=). */
 export interface Day {

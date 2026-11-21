@@ -197,17 +197,32 @@ export function sinceSent(assignment: SentTimes, sentAt: string | null): SinceSe
 
 /**
  * A day's state, for the header and the week strip: none ("–") for a day with
- * nothing planned and never Sent; Draft, with how many are Unassigned, until
- * it is Sent; then Sent, or Changed once any Assignment on it is Changed or
- * Added since the Send.
+ * no Assignments at all and never Sent; Draft, with how many are Unassigned,
+ * until it is Sent; then Sent, or Changed once any Assignment on it is Changed
+ * or Added since the Send. A cancelled Assignment is still on its day, so a
+ * day with only cancelled ones is not empty, but it is not counted Unassigned.
  */
 export type DayState = { state: 'none' } | { state: 'draft'; unassigned: number } | { state: 'sent' } | { state: 'changed' };
 
+/** What the day rules read of an Assignment for its lane: its Driver (null for Unassigned) and whether it is cancelled. */
+export interface LaneTimes {
+  driverId: string | null;
+  cancelledAt: string | null;
+}
+
+/**
+ * How many of a day's Assignments are Unassigned and still to be done: a
+ * cancelled one is off the day, so it waits for no Driver and is left out.
+ */
+export function unassignedOn(assignments: LaneTimes[]): number {
+  return assignments.filter((a) => a.driverId === null && a.cancelledAt === null).length;
+}
+
 /** The state of a day from its Assignments and when it was first Sent (null for a Draft). */
-export function dayState(assignments: (SentTimes & { driverId: string | null })[], sentAt: string | null): DayState {
+export function dayState(assignments: (SentTimes & LaneTimes)[], sentAt: string | null): DayState {
   if (sentAt === null) {
     if (assignments.length === 0) return { state: 'none' };
-    return { state: 'draft', unassigned: assignments.filter((a) => a.driverId === null).length };
+    return { state: 'draft', unassigned: unassignedOn(assignments) };
   }
   return assignments.some((a) => sinceSent(a, sentAt) !== null) ? { state: 'changed' } : { state: 'sent' };
 }

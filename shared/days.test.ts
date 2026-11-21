@@ -12,6 +12,7 @@ import {
   previousWorkingDay,
   shortDate,
   dayState,
+  unassignedOn,
   sinceSent,
   stateWord,
   weekDates,
@@ -259,7 +260,9 @@ describe('day states', () => {
     driverId,
     createdAt,
     changedAt,
+    cancelledAt: null as string | null,
   });
+  const cancelled = (driverId: string | null) => ({ ...planned(driverId, undefined, '2026-11-20T22:00:00.000Z'), cancelledAt: '2026-11-20T22:00:00.000Z' });
 
   it('is none for a day with no Assignments that was never Sent', () => {
     expect(dayState([], null)).toEqual({ state: 'none' });
@@ -272,6 +275,16 @@ describe('day states', () => {
 
   it('is Sent when nothing is Changed or Added since the Send', () => {
     expect(dayState([planned('drv-a'), planned(null)], SENT)).toEqual({ state: 'sent' });
+  });
+
+  it('is not none for a day whose only Assignments are cancelled: they are still on it', () => {
+    expect(dayState([cancelled('drv-a')], SENT)).toEqual({ state: 'changed' });
+    expect(dayState([cancelled(null)], null)).toEqual({ state: 'draft', unassigned: 0 });
+  });
+
+  it('does not count a cancelled Assignment Unassigned: it is off the day', () => {
+    expect(dayState([planned(null), cancelled(null)], null)).toEqual({ state: 'draft', unassigned: 1 });
+    expect(unassignedOn([planned(null), cancelled(null), planned('drv-a')])).toBe(1);
   });
 
   it('is Changed once one Assignment is Changed or Added since the Send', () => {
