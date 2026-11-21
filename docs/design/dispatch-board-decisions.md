@@ -65,3 +65,32 @@ The repo already has a Dispatch board and a New Order form (`migrations/0001_ord
 - `pickup`, `dropoff` and `truck_number` are free text; the decision is links to Places and Trucks.
 - There are no jobs, places, materials, foremen or trucks tables, and no Settings page.
 - The base path is `/truck-dispatch/`, which is fine to keep.
+
+---
+
+# Final mocks: decisions (grilling, 21 Nov 2026)
+
+Source: the "Trucking page · 5 design mocks" export, page **Final · scheduler, driver, settings** (F1 scheduler, F2 driver, F3 settings), plus the flow map (updated 20 Nov) and the trip log. Where these decisions differ from the 19 Nov ones above, these win.
+
+## Phases
+1. **Planning**: F1 scheduler, the Driver's list of Assignments (F2 without trips), F3 Settings.
+2. **Truck check-in**: which Truck, the Inspection, Truck problems.
+3. **Trips**: from HCSS Fleet telematics; the trip log; started / finished.
+4. **Tickets and sign-off**: ticket photos per Load, end-of-day sign-off, fixes until 9 AM.
+
+The schema for all four is designed now; each phase migrates only its own tables (migrations are add-only).
+
+## Decided
+- **Words.** The UI says "assignment" for the work and "job" only for a project with a job number, even where the mocks say "job".
+- **Unassigned.** An Assignment may have no Driver; F1 keeps an Unassigned lane with its own +. Only the date is required.
+- **No Start / Finished.** Neither Dave nor the Driver marks progress; started and finished come only from telematics (phase 3). Until then an Assignment has one action, ✕.
+- **✕** cancels on today and past days (kept, shown to the Driver as "Cancelled by Dave", kept for the trip log) and deletes on later days.
+- **Order, not Now.** In phase 1 a lane shows its Assignments in order (First, Then…); no Now, "since", Busy or Free until trips exist. Dave can reorder on any editable day; moving one to another Driver puts it last.
+- **Foreman and Jobs stay lists.** A job-site Place gets a usual Foreman that fills in the Assignment's Foreman; the Assignment keeps its own. Settings keeps Jobs (job numbers) and Foremen.
+- **Typed names.** A Place or Material typed in the composer becomes a new list entry on save, flagged "not on the truck map yet".
+- **Driver view.** Until the Hub's sign-in, the scheduler header has a Driver view switch; the Driver picks his name there and sees his own list.
+- **Inspection is the official record.** Append-only, item by item, with repairs, Driver, Truck and time; a sign-off is its own signed row and a fix adds a new version. To be confirmed with whoever owns DOT compliance.
+- **Truck problems** show on the Driver's lane and on that Truck in the composer until Dave marks them fixed. No Slack or texts.
+
+## Open
+- Day navigation: copy the Daily Schedule app's date control (waiting on what that is).
