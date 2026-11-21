@@ -1,6 +1,6 @@
 import type { Env } from './app';
 import { json, readJson, refuse, text } from './http';
-import { PLACE_KINDS, type ListName } from '../../shared/types';
+import { ORDERED_LISTS, PLACE_KINDS, type ListName } from '../../shared/types';
 
 /**
  * The lists Settings edits and the Board picks from. Each list has the same
@@ -10,10 +10,16 @@ import { PLACE_KINDS, type ListName } from '../../shared/types';
  *   GET   api/<list>?include=inactive   every entry
  *   POST  api/<list>                    add an entry          → 201 { <one>: entry }
  *   PATCH api/<list>/<id>               change any of its fields, including active
+ *   PUT   api/<list>/order              Dave's own order of the whole list (ordered lists only)
  *
  * A list is declared once below: its table, its display name (required and
  * unique in the list, ignoring case) and its other fields. Whether an entry is
  * active matters only to the page's pickers; any entry that exists may be used.
+ *
+ * Drivers, Places and Materials are ordered: each entry answers its sortOrder
+ * (1 is first, null for none) and a list answers ordered entries first, then
+ * the rest by name. A new entry, or one brought back, has no order, so it
+ * comes after the ordered ones until Dave orders the list again.
  */
 
 type Field =
@@ -92,6 +98,9 @@ export function isList(route: string): route is ListName {
   return Object.hasOwn(LISTS, route);
 }
 
+/** Whether Dave puts this list in his own order (its table has sort_order). */
+const isOrdered = (list: ListName) => (ORDERED_LISTS as readonly ListName[]).includes(list);
+
 /** Whether an entry with this id is in the list, active or not. */
 export async function exists(env: Env, list: ListName, id: string): Promise<boolean> {
   return !!(await env.DB.prepare(`SELECT 1 FROM ${LISTS[list].table} WHERE id = ?`).bind(id).first());
@@ -109,12 +118,36 @@ export function isNameTaken(error: unknown, list: ListName): boolean {
   return String(error).includes(`UNIQUE constraint failed: ${table}.${name.column}`);
 }
 
+/**
+ * How a list's entries are read: Dave's own order first, then the entries
+ * without one by name. `alias` is the table's alias in the query, if any.
+ */
+export function listOrder(list: ListName, alias = ''): string {
+  const { name } = LISTS[list];
+  const column = (c: string) => (alias ? `${alias}.${c}` : c);
+  const byName = `${column(name.column)} COLLATE NOCASE, ${column('id')}`;
+  return isOrdered(list) ? `${column('sort_order')} IS NULL, ${column('sort_order')}, ${byName}` : byName;
+}
+
+/**
+ * Makes a removed entry active again. In an ordered list it loses its old
+ * place and goes last, since the list may have been reordered without it.
+ */
+export function bringBack(env: Env, list: ListName, id: string): D1PreparedStatement {
+  const { table } = LISTS[list];
+  return env.DB.prepare(`UPDATE ${table} SET active = 1${isOrdered(list) ? ', sort_order = NULL' : ''} WHERE id = ? AND active = 0`).bind(id);
+}
+
 export async function handleList(request: Request, env: Env, list: ListName, id: string | undefined, query: URLSearchParams): Promise<Response> {
   const method = request.method;
   if (id === undefined) {
     if (method === 'GET' || method === 'HEAD') return read(env, list, query.get('include') === 'inactive');
     if (method === 'POST') return save(request, env, list, null);
     return json({ error: 'method_not_allowed' }, 405, { Allow: 'GET, HEAD, POST' });
+  }
+  if (id === 'order' && isOrdered(list)) {
+    if (method === 'PUT') return reorder(request, env, list);
+    return json({ error: 'method_not_allowed' }, 405, { Allow: 'PUT' });
   }
   if (method === 'PATCH') return save(request, env, list, id);
   return json({ error: 'method_not_allowed' }, 405, { Allow: 'PATCH' });
@@ -127,6 +160,7 @@ function select(list: ListName): string {
     `${name.column} AS ${name.key}`,
     ...fields.map((f) => `${f.column} AS ${f.key}`),
     ...facts.map((f) => `(${f.sql}) AS ${f.key}`),
+    ...(isOrdered(list) ? ['sort_order AS sortOrder'] : []),
     'active',
   ];
   return `SELECT ${columns.join(', ')} FROM ${table}`;
@@ -139,10 +173,7 @@ function entry(list: ListName, row: Record<string, unknown>) {
 }
 
 async function read(env: Env, list: ListName, includeInactive: boolean): Promise<Response> {
-  const { name } = LISTS[list];
-  const { results } = await env.DB.prepare(
-    `${select(list)} ${includeInactive ? '' : 'WHERE active = 1'} ORDER BY ${name.column} COLLATE NOCASE, id`,
-  ).all<Record<string, unknown>>();
+  const { results } = await env.DB.prepare(`${select(list)} ${includeInactive ? '' : 'WHERE active = 1'} ORDER BY ${listOrder(list)}`).all<Record<string, unknown>>();
   return json({ [list]: results.map((row) => entry(list, row)) });
 }
 
@@ -195,7 +226,10 @@ async function save(request: Request, env: Env, list: ListName, id: string | nul
         .bind(savedId, ...Object.values(values))
         .run();
     } else if (columns.length > 0) {
-      await env.DB.prepare(`UPDATE ${spec.table} SET ${columns.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`)
+      const sets = columns.map((c) => `${c} = ?`);
+      // Brought back (active from 0 to 1): it goes last, as bringBack does. SET reads the row as it was.
+      if (isOrdered(list) && values.active === 1) sets.push('sort_order = CASE WHEN active = 0 THEN NULL ELSE sort_order END');
+      await env.DB.prepare(`UPDATE ${spec.table} SET ${sets.join(', ')} WHERE id = ?`)
         .bind(...Object.values(values), savedId)
         .run();
     }
@@ -209,4 +243,32 @@ async function save(request: Request, env: Env, list: ListName, id: string | nul
   }
   const saved = await env.DB.prepare(`${select(list)} WHERE id = ?`).bind(savedId).first<Record<string, unknown>>();
   return json({ [spec.one]: saved && entry(list, saved) }, adding ? 201 : 200);
+}
+
+const ORDER_REFUSED = 'Send the entries of the list in order, each once.';
+
+/**
+ * Sets Dave's own order of a whole list in one request: the ids sent, first to
+ * last, get 1, 2, 3…; entries left out have none and come after them by name.
+ * Answers every entry, removed ones too, in the new order.
+ */
+async function reorder(request: Request, env: Env, list: ListName): Promise<Response> {
+  const { table } = LISTS[list];
+  const body = await readJson<{ order?: unknown }>(request);
+  if (body instanceof Response) return body;
+  const order = body.order;
+  if (!Array.isArray(order) || !order.every((id): id is string => typeof id === 'string') || new Set(order).size !== order.length) {
+    return refuse({ order: ORDER_REFUSED });
+  }
+  const found = await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE id IN (SELECT value FROM json_each(?))`)
+    .bind(JSON.stringify(order))
+    .first<{ n: number }>();
+  if (found?.n !== order.length) return refuse({ order: ORDER_REFUSED });
+
+  // One batch, so a failed write leaves the old order whole.
+  await env.DB.batch([
+    env.DB.prepare(`UPDATE ${table} SET sort_order = NULL`),
+    ...order.map((id, i) => env.DB.prepare(`UPDATE ${table} SET sort_order = ? WHERE id = ?`).bind(i + 1, id)),
+  ]);
+  return read(env, list, true);
 }
