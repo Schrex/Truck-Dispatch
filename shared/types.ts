@@ -125,6 +125,11 @@ export interface Assignment {
   foremanId: string | null;
   foremanName: string | null;
   note: string | null;
+  /**
+   * Its place in its lane (its date and Driver, or Unassigned), from 0: the
+   * order Dave wants the work done. Ties are read in the order they were added.
+   */
+  position: number;
   createdAt: string;
   updatedAt: string;
 }

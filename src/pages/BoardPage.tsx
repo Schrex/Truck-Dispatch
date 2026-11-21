@@ -1,18 +1,18 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ClipboardList, Copy, Loader2, Settings } from 'lucide-react';
+import { Copy, Loader2, Settings } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import type { Assignment, BusinessDay, Driver, Foreman, Material, Place, Truck } from '../../shared/types';
 import { isCalendarDate } from '../../shared/days';
 import { AssignmentDialog } from '@/components/AssignmentDialog';
+import { Lanes } from '@/components/Lanes';
 import { DayNavigation, daySubtitle } from '@/components/DayNavigation';
-import { DriverCards } from '@/components/DriverCards';
 import { PageHeader } from '@/components/PageHeader';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/sonner';
 import { copyTodayOnto, fetchAssignments, fetchBusinessDay, fetchList, FieldErrors, Refused } from '@/lib/api';
 
 /**
- * The Dispatch board: one day's Assignments, one card per Driver. The day on
+ * The Dispatch board: one day's Assignments, one lane per Driver. The day on
  * screen is kept in the address (?date=), so a reload or a shared link shows
  * the same day; with no day there, the Board opens on the next Working day
  * after today (US Eastern), so on a Friday it opens on Monday.
@@ -146,13 +146,12 @@ export function BoardPage() {
           </p>
         )}
         {assignments?.length === 0 && (
-          <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed bg-background py-16 text-center">
-            <ClipboardList className="h-8 w-8 text-muted-foreground" />
-            <p className="font-medium">No Assignments for this day</p>
-            {editable && <p className="text-sm text-muted-foreground">Use Add Assignment to plan the day.</p>}
-          </div>
+          <p className="text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">No Assignments for this day</span>
+            {editable && <span>. Use Add Assignment to plan the day.</span>}
+          </p>
         )}
-        {assignments && assignments.length > 0 && <DriverCards assignments={assignments} onEdit={editable ? setEditing : undefined} />}
+        {assignments && <Lanes assignments={assignments} drivers={drivers} trucks={trucks} onEdit={editable ? setEditing : undefined} />}
       </main>
       {date && (
         <AssignmentDialog
