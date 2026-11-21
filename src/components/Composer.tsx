@@ -2,13 +2,12 @@ import { useId, useState, type FormEvent } from 'react';
 import { ChevronDown, ChevronUp, Loader2, X } from 'lucide-react';
 import type { Assignment, Foreman, Material, NewAssignment, Place, Truck, TypedNames } from '../../shared/types';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/sonner';
 import { addAssignment, FieldErrors, Refused } from '@/lib/api';
 import { foremanSite } from '@/lib/lists';
-import { cn } from '@/lib/utils';
+import { chipClass, OrTypeIt, TypedBox } from '@/components/TypedName';
 
 /**
  * A Place or Material row of the composer: a chip picked from the list (its
@@ -194,8 +193,6 @@ function ChipRow({
 }) {
   const labelId = useId();
   const typing = typed != null;
-  const chip = (pressed: boolean) =>
-    cn('h-11 rounded-full px-4 text-base', pressed ? 'border border-primary' : 'text-foreground');
   return (
     <div role="group" aria-labelledby={labelId} className="space-y-2">
       <p id={labelId} className="text-sm font-medium">
@@ -211,7 +208,7 @@ function ChipRow({
               type="button"
               variant={pressed ? 'default' : 'outline'}
               aria-pressed={pressed}
-              className={chip(pressed)}
+              className={chipClass(pressed)}
               onClick={() => {
                 onTyped?.(null);
                 onPick(pressed && !required ? null : id);
@@ -222,30 +219,16 @@ function ChipRow({
           );
         })}
         {onTyped && (
-          <Button
-            type="button"
-            variant={typing ? 'default' : 'outline'}
-            aria-pressed={typing}
-            className={chip(typing)}
+          <OrTypeIt
+            typing={typing}
             onClick={() => {
               onPick(null);
               onTyped(typing ? null : '');
             }}
-          >
-            Or type it
-          </Button>
+          />
         )}
       </div>
-      {typing && onTyped && (
-        <Input
-          aria-label={`${label}, typed`}
-          autoFocus
-          maxLength={100}
-          className="h-11 text-base"
-          value={typed ?? ''}
-          onChange={(event) => onTyped(event.target.value)}
-        />
-      )}
+      {typing && onTyped && <TypedBox label={label} value={typed ?? ''} onChange={onTyped} />}
       {error && (
         <p className="text-xs text-destructive" role="alert">
           {error}

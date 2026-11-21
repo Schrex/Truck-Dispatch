@@ -877,9 +877,9 @@ describe('opening an Assignment', () => {
     open('/?date=2026-11-20');
     const opened = await openBlock('Haul stone');
     expect(choicesIn(tapPart(opened, 'Driver'))).toEqual(['Sample Driver A', 'Sample Driver B', 'Unassigned']);
-    expect(choicesIn(tapPart(opened, 'Material'))).toEqual(['2" minus', 'Sample Dirt', 'Leave blank']);
-    expect(choicesIn(tapPart(opened, 'From'))).toEqual(['Sample Plant', 'Sample Site North', 'Leave blank']);
-    expect(choicesIn(tapPart(opened, 'To'))).toEqual(['Sample Plant', 'Sample Site North', 'Leave blank']);
+    expect(choicesIn(tapPart(opened, 'Material'))).toEqual(['2" minus', 'Sample Dirt', 'Leave blank', 'Or type it']);
+    expect(choicesIn(tapPart(opened, 'From'))).toEqual(['Sample Plant', 'Sample Site North', 'Leave blank', 'Or type it']);
+    expect(choicesIn(tapPart(opened, 'To'))).toEqual(['Sample Plant', 'Sample Site North', 'Leave blank', 'Or type it']);
     expect(choicesIn(tapPart(opened, 'Truck'))).toEqual(['His own', '21', '24']);
     expect(choicesIn(tapPart(opened, 'Foreman'))).toEqual(['Sample Foreman A', 'Leave blank']);
     // One row of choices at a time.
@@ -891,8 +891,8 @@ describe('opening an Assignment', () => {
     open('/?date=2026-11-20');
     const opened = await openBlock('Sample Old Pit · Haul stone · Truck 99');
     expect(sentenceOf(opened).slice(0, 5)).toEqual(['Driver: Sample Driver X', 'Material: no Material', 'From: Sample Old Pit', 'To: no Place', 'Truck: 99']);
-    expect(choicesIn(tapPart(opened, 'From'))).toEqual(['Sample Plant', 'Sample Site North', 'Sample Old Pit (removed)', 'Leave blank']);
-    expect(choicesIn(tapPart(opened, 'To'))).toEqual(['Sample Plant', 'Sample Site North', 'Leave blank']);
+    expect(choicesIn(tapPart(opened, 'From'))).toEqual(['Sample Plant', 'Sample Site North', 'Sample Old Pit (removed)', 'Leave blank', 'Or type it']);
+    expect(choicesIn(tapPart(opened, 'To'))).toEqual(['Sample Plant', 'Sample Site North', 'Leave blank', 'Or type it']);
   });
 
   it('saves a chip on its own, sending only that field, and the block shows it', async () => {
@@ -904,6 +904,29 @@ describe('opening an Assignment', () => {
     expect(sent).toEqual([{ materialId: 'mat-dirt' }]);
     expect(blocks('Sample Driver A')).toEqual(['First · Haul stone · Sample Dirt · Truck 21 (his own)']);
     expect(within(opened).queryByRole('group')).toBeNull();
+  });
+
+  it('types a From, To or Material not in the list with "Or type it", saved by name on Enter or on leaving the box', async () => {
+    assignments = [planned()];
+    open('/?date=2026-11-20');
+    const opened = await openBlock('Haul stone');
+    fireEvent.click(within(tapPart(opened, 'From')).getByRole('button', { name: 'Or type it' }));
+    const from = within(opened).getByRole('textbox', { name: 'From, typed' });
+    fireEvent.change(from, { target: { value: ' Sample Pit ' } });
+    fireEvent.keyDown(from, { key: 'Enter' });
+    await waitFor(() => expect(sentenceOf(opened)[2]).toBe('From: Sample Pit'));
+    expect(within(opened).queryByRole('group')).toBeNull();
+
+    fireEvent.click(within(tapPart(opened, 'Material')).getByRole('button', { name: 'Or type it' }));
+    const material = within(opened).getByRole('textbox', { name: 'Material, typed' });
+    fireEvent.change(material, { target: { value: 'sample dirt' } });
+    fireEvent.blur(material);
+    await waitFor(() => expect(sentenceOf(opened)[1]).toBe('Material: Sample Dirt'));
+
+    // Left blank, nothing is saved.
+    fireEvent.click(within(tapPart(opened, 'To')).getByRole('button', { name: 'Or type it' }));
+    fireEvent.blur(within(opened).getByRole('textbox', { name: 'To, typed' }));
+    expect(sent).toEqual([{ fromPlaceName: 'Sample Pit' }, { materialName: 'sample dirt' }]);
   });
 
   it('clears a part with "Leave blank", and sets the Truck back to His own', async () => {
