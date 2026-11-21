@@ -1,6 +1,6 @@
 # Spec: planning from the final mocks (phase 1)
 
-Status: agreed in a design grilling on 2026-11-21 and revised after an independent review the same day. Words in capitals (Assignment, Driver, Truck, Place, Job, Foreman, Material, Unassigned, Send, Draft, Changed, Working day, Inspection, Trip, Load) are the ones in `GLOSSARY.md`. The full set of decisions, including phases 2 to 4 and the target schema, is in `docs/design/dispatch-board-decisions.md` ("Final mocks").
+Status: agreed in a design grilling on 2026-11-21 and revised after an independent review the same day. Words in capitals (Assignment, Driver, Truck, Place, Job, Foreman, Material, Unassigned, Send, Draft, Changed, Added, Working day, Inspection, Trip, Load) are the ones in `GLOSSARY.md`. The full set of decisions, including phases 2 to 4 and the target schema, is in `docs/design/dispatch-board-decisions.md` ("Final mocks").
 
 ## Problem Statement
 
@@ -12,7 +12,7 @@ The design mocks (F1 scheduler, F2 driver, F3 settings) and the Daily Schedule a
 
 The board becomes the F1 scheduler: one lane per Driver and an Unassigned lane, each Assignment a block in the order Dave wants it done, a **+** on each lane that opens a composer of large chips (Pick up, Drop off, Hauling what, Truck, Note), and a **✕** on each Assignment. Typing a Place or Material that is not in the lists adds it. An Assignment names a Truck only when the work needs a certain one; otherwise the Driver takes his own.
 
-Days work as they do in the Daily Schedule: a week strip in the header with Today and Tomorrow on its tiles and each day's state, arrows that skip weekends and Holidays, and the board opening on the next Working day. A day is a Draft that the Drivers cannot see until Dave taps **Send**; after that, every change reaches them at once and is marked "Changed by Dave". An empty day offers **Start from** the latest earlier day that has Assignments.
+Days work as they do in the Daily Schedule: a week strip in the header with Today and Tomorrow on its tiles and each day's state, arrows that skip weekends and Holidays, and the board opening on the next Working day. A day is a Draft that the Drivers cannot see until Dave taps **Send**; after that, every change reaches them the next time their view refreshes and is marked "Changed by Dave" or "Added by Dave". An empty day offers **Start from** the latest earlier day that has Assignments.
 
 A **Scheduler | Driver** switch in the header gives each Driver his own view until the Hub's sign-in exists: he picks his name once, his phone remembers it, and he sees his Sent Assignments in order, with any Changed or cancelled ones marked.
 
@@ -204,7 +204,7 @@ A good test says what Dave or a Driver would see, or what the API answers, for a
 Three seams, two of which exist:
 
 - **The Worker's API, called as a request** against a real local D1 migrated from the migrations and reseeded for each test (prior art: the Worker's app tests). Covers: position on add, move and reorder; per-field changes; a Driver change on a Sent day cancelling and adding; a date change refused; Changed and Added, and the earlier fields recorded; ✕ deleting on a Draft day and cancelling on a Sent day; Put back; Send and its refusals; Changed after a send; Start from and Copy to, every row of the copy rules, and their refusals; typed Place and Material names found or created; the Driver view read for a Draft and a Sent day; the week read; sort order and usual Foreman on the lists; past days still refused.
-- **The page in jsdom with a fake API** (prior art: the App, Driver cards and Settings page tests). Covers: lanes in Settings order with Unassigned last; adding from a lane's **+** with chips and typed names; opening a block and changing a chip; moving to another Driver; ✕ and Put back; the strip's words and states and the arrows' labels; Send and its warning; Start from on an empty day; the Driver view's first-time pick, remembered choice, Draft message, Changed and cancelled marks; Settings sections, ordering and panels; load and save failures.
+- **The page in jsdom with a fake API** (prior art: the App, Driver cards and Settings page tests). Covers: lanes in Settings order with Unassigned last; adding from a lane's **+** with chips and typed names; opening a block and changing a chip; moving to another Driver; ✕ and Put back; the strip's words and states and the arrows' labels; Send; Start from on an empty day; the Driver view's first-time pick, remembered choice, Draft message, Changed and cancelled marks; Settings sections, ordering and panels; load and save failures.
 - **New: the day rules as pure functions** (prior art: the Daily Schedule's day navigation and schedule-rules tests). Covers: Working days across weekends and each Holiday in several years, the words and arrow targets across a week boundary and a Friday, day states for each case, and Changed.
 
 The smoke test against staging gains read-only checks of the week read and the Driver view read.
@@ -217,7 +217,7 @@ The smoke test against staging gains read-only checks of the week read and the D
 - Reading the Daily Schedule's Off Work to grey out Drivers.
 - Slack, texts or notifications to Drivers.
 - Dropping the old orders table.
-- Two people changing the same day at once: last save wins.
+- Two people changing the same Assignment at once: the last save of each field wins.
 
 ## Further Notes
 
