@@ -156,6 +156,21 @@ export interface Assignment {
    * saving the same values again, or a neighbour moving, leaves it.
    */
   changedAt: string | null;
+  /** Whether it is Changed or Added since its day was Sent; null on a Draft day or when neither. */
+  sinceSent: SinceSent;
+}
+
+/**
+ * What an Assignment is since its day was Sent: Changed (altered after the
+ * Send) or Added (made after it). The board marks it, and the Driver sees
+ * "Changed by Dave" or "Added by Dave".
+ */
+export type SinceSent = 'changed' | 'added' | null;
+
+/** A day's Assignments and when it was first Sent, null while it is a Draft (GET api/assignments?date=). */
+export interface Day {
+  assignments: Assignment[];
+  sentAt: string | null;
 }
 
 /** A refusal: each field that is wrong, with a plain message. */

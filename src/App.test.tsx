@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { toast } from './components/ui/sonner';
+import { sinceSent } from '../shared/days';
 
 /**
  * The API as the page sees it: today in US Eastern is Thursday 2026-11-19,
@@ -18,6 +19,11 @@ let failSaves = false;
 let refuse: Record<string, string> | null = null;
 let copyRefusal: { status: number; body: unknown } | null = null;
 let failLists = false;
+/** When each Sent day was first Sent, as the Worker's day_sends keeps it. */
+let daySends: Record<string, string> = {};
+let sendRefusal: { status: number; body: unknown } | null = null;
+/** When the Worker records a Send: 4:15 PM Eastern on Thursday 2026-11-19. */
+const SENT_AT = '2026-11-19T21:15:00.000Z';
 const drivers = [
   { id: 'drv-a', name: 'Sample Driver A', defaultTruckId: 'trk-21', active: true },
   { id: 'drv-b', name: 'Sample Driver B', defaultTruckId: 'trk-24', active: true },
@@ -96,6 +102,13 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   if (url.pathname.endsWith('/api/places')) return answer({ places });
   if (url.pathname.endsWith('/api/materials')) return answer({ materials });
   if (url.pathname.endsWith('/api/foremen')) return answer({ foremen });
+  const sending = /\/api\/days\/([^/]+)\/send$/.exec(url.pathname);
+  if (sending && init?.method === 'POST') {
+    sent.push({ send: sending[1] });
+    if (sendRefusal) return answer(sendRefusal.body, sendRefusal.status);
+    daySends[sending[1]] ??= SENT_AT;
+    return answer({ date: sending[1], sentAt: daySends[sending[1]] });
+  }
   if (url.pathname.endsWith('/api/assignments/copy')) {
     const body = JSON.parse(String(init?.body));
     sent.push(body);
@@ -145,9 +158,14 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     return new Response(null, { status: 204 });
   }
   if (failLoads) return answer({ error: 'oops' }, 500);
-  // In each lane's order (the page groups the lanes itself).
-  const day = assignments.filter((a) => a.date === url.searchParams.get('date'));
-  return answer({ assignments: day.sort((a, b) => Number(a.position ?? 0) - Number(b.position ?? 0)) });
+  // In each lane's order (the page groups the lanes itself), marked Changed or Added by the shared day rules, as the Worker does.
+  const date = url.searchParams.get('date') ?? '';
+  const sentAt = daySends[date] ?? null;
+  const day = assignments
+    .filter((a) => a.date === date)
+    .sort((a, b) => Number(a.position ?? 0) - Number(b.position ?? 0))
+    .map((a) => ({ ...a, sinceSent: sinceSent({ createdAt: String(a.createdAt), changedAt: (a.changedAt as string | null) ?? null }, sentAt) }));
+  return answer({ assignments: day, sentAt });
 });
 
 const open = (address: string) => {
@@ -169,6 +187,8 @@ beforeEach(() => {
   refuse = null;
   copyRefusal = null;
   failLists = false;
+  daySends = {};
+  sendRefusal = null;
   api.mockClear();
   vi.stubGlobal('fetch', api);
 });
@@ -996,5 +1016,96 @@ describe('Duplicate to…', () => {
     await act(async () => {});
     expect(screen.queryByRole('button', { name: /Edit |Duplicate/ })).toBeNull();
     expect(screen.queryByText(/Duplicate to/)).toBeNull();
+  });
+});
+
+describe('sending a day', () => {
+  // The page's today is Thursday 2026-11-19; Friday 2026-11-20 is planned at 3:00 PM Eastern.
+  const planned = (fields: Record<string, unknown> = {}) => ({
+    id: 'a1', date: '2026-11-20', driverId: 'drv-a', driverName: 'Sample Driver A', note: 'Haul stone', position: 0,
+    createdAt: '2026-11-19T20:00:00.000Z', updatedAt: '2026-11-19T20:00:00.000Z', changedAt: null, ...fields,
+  });
+  const dayState = () => screen.getByRole('status', { name: 'Day state' }).textContent;
+  const sendButton = () => screen.queryByRole('button', { name: 'Send' });
+
+  it('shows a planned day as a Draft with when it was last saved, and Sends it with one tap', async () => {
+    assignments = [planned(), planned({ id: 'a2', note: 'Topsoil run', updatedAt: '2026-11-19T21:12:00.000Z' })];
+    open('/?date=2026-11-20');
+    await screen.findByText('Haul stone');
+    await waitFor(() => expect(dayState()).toBe('Draft · not sent yet · saved 4:12 PM'));
+
+    fireEvent.click(sendButton()!);
+
+    await waitFor(() => expect(dayState()).toBe('Sent Thu, Nov 19 · 4:15 PM'));
+    expect(sent).toEqual([{ send: '2026-11-20' }]);
+    expect(sendButton()).toBeNull();
+  });
+
+  it('offers no Send yet on a day with nothing planned', async () => {
+    open('/?date=2026-11-20');
+    await screen.findByText('No Assignments for this day');
+    await waitFor(() => expect(dayState()).toBe('Draft · not sent yet'));
+    expect((sendButton() as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('shows a Sent day with its sent time and no Send button', async () => {
+    assignments = [planned()];
+    daySends = { '2026-11-20': SENT_AT };
+    open('/?date=2026-11-20');
+    await screen.findByText('Haul stone');
+    await waitFor(() => expect(dayState()).toBe('Sent Thu, Nov 19 · 4:15 PM'));
+    expect(sendButton()).toBeNull();
+  });
+
+  it('says the day is Changed since Sent and marks the blocks Changed and Added', async () => {
+    assignments = [
+      planned({ changedAt: '2026-11-19T22:00:00.000Z' }),
+      planned({ id: 'a2', note: 'Topsoil run', position: 1, createdAt: '2026-11-19T22:30:00.000Z' }),
+      planned({ id: 'a3', note: 'Fill the shop', position: 2 }),
+    ];
+    daySends = { '2026-11-20': SENT_AT };
+    open('/?date=2026-11-20');
+    await screen.findByText('Haul stone');
+    await waitFor(() => expect(dayState()).toBe('Changed since Sent'));
+    expect(blocks('Sample Driver A')).toEqual([
+      'First · Changed · Haul stone · Truck 21 (his own)',
+      'Then · Added · Topsoil run · Truck 21 (his own)',
+      'Then · Fill the shop · Truck 21 (his own)',
+    ]);
+  });
+
+  it('marks a block Changed once Dave changes it on a Sent day', async () => {
+    assignments = [planned()];
+    daySends = { '2026-11-20': '2026-11-19T20:30:00.000Z' };
+    open('/?date=2026-11-20');
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit Haul stone' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText(/Note/), { target: { value: 'Haul dirt' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
+    expect(await screen.findByRole('button', { name: 'Edit Haul dirt · Changed' })).toBeTruthy();
+    expect(dayState()).toBe('Changed since Sent');
+  });
+
+  it('offers no Send on a day before today, but still says its state', async () => {
+    assignments = [planned({ date: '2026-11-18' })];
+    open('/?date=2026-11-18');
+    await screen.findByText('Haul stone');
+    await waitFor(() => expect(dayState()).toBe('Draft · not sent yet · saved 3:00 PM'));
+    expect(sendButton()).toBeNull();
+  });
+
+  it.each([
+    ['a refusal', { status: 409, body: { error: 'nothing_to_send', message: 'This day has no Assignments to Send. Plan the day first.' } }, 'This day has no Assignments to Send. Plan the day first.'],
+    ['a refused date', { status: 400, body: { error: 'invalid', fields: { date: 'Days before today are read-only, so they cannot be Sent.' } } }, 'Days before today are read-only, so they cannot be Sent.'],
+    ['a failure', { status: 500, body: { error: 'oops' } }, 'Could not Send this day'],
+  ])('shows the Worker\'s message for %s, and the day stays a Draft', async (_what, refusal, message) => {
+    sendRefusal = refusal;
+    assignments = [planned()];
+    open('/?date=2026-11-20');
+    await screen.findByText('Haul stone');
+    await waitFor(() => expect(sendButton()).toBeTruthy());
+    fireEvent.click(sendButton()!);
+    expect(await screen.findByText(message)).toBeTruthy();
+    expect(dayState()).toBe('Draft · not sent yet · saved 3:00 PM');
   });
 });

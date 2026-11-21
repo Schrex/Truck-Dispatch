@@ -48,22 +48,23 @@ export function typedIn(body: Partial<TypedNames>): Typed[] {
 /**
  * Saves an Assignment and the entries its typed names need, in one batch, so a
  * failed save brings back or adds nothing. `write` is the Assignment's own
- * INSERT or UPDATE, given the id each typed name links to.
+ * INSERT or UPDATE (with any record it keeps of it), given the id each typed
+ * name links to.
  */
 export async function saveLinked(
   env: Env,
   typed: Typed[],
-  write: (ids: Partial<Record<TypedIdKey, string>>) => D1PreparedStatement,
+  write: (ids: Partial<Record<TypedIdKey, string>>) => D1PreparedStatement | D1PreparedStatement[],
 ): Promise<void> {
   try {
     const { ids, writes } = await linkTyped(env, typed);
-    await env.DB.batch([...writes, write(ids)]);
+    await env.DB.batch([...writes, ...[write(ids)].flat()]);
   } catch (error) {
     // Another request can add the same name between the lookup and this save;
     // the unique index stops the batch, and looking again finds that entry.
     if (!typed.some(({ field }) => isNameTaken(error, field.list))) throw error;
     const { ids, writes } = await linkTyped(env, typed);
-    await env.DB.batch([...writes, write(ids)]);
+    await env.DB.batch([...writes, ...[write(ids)].flat()]);
   }
 }
 
