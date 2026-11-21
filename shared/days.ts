@@ -91,6 +91,22 @@ export function mondayOf(date: string): string {
   return addDays(date, -((weekday(date) + 6) % 7));
 }
 
+/** The seven dates of the week starting on a Monday, Monday to Sunday, one per week strip tile. */
+export function weekDates(monday: string): string[] {
+  return Array.from({ length: 7 }, (_, i) => addDays(monday, i));
+}
+
+/** "Nov 16": a date as month and day, with no weekday or year. */
+function monthDay(date: string): string {
+  const [, m, d] = parts(date);
+  return `${MONTHS[m - 1]} ${d}`;
+}
+
+/** "Nov 16 to Nov 22": the week starting on a Monday, as its pager names it. */
+export function weekSpan(monday: string): string {
+  return `${monthDay(monday)} to ${monthDay(addDays(monday, 6))}`;
+}
+
 /** Whole days from one date to another (negative when `to` is earlier). */
 function daysFrom(from: string, to: string): number {
   const [fy, fm, fd] = parts(from);
@@ -194,4 +210,23 @@ export function dayState(assignments: (SentTimes & { driverId: string | null })[
     return { state: 'draft', unassigned: assignments.filter((a) => a.driverId === null).length };
   }
   return assignments.some((a) => sinceSent(a, sentAt) !== null) ? { state: 'changed' } : { state: 'sent' };
+}
+
+/**
+ * A day's state as its week strip tile says it, as the Daily Schedule's do:
+ * "–" for a day with nothing, "Not sent" for a Draft, or how many are
+ * Unassigned on a Draft that still has some ("2 unassigned"), Sent, Changed.
+ * Takes a day state as dayState gives it or as the week read answers it.
+ */
+export function stateWord(day: { state: DayState['state']; unassigned?: number }): string {
+  switch (day.state) {
+    case 'none':
+      return '–';
+    case 'draft':
+      return day.unassigned ? `${day.unassigned} unassigned` : 'Not sent';
+    case 'sent':
+      return 'Sent';
+    case 'changed':
+      return 'Changed';
+  }
 }

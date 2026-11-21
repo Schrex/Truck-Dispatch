@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { toast } from './components/ui/sonner';
-import { sinceSent } from '../shared/days';
+import { dayState, holidayName, sinceSent, weekDates } from '../shared/days';
 
 /**
  * The API as the page sees it: today in US Eastern is Thursday 2026-11-19,
@@ -22,6 +22,8 @@ let failLists = false;
 /** When each Sent day was first Sent, as the Worker's day_sends keeps it. */
 let daySends: Record<string, string> = {};
 let sendRefusal: { status: number; body: unknown } | null = null;
+/** When the week strip's read fails. */
+let failWeeks = false;
 /** When the Worker records a Send: 4:15 PM Eastern on Thursday 2026-11-19. */
 const SENT_AT = '2026-11-19T21:15:00.000Z';
 const drivers = [
@@ -102,6 +104,19 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   if (url.pathname.endsWith('/api/places')) return answer({ places });
   if (url.pathname.endsWith('/api/materials')) return answer({ materials });
   if (url.pathname.endsWith('/api/foremen')) return answer({ foremen });
+  const week = /\/api\/weeks\/([^/]+)$/.exec(url.pathname);
+  if (week) {
+    if (failWeeks) return answer({ error: 'oops' }, 500);
+    // Each day's state by the shared day rules, as the Worker reads it.
+    const days = weekDates(week[1]).map((date) => {
+      const planned = assignments
+        .filter((a) => a.date === date)
+        .map((a) => ({ driverId: (a.driverId as string | null) ?? null, createdAt: String(a.createdAt), changedAt: (a.changedAt as string | null) ?? null }));
+      const unassigned = planned.filter((a) => a.driverId === null).length;
+      return { date, state: dayState(planned, daySends[date] ?? null).state, unassigned, holiday: holidayName(date) };
+    });
+    return answer({ days });
+  }
   const sending = /\/api\/days\/([^/]+)\/send$/.exec(url.pathname);
   if (sending && init?.method === 'POST') {
     sent.push({ send: sending[1] });
@@ -189,6 +204,7 @@ beforeEach(() => {
   failLists = false;
   daySends = {};
   sendRefusal = null;
+  failWeeks = false;
   api.mockClear();
   vi.stubGlobal('fetch', api);
 });
@@ -274,11 +290,8 @@ describe.each([
     await waitFor(() => expect(subtitle()).toBe('Thu, Nov 26 · Next Thursday · Thanksgiving'));
   });
 
-  it('steps by Working day with arrows that name their day, jumps to any day, and the address follows the day on screen', async () => {
-    assignments = [
-      { id: 'a0', date: '2026-11-23', driverId: 'drv-a', driverName: 'Sample Driver A', note: 'Monday work', createdAt: '', updatedAt: '' },
-      { id: 'a1', date: '2027-01-04', driverId: null, driverName: null, note: 'New year work', createdAt: '', updatedAt: '' },
-    ];
+  it('steps by Working day with arrows that name their day, and the address follows the day on screen', async () => {
+    assignments = [{ id: 'a0', date: '2026-11-23', driverId: 'drv-a', driverName: 'Sample Driver A', note: 'Monday work', createdAt: '', updatedAt: '' }];
     open(`${prefix}/?date=2026-11-20`);
     await screen.findByText('No Assignments for this day');
 
@@ -291,10 +304,6 @@ describe.each([
     fireEvent.click(screen.getByRole('button', { name: 'Previous Working day, Thu 19' }));
     await waitFor(() => expect(subtitle()).toBe('Thu, Nov 19 · Today'));
     expect(address()).toBe(`${prefix}/?date=2026-11-19`);
-
-    fireEvent.change(screen.getByLabelText('Jump to'), { target: { value: '2027-01-04' } });
-    expect(await screen.findByText('New year work')).toBeTruthy();
-    expect(address()).toBe(`${prefix}/?date=2027-01-04`);
   });
 
   it('skips a Holiday with the arrows', async () => {
@@ -321,9 +330,11 @@ describe.each([
     open(`${prefix}/?date=2026-11-20`);
     await screen.findByText('No Assignments for this day');
 
-    const jumpTo = screen.getByLabelText('Jump to');
-    jumpTo.focus();
-    fireEvent.keyDown(jumpTo, { key: 'ArrowRight' });
+    fireEvent.click(await within(lane('Unassigned')).findByRole('button', { name: 'Add an Assignment for Unassigned' }));
+    fireEvent.click(screen.getByRole('button', { name: /Note or other truck/ }));
+    const note = screen.getByLabelText('Note');
+    note.focus();
+    fireEvent.keyDown(note, { key: 'ArrowRight' });
     fireEvent.keyDown(document.body, { key: 'ArrowRight', shiftKey: true });
     expect(address()).toBe(`${prefix}/?date=2026-11-20`);
   });
@@ -357,7 +368,8 @@ describe.each([
   it('keeps the Board\'s API calls under the same prefix as the page', async () => {
     open(`${prefix}/`);
     await screen.findByText('No Assignments for this day');
-    expect(api.mock.calls.map(([url]) => String(url)).sort()).toEqual([
+    await waitFor(() => expect(api.mock.calls.some(([url]) => String(url).includes('/api/weeks/'))).toBe(true));
+    expect([...new Set(api.mock.calls.map(([url]) => String(url)))].sort()).toEqual([
       `${prefix}/api/assignments?date=2026-11-20`,
       `${prefix}/api/drivers?include=inactive`,
       `${prefix}/api/foremen?include=inactive`,
@@ -365,6 +377,7 @@ describe.each([
       `${prefix}/api/places?include=inactive`,
       `${prefix}/api/today`,
       `${prefix}/api/trucks?include=inactive`,
+      `${prefix}/api/weeks/2026-11-16`,
     ]);
   });
 });
@@ -1185,5 +1198,112 @@ describe('sending a day', () => {
     fireEvent.click(sendButton()!);
     expect(await screen.findByText(message)).toBeTruthy();
     expect(dayState()).toBe('Draft · not sent yet · saved 3:00 PM');
+  });
+});
+
+describe('the week strip', () => {
+  // The page's today is Thursday 2026-11-19, so tomorrow is Friday 2026-11-20; that week runs Monday 2026-11-16 to Sunday 2026-11-22.
+  const planned = (date: string, fields: Record<string, unknown> = {}) => ({
+    id: `a${assignments.length}`, date, driverId: 'drv-a', driverName: 'Sample Driver A', note: `Work on ${date}`, position: assignments.length,
+    createdAt: '2026-11-19T20:00:00.000Z', updatedAt: '2026-11-19T20:00:00.000Z', changedAt: null, ...fields,
+  });
+  const strip = () => screen.getByRole('navigation', { name: 'Week' });
+  /** Each tile as it reads, Monday to Sunday: its day, its word, a Holiday's name and the day's state. */
+  const tiles = () => within(strip()).getAllByRole('button', { name: /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d/ }).map((tile) => tile.getAttribute('aria-label'));
+  const tile = (day: string) => within(strip()).getByRole('button', { name: new RegExp(`^${day}\\b`) });
+  const pager = () => within(strip()).getByRole('status', { name: 'Week shown' }).textContent;
+  const regainFocus = () => act(() => void window.dispatchEvent(new Event('focus')));
+
+  it('shows a tile for each day of the week with Today, Tomorrow and each day\'s state', async () => {
+    assignments = [planned('2026-11-17', { changedAt: '2026-11-19T22:00:00.000Z' })];
+    assignments.push(planned('2026-11-18'));
+    assignments.push(planned('2026-11-19', { driverId: null, driverName: null }));
+    assignments.push(planned('2026-11-19', { driverId: null, driverName: null }));
+    assignments.push(planned('2026-11-19'));
+    assignments.push(planned('2026-11-20'));
+    daySends = { '2026-11-17': SENT_AT, '2026-11-18': SENT_AT };
+    open('/?date=2026-11-20');
+    await waitFor(() =>
+      expect(tiles()).toEqual([
+        'Mon 16 · –',
+        'Tue 17 · Changed',
+        'Wed 18 · Sent',
+        'Thu 19 · Today · 2 unassigned',
+        'Fri 20 · Tomorrow · Not sent',
+        'Sat 21 · –',
+        'Sun 22 · –',
+      ]),
+    );
+  });
+
+  it('fills the chosen day\'s tile and outlines today\'s', async () => {
+    open('/?date=2026-11-20');
+    await waitFor(() => expect(tile('Fri 20').getAttribute('aria-pressed')).toBe('true'));
+    expect(tile('Thu 19').getAttribute('aria-pressed')).toBe('false');
+    expect(tile('Thu 19').getAttribute('aria-current')).toBe('date');
+    expect(tile('Fri 20').getAttribute('aria-current')).toBeNull();
+  });
+
+  it('names a Holiday on its tile, with its state once something is planned', async () => {
+    open('/?date=2026-11-25');
+    await waitFor(() => expect(tile('Thu 26').getAttribute('aria-label')).toBe('Thu 26 · Thanksgiving'));
+    assignments = [planned('2026-11-26')];
+    regainFocus();
+    await waitFor(() => expect(tile('Thu 26').getAttribute('aria-label')).toBe('Thu 26 · Thanksgiving · Not sent'));
+  });
+
+  it('shows a day when its tile is tapped', async () => {
+    assignments = [planned('2026-11-22', { note: 'Sunday work' })];
+    open('/?date=2026-11-20');
+    fireEvent.click(await within(await screen.findByRole('navigation', { name: 'Week' })).findByRole('button', { name: /^Sun 22/ }));
+    expect(await screen.findByText('Sunday work')).toBeTruthy();
+    expect(address()).toBe('/?date=2026-11-22');
+  });
+
+  it('pages a week at a time, keeping the weekday', async () => {
+    open('/?date=2026-11-20');
+    await waitFor(() => expect(pager()).toBe('Nov 16 to Nov 22'));
+    fireEvent.click(within(strip()).getByRole('button', { name: 'Next week' }));
+    await waitFor(() => expect(address()).toBe('/?date=2026-11-27'));
+    expect(pager()).toBe('Nov 23 to Nov 29');
+    expect(tile('Fri 27').getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(within(strip()).getByRole('button', { name: 'Previous week' }));
+    await waitFor(() => expect(address()).toBe('/?date=2026-11-20'));
+    fireEvent.click(within(strip()).getByRole('button', { name: 'Previous week' }));
+    await waitFor(() => expect(address()).toBe('/?date=2026-11-13'));
+    expect(pager()).toBe('Nov 9 to Nov 15');
+  });
+
+  it('updates after an add and after Send', async () => {
+    open('/?date=2026-11-20');
+    await waitFor(() => expect(tile('Fri 20').getAttribute('aria-label')).toBe('Fri 20 · Tomorrow · –'));
+
+    fireEvent.click(await within(lane('Unassigned')).findByRole('button', { name: 'Add an Assignment for Unassigned' }));
+    fireEvent.click(within(lane('Unassigned')).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(tile('Fri 20').getAttribute('aria-label')).toBe('Fri 20 · Tomorrow · 1 unassigned'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(tile('Fri 20').getAttribute('aria-label')).toBe('Fri 20 · Tomorrow · Sent'));
+  });
+
+  it('updates when the page regains the focus, for what changed elsewhere', async () => {
+    open('/?date=2026-11-20');
+    await waitFor(() => expect(tile('Mon 16').getAttribute('aria-label')).toBe('Mon 16 · –'));
+    assignments = [planned('2026-11-16')];
+    regainFocus();
+    await waitFor(() => expect(tile('Mon 16').getAttribute('aria-label')).toBe('Mon 16 · Not sent'));
+  });
+
+  it('still shows its days, without states, when the week cannot be read', async () => {
+    failWeeks = true;
+    open('/?date=2026-11-20');
+    await screen.findByText('No Assignments for this day');
+    await waitFor(() => expect(tiles()).toEqual(['Mon 16', 'Tue 17', 'Wed 18', 'Thu 19 · Today', 'Fri 20 · Tomorrow', 'Sat 21', 'Sun 22']));
+  });
+
+  it('replaces Jump to', async () => {
+    open('/?date=2026-11-20');
+    await screen.findByText('No Assignments for this day');
+    expect(screen.queryByLabelText('Jump to')).toBeNull();
   });
 });

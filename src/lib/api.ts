@@ -1,4 +1,4 @@
-import type { Assignment, AssignmentChange, BusinessDay, Day, EntryFields, ListName, Lists, NewAssignment, TypedNames } from '../../shared/types';
+import type { Assignment, AssignmentChange, BusinessDay, Day, EntryFields, ListName, Lists, NewAssignment, TypedNames, WeekDay } from '../../shared/types';
 import { basePath } from './basePath';
 
 // Every call starts at the base path the page was reached under: /api/...
@@ -59,6 +59,11 @@ function json(method: string, body: unknown): RequestInit {
 /** A day's Assignments, each marked Changed or Added since the Send, and when the day was first Sent (null for a Draft). */
 export function fetchDay(date: string): Promise<Day> {
   return request<Day>(`api/assignments?date=${encodeURIComponent(date)}`);
+}
+
+/** The state of each day of the week starting on a Monday, Monday to Sunday, for the week strip. */
+export async function fetchWeek(monday: string): Promise<WeekDay[]> {
+  return (await request<{ days: WeekDay[] }>(`api/weeks/${encodeURIComponent(monday)}`)).days;
 }
 
 /**

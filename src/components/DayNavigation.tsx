@@ -1,8 +1,7 @@
 import { useEffect } from 'react';
-import { CalendarDays, ChevronLeft, ChevronRight, Undo2 } from 'lucide-react';
-import { arrows, dayWord, holidayName, isCalendarDate, shortDate } from '../../shared/days';
+import { ChevronLeft, ChevronRight, Undo2 } from 'lucide-react';
+import { arrows, dayWord, holidayName, shortDate } from '../../shared/days';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 
 /**
  * The Board's subtitle for a day: its short date, its word relative to today
@@ -30,9 +29,9 @@ function claimedElsewhere(event: KeyboardEvent): boolean {
 /**
  * Moving between days in the Board's header: an arrow each side that names
  * the Working day it goes to (skipping weekends and Holidays), the left and
- * right arrow keys doing the same, "Back to" the next Working day whenever the
- * Board is on another day, and "Jump to" any date (until the week strip
- * replaces it).
+ * right arrow keys doing the same, and "Back to" the next Working day whenever
+ * the Board is on another day. Any other day is reached from the week strip
+ * (WeekStrip), which replaced "Jump to".
  */
 export function DayNavigation({
   date,
@@ -62,33 +61,27 @@ export function DayNavigation({
 
   return (
     <>
-      <div className="space-y-1.5">
-        <label htmlFor="jump-to" className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          <CalendarDays className="h-3.5 w-3.5" /> Jump to
-        </label>
-        <div className="flex items-center gap-1">
-          <Button
-            variant="outline"
-            className="h-11 gap-1 px-3"
-            aria-label={targets ? `Previous Working day, ${targets.previous.label}` : 'Previous Working day'}
-            disabled={!targets}
-            onClick={() => targets && onShow(targets.previous.date)}
-          >
-            <ChevronLeft className="h-4 w-4" />
-            {targets?.previous.label}
-          </Button>
-          <Input id="jump-to" type="date" className="h-11 w-44" value={date ?? ''} onChange={(e) => isCalendarDate(e.target.value) && onShow(e.target.value)} />
-          <Button
-            variant="outline"
-            className="h-11 gap-1 px-3"
-            aria-label={targets ? `Next Working day, ${targets.next.label}` : 'Next Working day'}
-            disabled={!targets}
-            onClick={() => targets && onShow(targets.next.date)}
-          >
-            {targets?.next.label}
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-        </div>
+      <div className="flex items-center gap-1">
+        <Button
+          variant="outline"
+          className="h-11 gap-1 px-3"
+          aria-label={targets ? `Previous Working day, ${targets.previous.label}` : 'Previous Working day'}
+          disabled={!targets}
+          onClick={() => targets && onShow(targets.previous.date)}
+        >
+          <ChevronLeft className="h-4 w-4" />
+          {targets?.previous.label}
+        </Button>
+        <Button
+          variant="outline"
+          className="h-11 gap-1 px-3"
+          aria-label={targets ? `Next Working day, ${targets.next.label}` : 'Next Working day'}
+          disabled={!targets}
+          onClick={() => targets && onShow(targets.next.date)}
+        >
+          {targets?.next.label}
+          <ChevronRight className="h-4 w-4" />
+        </Button>
       </div>
       {date && nextWorkingDay && date !== nextWorkingDay && (
         <Button variant="ghost" size="lg" className="px-4" onClick={() => onShow(nextWorkingDay)}>
