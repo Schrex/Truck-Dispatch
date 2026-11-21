@@ -918,6 +918,117 @@ describe('the business day', () => {
   });
 });
 
+describe('typed Place and Material names', () => {
+  it('link to the active entry with that name, ignoring case, and create nothing, on add and on change', async () => {
+    const before = { places: await list('/api/places?include=inactive'), materials: await list('/api/materials?include=inactive') };
+    const added = await add({ date: '2026-11-20', fromPlaceName: 'sample plant', toPlaceName: 'SAMPLE SITE NORTH', materialName: '2" MINUS' });
+    expect(added).toMatchObject({ fromPlaceId: 'plc-plant', toPlaceId: 'plc-north', materialId: 'mat-minus', materialName: '2" minus' });
+    const changed = await change(added.id, { date: '2026-11-20', fromPlaceName: ' sample shop ', materialName: 'sample dirt' });
+    expect(changed.status).toBe(200);
+    expect(((await changed.json()) as { assignment: Assignment })).toMatchObject({ assignment: { fromPlaceId: 'plc-shop', toPlaceId: null, materialId: 'mat-dirt' } });
+    expect(await list('/api/places?include=inactive')).toEqual(before.places);
+    expect(await list('/api/materials?include=inactive')).toEqual(before.materials);
+  });
+
+  it('bring back a removed entry with that name and link to it', async () => {
+    await send('PATCH', '/api/places/plc-yard', { active: false });
+    await send('PATCH', '/api/materials/mat-stone', { active: false });
+    const added = await add({ date: '2026-11-20', toPlaceName: 'sample yard', materialName: 'Sample Stone' });
+    expect(added).toMatchObject({ toPlaceId: 'plc-yard', toPlaceName: 'Sample Yard', materialId: 'mat-stone' });
+    expect(await list('/api/places')).toContainEqual(expect.objectContaining({ id: 'plc-yard', active: true }));
+    expect(await list('/api/materials')).toContainEqual(expect.objectContaining({ id: 'mat-stone', active: true }));
+  });
+
+  it('add a new entry, a Place with no kind, and link to it, on add and on change', async () => {
+    const added = await add({ date: '2026-11-20', fromPlaceName: ' Sample Pit ', materialName: 'Sample Fill' });
+    expect(added).toMatchObject({ fromPlaceName: 'Sample Pit', materialName: 'Sample Fill' });
+    expect(await list('/api/places')).toContainEqual({ id: added.fromPlaceId, shortName: 'Sample Pit', fullName: null, kind: null, jobId: null, active: true });
+    expect(await list('/api/materials')).toContainEqual({ id: added.materialId, name: 'Sample Fill', active: true });
+
+    const changed = await change(added.id, { date: '2026-11-20', fromPlaceId: added.fromPlaceId, toPlaceName: 'Sample Dump' });
+    const { assignment } = (await changed.json()) as { assignment: Assignment };
+    expect(assignment).toMatchObject({ fromPlaceName: 'Sample Pit', toPlaceName: 'Sample Dump', materialId: null });
+    expect(await list('/api/places')).toContainEqual(expect.objectContaining({ id: assignment.toPlaceId, shortName: 'Sample Dump', kind: null }));
+  });
+
+  it('add one Place when From and To type the same new name, in any case', async () => {
+    const added = await add({ date: '2026-11-20', fromPlaceName: 'Sample Pit', toPlaceName: 'SAMPLE PIT' });
+    expect(added.toPlaceId).toBe(added.fromPlaceId);
+    expect((await list('/api/places')).filter((p) => String(p.shortName).toLowerCase() === 'sample pit')).toHaveLength(1);
+  });
+
+  const typed = (value: unknown) => ({ fromPlaceName: value, toPlaceName: value, materialName: value });
+
+  it('refuse a blank name, with a message on each field, on add and on change', async () => {
+    const blank = { fromPlaceName: 'Write the Place\'s name.', toPlaceName: 'Write the Place\'s name.', materialName: 'Write the Material\'s name.' };
+    expect(await refusal(await post('/api/assignments', { date: '2026-11-20', ...typed('  ') }))).toEqual(blank);
+    const assignment = await add({ date: '2026-11-20' });
+    expect(await refusal(await change(assignment.id, { date: '2026-11-20', ...typed('') }))).toEqual(blank);
+  });
+
+  it('refuse a name over 100 characters, or not text, with a message on each field', async () => {
+    const long = 'Keep it to 100 characters or fewer.';
+    expect(await refusal(await post('/api/assignments', { date: '2026-11-20', ...typed('x'.repeat(101)) }))).toEqual(typed(long));
+    expect((await post('/api/assignments', { date: '2026-11-20', materialName: 'x'.repeat(100) })).status).toBe(201);
+    const notText = { fromPlaceName: 'Write the Place\'s name.', toPlaceName: 'Write the Place\'s name.', materialName: 'Write the Material\'s name.' };
+    expect(await refusal(await post('/api/assignments', { date: '2026-11-20', ...typed(7) }))).toEqual(notText);
+  });
+
+  it('refuse a name given alongside an id for the same field, with a message on the name', async () => {
+    const fields = await refusal(await post('/api/assignments', { date: '2026-11-20', fromPlaceId: 'plc-plant', fromPlaceName: 'Sample Pit', materialId: 'mat-dirt', materialName: 'Sample Dirt' }));
+    expect(fields).toEqual({
+      fromPlaceName: 'Pick a Place from the list or write its name, not both.',
+      materialName: 'Pick a Material from the list or write its name, not both.',
+    });
+  });
+
+  it('add or bring back nothing when the Assignment is refused', async () => {
+    await send('PATCH', '/api/places/plc-yard', { active: false });
+    const before = { places: await list('/api/places?include=inactive'), materials: await list('/api/materials?include=inactive') };
+    const refused = { fromPlaceName: 'Sample Pit', toPlaceName: 'Sample Yard', materialName: 'Sample Fill', driverId: 'nobody' };
+    expect(Object.keys(await refusal(await post('/api/assignments', { date: '2026-11-20', ...refused })))).toEqual(['driverId']);
+    expect(Object.keys(await refusal(await post('/api/assignments', { date: '2026-11-18', ...refused, driverId: null })))).toEqual(['date']);
+    expect(await list('/api/places?include=inactive')).toEqual(before.places);
+    expect(await list('/api/materials?include=inactive')).toEqual(before.materials);
+  });
+
+  it('add or bring back nothing when saving the Assignment itself fails', async () => {
+    await send('PATCH', '/api/materials/mat-stone', { active: false });
+    const before = { places: await list('/api/places?include=inactive'), materials: await list('/api/materials?include=inactive') };
+    const db = d1.database();
+    const failing = new Proxy(db, {
+      get: (target, key) => key === 'prepare'
+        ? (sql: string) => target.prepare(/^\s*INSERT INTO assignments\b/.test(sql) ? sql.replace('assignments', 'no_such_table') : sql)
+        : Reflect.get(target, key, target),
+    });
+    await expect(send('POST', '/api/assignments', { date: '2026-11-20', fromPlaceName: 'Sample Pit', materialName: 'Sample Stone' }, { DB: failing })).rejects.toThrow();
+    expect(await list('/api/places?include=inactive')).toEqual(before.places);
+    expect(await list('/api/materials?include=inactive')).toEqual(before.materials);
+  });
+
+  it('link to the entry another request added with the same name after the lookup, rather than failing', async () => {
+    const db = d1.database();
+    let raced = false;
+    const racing = new Proxy(db, {
+      get: (target, key) => key === 'batch'
+        ? async (statements: D1PreparedStatement[]) => {
+          if (!raced) {
+            raced = true;
+            await post('/api/places', { shortName: 'Sample Pit' });
+          }
+          return target.batch(statements);
+        }
+        : Reflect.get(target, key, target),
+    });
+    const response = await send('POST', '/api/assignments', { date: '2026-11-20', fromPlaceName: 'sample pit' }, { DB: racing });
+    expect(response.status).toBe(201);
+    const { assignment } = (await response.json()) as { assignment: Assignment };
+    const pits = (await list('/api/places')).filter((p) => p.shortName === 'Sample Pit');
+    expect(pits).toHaveLength(1);
+    expect(assignment.fromPlaceId).toBe(pits[0].id);
+  });
+});
+
 describe('API', () => {
   it('refuses writes to read-only routes', async () => {
     expect((await post('/api/health', {})).status).toBe(405);
