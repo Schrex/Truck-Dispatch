@@ -17,7 +17,7 @@ import { Button } from '@/components/ui/button';
 import { fetchBusinessDay, fetchDay, fetchList } from '@/lib/api';
 
 /**
- * The Dispatch board: one day's Assignments, one lane per Driver. The day on
+ * The board: one day's Assignments, one lane per Driver. The day on
  * screen is kept in the address (?date=), so a reload or a shared link shows
  * the same day; with no day there, the Board opens on the next Working day
  * after today (US Eastern), so on a Friday it opens on Monday.

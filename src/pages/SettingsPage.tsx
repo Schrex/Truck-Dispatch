@@ -181,7 +181,7 @@ export function SettingsPage() {
   const openSpec = open && SECTIONS.find((s) => s.list === open.list);
   return (
     <div className="min-h-screen bg-surface">
-      <PageHeader title="Settings" subtitle="The lists the Dispatch board picks from">
+      <PageHeader title="Settings" subtitle="The lists the board picks from">
         <Button asChild variant="outline" size="lg" className="px-5">
           <Link to="/">
             <ClipboardList className="h-4 w-4" /> Board
