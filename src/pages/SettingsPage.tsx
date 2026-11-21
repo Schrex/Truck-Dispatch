@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
-import { ClipboardList } from 'lucide-react';
+import { ChevronDown, ChevronUp, ClipboardList } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import type { ListName } from '../../shared/types';
+import { ORDERED_LISTS, type ListName, type OrderedList } from '../../shared/types';
 import { EntryPanel } from '@/components/settings/EntryPanel';
 import { ListSection } from '@/components/settings/ListSection';
 import { section, type NameOf, type Row, type SectionSpec } from '@/components/settings/spec';
 import { PageHeader } from '@/components/PageHeader';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/sonner';
-import { changeEntry, fetchLaterDays, fetchList } from '@/lib/api';
+import { changeEntry, fetchLaterDays, fetchList, reorderList } from '@/lib/api';
 import { displayName, PLACE_KIND_CHOICES, PLACE_KIND_LABELS } from '@/lib/lists';
 
 /** One section per list, in this order. A new list or field is a change here. */
@@ -76,6 +76,9 @@ const SECTIONS: SectionSpec<ListName>[] = [
 /** Whether a Truck has its HCSS id, so its Trips can be counted later. */
 const hcssLink = (truck: { hcssGuid: string | null }) => (truck.hcssGuid ? 'Linked to HCSS Fleet' : 'Not linked yet');
 
+/** Whether Dave puts this list in his own order with ▲▼. */
+const isOrdered = (list: ListName): list is OrderedList => (ORDERED_LISTS as readonly ListName[]).includes(list);
+
 /** The panel open now: an entry of a list, or a new one (entry null). */
 type Open = { list: ListName; entry: Row | null } | null;
 
@@ -94,13 +97,63 @@ export function SettingsPage() {
     }
   }, []);
 
-  /** Puts a saved entry back in its place in the list, or last if it is new. */
+  /**
+   * Puts a saved entry back in its place in the list, or last if it is new or,
+   * in an ordered list, brought back: the Worker gives those no order.
+   */
   const put = (list: ListName, saved: Row) =>
     setLists((current) => {
       const rows = current[list] ?? [];
       const at = rows.findIndex((e) => e.id === saved.id);
-      return { ...current, [list]: at === -1 ? [...rows, saved] : rows.map((e, i) => (i === at ? saved : e)) };
+      const broughtBack = at !== -1 && !rows[at].active && saved.active && isOrdered(list);
+      if (at === -1 || broughtBack) return { ...current, [list]: [...rows.filter((e) => e.id !== saved.id), saved] };
+      return { ...current, [list]: rows.map((e, i) => (i === at ? saved : e)) };
     });
+
+  /**
+   * Moves an entry in use one place up (-1) or down (1) and saves the whole
+   * order of the entries in use. The chips move at once; if the save fails
+   * they go back and Dave is told.
+   */
+  async function move(spec: SectionSpec<ListName>, list: OrderedList, inUse: Row[], index: number, by: -1 | 1) {
+    const order = [...inUse];
+    [order[index], order[index + by]] = [order[index + by], order[index]];
+    const before = lists[list];
+    setLists((current) => ({ ...current, [list]: [...order, ...(current[list] ?? []).filter((e) => !e.active)] }));
+    try {
+      await reorderList(list, order.map((e) => e.id));
+    } catch {
+      setLists((current) => ({ ...current, [list]: before }));
+      toast.error(`Could not move ${String(inUse[index][spec.name.key])}`);
+    }
+  }
+
+  /** ▲ and ▼ after a chip in use in an ordered list, each left out where it could not move. */
+  const moveButtons = (spec: SectionSpec<ListName>) => {
+    const list = spec.list;
+    if (!isOrdered(list)) return undefined;
+    return (entry: Row, index: number, inUse: Row[]) => {
+      const name = String(entry[spec.name.key]);
+      const button = (by: -1 | 1) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 rounded-full p-0"
+          aria-label={`Move ${name} ${by < 0 ? 'up' : 'down'}`}
+          title={by < 0 ? 'Earlier in the list' : 'Later in the list'}
+          onClick={() => move(spec, list, inUse, index, by)}
+        >
+          {by < 0 ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </Button>
+      );
+      return (
+        <>
+          {index > 0 && button(-1)}
+          {index < inUse.length - 1 && button(1)}
+        </>
+      );
+    };
+  };
 
   const nameOf: NameOf = (list, id) => {
     const entry = lists[list]?.find((e) => e.id === id);
@@ -136,6 +189,7 @@ export function SettingsPage() {
             onOpen={(entry) => setOpen({ list: spec.list, entry })}
             onAdd={() => setOpen({ list: spec.list, entry: null })}
             onBringBack={(entry) => bringBack(spec, entry)}
+            chipControls={moveButtons(spec)}
           />
         ))}
       </main>

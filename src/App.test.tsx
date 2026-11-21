@@ -454,6 +454,20 @@ describe('the composer', () => {
     expect(chips(composer, 'Foreman')).toEqual(['Sample Foreman A']);
   });
 
+  it('offers the chips in Dave\'s own order of Places and Materials as the lists give it, not by name', async () => {
+    places.reverse();
+    materials.reverse();
+    try {
+      await day();
+      const composer = await compose('Sample Driver A');
+      expect(chips(composer, 'Pick up')).toEqual(['Sample Site North', 'Sample Plant', 'Or type it']);
+      expect(chips(composer, 'Hauling what?')).toEqual(['Sample Dirt', '2" minus', 'Or type it']);
+    } finally {
+      places.reverse();
+      materials.reverse();
+    }
+  });
+
   it("adds an Assignment from a Driver's lane with chips, previewed as a sentence, last in his lane", async () => {
     assignments = [{ id: 'a0', date: '2026-11-20', driverId: 'drv-a', driverName: 'Sample Driver A', note: 'Haul stone', position: 0, createdAt: '', updatedAt: '' }];
     open('/?date=2026-11-20');
