@@ -12,6 +12,7 @@ import { DaySend } from '@/components/DaySend';
 import { TakeOff } from '@/components/TakeOff';
 import { PageHeader } from '@/components/PageHeader';
 import { WeekStrip } from '@/components/WeekStrip';
+import { ViewToggle } from '@/components/ViewToggle';
 import { Button } from '@/components/ui/button';
 import { fetchBusinessDay, fetchDay, fetchList } from '@/lib/api';
 
@@ -143,6 +144,7 @@ export function BoardPage() {
         subtitle={date ? daySubtitle(date, businessDay?.today ?? null) : 'Loading…'}
         below={date && <WeekStrip date={date} today={businessDay?.today ?? null} refresh={dayShown} onShow={show} />}
       >
+        <ViewToggle current="scheduler" />
         <DayNavigation date={date} nextWorkingDay={businessDay?.nextWorkingDay ?? null} onShow={show} />
         {date && <DaySend date={date} assignments={assignments} sentAt={sentAt} editable={editable} onSent={setSentAt} />}
         <Button asChild variant="outline" size="lg" className="px-5">

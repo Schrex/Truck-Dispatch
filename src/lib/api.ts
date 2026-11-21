@@ -1,4 +1,4 @@
-import type { Assignment, AssignmentChange, BusinessDay, ChangedAssignment, CopiedDay, Day, EntryFields, ListName, Lists, NewAssignment, OrderedList, TypedNames, WeekDay } from '../../shared/types';
+import type { Assignment, AssignmentChange, BusinessDay, ChangedAssignment, CopiedDay, Day, DriverDay, EntryFields, ListName, Lists, NewAssignment, OrderedList, TypedNames, WeekDay } from '../../shared/types';
 import { basePath } from './basePath';
 
 // Every call starts at the base path the page was reached under: /api/...
@@ -146,4 +146,13 @@ export async function takeOffAssignment(id: string): Promise<Assignment | null> 
 /** Put back: a cancelled Assignment is no longer cancelled. Answers it. */
 export async function putBackAssignment(id: string): Promise<Assignment> {
   return (await request<{ assignment: Assignment }>(`api/assignments/${encodeURIComponent(id)}/put-back`, { method: 'POST' })).assignment;
+}
+
+/**
+ * One Driver's day for the Driver view: only that it is a Draft until Dave
+ * Sends it, then his Assignments in Dave's order, cancelled ones included,
+ * marked Changed (with what they were) or Added.
+ */
+export function fetchDriverDay(driverId: string, date: string): Promise<DriverDay> {
+  return request<DriverDay>(`api/drivers/${encodeURIComponent(driverId)}/days/${encodeURIComponent(date)}`);
 }

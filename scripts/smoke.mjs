@@ -1,6 +1,6 @@
 // Checks a deployed Truck Dispatch end to end, standalone and under the
 // /truck-dispatch/ prefix: the page loads, its script loads, the seeded
-// Drivers, Trucks, Jobs, Places, Materials and Foremen (seed/fixture.sql) come back, and a day's Assignments and this week's day states can be read.
+// Drivers, Trucks, Jobs, Places, Materials and Foremen (seed/fixture.sql) come back, and a day's Assignments, this week's day states and a Driver's today in the Driver view can be read.
 // Read-only: it never adds Assignments.
 //
 //   node scripts/smoke.mjs <base url>
@@ -136,6 +136,24 @@ for (const prefix of ['', '/truck-dispatch']) {
     if (!Array.isArray(days) || days.length !== 7) fail(`weeks/${monday}: expected seven days`);
     if (days[0].date !== monday) fail(`weeks/${monday}: starts on ${days[0].date}`);
     if (!days.every((d) => ['none', 'draft', 'sent', 'changed'].includes(d.state))) fail(`weeks/${monday}: unknown state`);
+  });
+  await step(`${where}: a Driver's today in the Driver view`, async () => {
+    const page = await get(`${prefix}/driver`);
+    if (!page.ok) fail(`${prefix}/driver: ${page.status}`);
+    const drivers = await get(`${prefix}/api/drivers`);
+    if (!drivers.ok) fail(`drivers: ${drivers.status}`);
+    const [driver] = /** @type {{ drivers: { id: string }[] }} */ (await drivers.json()).drivers;
+    if (!driver) fail('no drivers; was seed/fixture.sql applied?');
+    const today = await get(`${prefix}/api/today`);
+    if (!today.ok) fail(`today: ${today.status}`);
+    const date = /** @type {{ today: string }} */ (await today.json()).today;
+    const path = `drivers/${encodeURIComponent(driver.id)}/days/${date}`;
+    const day = await get(`${prefix}/api/${path}`);
+    if (!day.ok) fail(`${path}: ${day.status}`);
+    const body = /** @type {{ date: string; state: string; assignments?: unknown }} */ (await day.json());
+    if (body.date !== date) fail(`${path}: answered ${body.date}`);
+    if (body.state === 'draft') return;
+    if (body.state !== 'sent' || !Array.isArray(body.assignments)) fail(`${path}: neither a Draft nor a Sent day with a list`);
   });
 }
 

@@ -139,6 +139,11 @@ export function shortDate(date: string): string {
   return `${WEEKDAYS[weekday(date)].slice(0, 3)}, ${MONTHS[m - 1]} ${d}`;
 }
 
+/** "Monday": the day's name in full, as the Driver view says it ("Dave hasn't sent Monday yet."). */
+export function weekdayName(date: string): string {
+  return WEEKDAYS[weekday(date)];
+}
+
 /** "Mon 16": a day named on an arrow (and, later, on its week strip tile). */
 export function dayLabel(date: string): string {
   return `${WEEKDAYS[weekday(date)].slice(0, 3)} ${parts(date)[2]}`;
