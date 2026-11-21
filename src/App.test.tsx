@@ -473,7 +473,7 @@ describe('the composer', () => {
     await waitFor(() =>
       expect(blocks('Sample Driver A')).toEqual([
         'First · Haul stone · Truck 21 (his own)',
-        'Then · Sample Plant → Sample Site North · 2" minus · Foreman Sample Foreman A · Truck 21 (his own)',
+        'Then · Sample Plant → Sample Site North (Sample Foreman A) · 2" minus · Truck 21 (his own)',
       ]),
     );
   });

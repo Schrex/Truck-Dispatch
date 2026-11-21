@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { Assignment } from '../../shared/types';
+import { foremanSite } from '@/lib/lists';
 import { cn } from '@/lib/utils';
 
 /**
@@ -40,7 +41,9 @@ function truckOf(named: string | null, usual: string | null): Detail | null {
  * One Assignment as a block in its lane, marked First (the first in the lane)
  * or Then. It reads "From → To" (or the one Place set), or its note when it
  * has no Places; under that, the Material, the Foreman, the note when it is
- * not already the title, and the Truck. A Truck the Assignment names (the
+ * not already the title, and the Truck. The Assignment's own Foreman is named
+ * beside the job site he runs, as in "TIUNY (Brody)" (the drop-off, else the
+ * pick-up), and under the title only when neither Place is a job site. A Truck the Assignment names (the
  * work needs a certain one) shows plainly; with none named the Driver takes
  * his own, so his usual Truck shows in grey, read aloud as "(his own)", or
  * nothing when he has none. With onEdit (today and later days) the block
@@ -50,18 +53,25 @@ export function AssignmentBlock({
   assignment,
   first,
   usualTruck = null,
+  jobSites,
   onEdit,
 }: {
   assignment: Assignment;
   first: boolean;
+  /** The ids of the Places that are job sites, so the Foreman shows beside his; none while the Places load. */
+  jobSites?: ReadonlySet<string>;
   /** The number of the Driver's usual Truck, shown when the Assignment names no Truck. */
   usualTruck?: string | null;
   onEdit?: (assignment: Assignment) => void;
 }) {
-  const places = [assignment.fromPlaceName, assignment.toPlaceName].filter(Boolean).join(' → ');
+  const { fromPlaceId, fromPlaceName, toPlaceId, toPlaceName, foremanName } = assignment;
+  const jobSite = (id: string | null, name: string | null) => Boolean(id && name && jobSites?.has(id));
+  const site = foremanName ? foremanSite(jobSite(fromPlaceId, fromPlaceName), jobSite(toPlaceId, toPlaceName)) : null;
+  const beside = (name: string | null, here: boolean) => (name && here ? `${name} (${foremanName})` : name);
+  const places = [beside(fromPlaceName, site === 'from'), beside(toPlaceName, site === 'to')].filter(Boolean).join(' → ');
   const parts: Detail[] = [
     assignment.materialName,
-    assignment.foremanName && `Foreman ${assignment.foremanName}`,
+    !site && foremanName && `Foreman ${foremanName}`,
     places && assignment.note,
   ]
     .filter((part): part is string => Boolean(part))
