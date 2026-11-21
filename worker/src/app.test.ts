@@ -2013,6 +2013,8 @@ describe('Copy to', () => {
     ['a target day before today', '2026-11-17', { to: '2026-11-18' }, { to: 'Days before today are read-only. Pick today or a later day.' }],
     ['a target day not on the calendar', '2026-11-17', { to: '2026-02-30' }, { to: 'Pick a day to copy onto.' }],
     ['a source day not on the calendar', '2026-02-30', { to: '2026-11-20' }, { date: 'Pick a day to copy.' }],
+    ['a source day that is today', '2026-11-19', { to: '2026-11-20' }, { date: 'Copy to copies a day before today. Pick an earlier day.' }],
+    ['a source day after today', '2026-11-20', { to: '2026-11-23' }, { date: 'Copy to copies a day before today. Pick an earlier day.' }],
   ])('refuses %s, with a message on it, and copies nothing', async (_why, from, body, fields) => {
     await addOn('2026-11-17', { driverId: 'drv-a' });
     expect(await refusal(await copyTo(from, body))).toEqual(fields);

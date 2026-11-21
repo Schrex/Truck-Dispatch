@@ -297,11 +297,12 @@ async function startFrom(env: Env, date: string): Promise<Response> {
   return copyOnto(env, from, date);
 }
 
-/** Copy to: copies a day (a past one, on the Board) onto another day that is still empty, the next Working day on the Board. */
+/** Copy to: copies a day before today onto another day, today or later, that is still empty (the next Working day, on the Board). */
 async function copyTo(request: Request, env: Env, from: string): Promise<Response> {
   const body = await readJson<{ to?: unknown }>(request);
   if (body instanceof Response) return body;
   if (!isCalendarDate(from)) return refuse({ date: 'Pick a day to copy.' });
+  if (!isPast(env, from)) return refuse({ date: 'Copy to copies a day before today. Pick an earlier day.' });
   const to = body.to;
   if (!isCalendarDate(to)) return refuse({ to: 'Pick a day to copy onto.' });
   if (isPast(env, to)) return refuse({ to: PAST_DATE });
