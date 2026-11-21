@@ -52,12 +52,18 @@ const resolve = (body: {
   materialId?: string | null;
   foremanId?: string | null;
   note?: string | null;
+  fromPlaceName?: string | null;
+  toPlaceName?: string | null;
+  materialName?: string | null;
 }) => {
   const driver = drivers.find((d) => d.id === body.driverId);
   const truck = trucks.find((t) => t.id === body.truckId);
-  const from = places.find((p) => p.id === body.fromPlaceId);
-  const to = places.find((p) => p.id === body.toPlaceId);
-  const material = materials.find((m) => m.id === body.materialId);
+  // A typed name links the entry with that name, ignoring case, or a new one, as the Worker does.
+  const named = <T extends { id: string }>(entries: T[], name: (entry: T) => string, typed: string | null | undefined, kind: string) =>
+    typed ? (entries.find((e) => name(e).toLowerCase() === typed.toLowerCase()) ?? ({ id: `new-${kind}-${typed}`, [kind === 'place' ? 'shortName' : 'name']: typed } as unknown as T)) : undefined;
+  const from = named(places, (p) => p.shortName, body.fromPlaceName, 'place') ?? places.find((p) => p.id === body.fromPlaceId);
+  const to = named(places, (p) => p.shortName, body.toPlaceName, 'place') ?? places.find((p) => p.id === body.toPlaceId);
+  const material = named(materials, (m) => m.name, body.materialName, 'material') ?? materials.find((m) => m.id === body.materialId);
   const foreman = foremen.find((f) => f.id === body.foremanId);
   return {
     date: body.date,
@@ -311,18 +317,17 @@ describe.each([
     expect(screen.queryByRole('button', { name: /^Back to/ })).toBeNull();
   });
 
-  it('adds an Assignment with only a date, confirms it, and shows it on the "Unassigned" lane', async () => {
+  it('adds an Assignment with only the day from the Unassigned lane\'s +, confirms it, and shows it there', async () => {
     open(`${prefix}/?date=2026-11-20`);
     await screen.findByText('No Assignments for this day');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add Assignment' }));
-    const dialog = screen.getByRole('dialog');
-    expect((within(dialog).getByLabelText('Date') as HTMLInputElement).value).toBe('2026-11-20');
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
+    fireEvent.click(await within(lane('Unassigned')).findByRole('button', { name: 'Add an Assignment for Unassigned' }));
+    fireEvent.click(within(lane('Unassigned')).getByRole('button', { name: 'Save' }));
 
     expect(await screen.findByText('Assignment saved')).toBeTruthy();
-    expect(within(lane('Unassigned')).getByText('No details yet')).toBeTruthy();
-    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(await within(lane('Unassigned')).findByText('No details yet')).toBeTruthy();
+    expect(sent).toEqual([expect.objectContaining({ date: '2026-11-20', driverId: null })]);
+    expect(api.mock.calls.some(([url, init]) => init?.method === 'POST' && String(url) === `${prefix}/api/assignments`)).toBe(true);
     expect(address()).toBe(`${prefix}/?date=2026-11-20`);
   });
 
@@ -342,61 +347,6 @@ describe.each([
 });
 
 describe('Board', () => {
-  it('adds an Assignment with a Driver and a note onto that Driver\'s lane', async () => {
-    open('/?date=2026-11-20');
-    await screen.findByText('No Assignments for this day');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Add Assignment' }));
-    const dialog = screen.getByRole('dialog');
-    // The Driver picker's own form control: jsdom cannot open the listbox.
-    await waitFor(() => expect(dialog.querySelector('select option[value="drv-b"]')).toBeTruthy());
-    fireEvent.change(dialog.querySelector('select')!, { target: { value: 'drv-b' } });
-    fireEvent.change(within(dialog).getByLabelText(/Note/), { target: { value: 'Move the excavator' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
-
-    expect(await screen.findByText('Assignment saved')).toBeTruthy();
-    expect(within(lane('Sample Driver B')).getByText('Move the excavator')).toBeTruthy();
-  });
-
-  it('goes to the day an Assignment was saved for when it is not the day on screen', async () => {
-    open('/?date=2026-11-20');
-    await screen.findByText('No Assignments for this day');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Add Assignment' }));
-    const dialog = screen.getByRole('dialog');
-    fireEvent.change(within(dialog).getByLabelText('Date'), { target: { value: '2026-11-23' } });
-    fireEvent.change(within(dialog).getByLabelText(/Note/), { target: { value: 'Monday work' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
-
-    expect(await screen.findByText('Monday work')).toBeTruthy();
-    expect(address()).toBe('/?date=2026-11-23');
-  });
-
-  it('shows the message for a refused field next to that field and keeps the dialog open', async () => {
-    refuse = { note: 'Keep the note to 1000 characters or fewer.' };
-    open('/?date=2026-11-20');
-    await screen.findByText('No Assignments for this day');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Add Assignment' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Save Assignment' }));
-
-    const message = await screen.findByText('Keep the note to 1000 characters or fewer.');
-    expect(message.closest('div')?.querySelector('textarea')).toBeTruthy();
-    expect(screen.getByRole('dialog')).toBeTruthy();
-  });
-
-  it('shows a message when a save fails, and keeps the dialog open', async () => {
-    failSaves = true;
-    open('/?date=2026-11-20');
-    await screen.findByText('No Assignments for this day');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Add Assignment' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Save Assignment' }));
-
-    expect(await screen.findByText('Could not save the Assignment')).toBeTruthy();
-    expect(screen.getByRole('dialog')).toBeTruthy();
-  });
-
   it('says so when a day cannot be loaded, rather than showing it as empty', async () => {
     failLoads = true;
     open('/?date=2026-11-20');
@@ -452,19 +402,212 @@ describe('the lanes', () => {
     expect(within(lane('Sample Driver B')).getByText('Nothing planned yet')).toBeTruthy();
   });
 
-  it('adds a new Assignment last in its lane', async () => {
-    assignments = [at({ id: 'a1', ...a, note: 'Haul stone', position: 0 })];
-    open('/?date=2026-11-20');
-    await screen.findByText('Haul stone');
-    fireEvent.click(screen.getByRole('button', { name: 'Add Assignment' }));
-    const dialog = screen.getByRole('dialog');
-    await waitFor(() => expect(dialog.querySelector('select option[value="drv-a"]')).toBeTruthy());
-    fireEvent.change(dialog.querySelector('select')!, { target: { value: 'drv-a' } });
-    fireEvent.change(within(dialog).getByLabelText(/Note/), { target: { value: 'Topsoil run' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
+});
 
-    expect(await within(await screen.findByRole('article', { name: 'Sample Driver A' })).findByText('Topsoil run')).toBeTruthy();
-    expect(blocks('Sample Driver A')).toEqual(['First · Haul stone · Truck 21 (his own)', 'Then · Topsoil run · Truck 21 (his own)']);
+describe('the composer', () => {
+  /** Opens the composer with the + on a lane, once the lists it offers have loaded. */
+  const compose = async (driver: string) => {
+    const add = await within(await screen.findByRole('article', { name: driver })).findByRole('button', { name: `Add an Assignment for ${driver}` });
+    fireEvent.click(add);
+    const composer = within(lane(driver)).getByRole('form', { name: `New Assignment for ${driver}` });
+    await within(composer).findAllByRole('button', { name: 'Sample Plant' });
+    return composer;
+  };
+  /** The chips of a row as they read. */
+  const chips = (composer: HTMLElement, row: string) => within(within(composer).getByRole('group', { name: row })).getAllByRole('button').map((chip) => chip.textContent);
+  /** The chips of a row that are picked. */
+  const pressed = (composer: HTMLElement, row: string) =>
+    within(within(composer).getByRole('group', { name: row })).queryAllByRole('button', { pressed: true }).map((chip) => chip.textContent);
+  const tap = (composer: HTMLElement, row: string, chip: string) =>
+    fireEvent.click(within(within(composer).getByRole('group', { name: row })).getByRole('button', { name: chip }));
+  const type = (composer: HTMLElement, row: string, name: string) => {
+    tap(composer, row, 'Or type it');
+    fireEvent.change(within(composer).getByRole('textbox', { name: `${row}, typed` }), { target: { value: name } });
+  };
+  const preview = (composer: HTMLElement) => within(composer).getByRole('status').textContent;
+  const save = (composer: HTMLElement) => fireEvent.click(within(composer).getByRole('button', { name: 'Save' }));
+  const day = async () => {
+    open('/?date=2026-11-20');
+    await screen.findByText('No Assignments for this day');
+  };
+
+  it('has a + on every lane, Unassigned included, and opens one composer at a time, under that Driver', async () => {
+    await day();
+    for (const driver of ['Sample Driver A', 'Sample Driver B', 'Unassigned']) {
+      expect(await within(lane(driver)).findByRole('button', { name: `Add an Assignment for ${driver}` })).toBeTruthy();
+    }
+    await compose('Sample Driver A');
+    await compose('Sample Driver B');
+    expect(screen.getAllByRole('form')).toHaveLength(1);
+    expect(within(lane('Sample Driver A')).queryByRole('form')).toBeNull();
+  });
+
+  it('offers Places and Materials as chips in the order of their lists, active ones only, each with "Or type it"', async () => {
+    await day();
+    const composer = await compose('Sample Driver A');
+    expect(chips(composer, 'Pick up')).toEqual(['Sample Plant', 'Sample Site North', 'Or type it']);
+    expect(chips(composer, 'Drop off')).toEqual(['Sample Plant', 'Sample Site North', 'Or type it']);
+    expect(chips(composer, 'Hauling what?')).toEqual(['2" minus', 'Sample Dirt', 'Or type it']);
+    expect(chips(composer, 'Foreman')).toEqual(['Sample Foreman A']);
+  });
+
+  it("adds an Assignment from a Driver's lane with chips, previewed as a sentence, last in his lane", async () => {
+    assignments = [{ id: 'a0', date: '2026-11-20', driverId: 'drv-a', driverName: 'Sample Driver A', note: 'Haul stone', position: 0, createdAt: '', updatedAt: '' }];
+    open('/?date=2026-11-20');
+    const composer = await compose('Sample Driver A');
+    expect(preview(composer)).toBe('Sample Driver A: just the day so far');
+    tap(composer, 'Pick up', 'Sample Plant');
+    tap(composer, 'Drop off', 'Sample Site North');
+    tap(composer, 'Hauling what?', '2" minus');
+    tap(composer, 'Foreman', 'Sample Foreman A');
+    expect(preview(composer)).toBe('Sample Driver A hauls 2" minus from Sample Plant to Sample Site North (Sample Foreman A)');
+    save(composer);
+
+    expect(await screen.findByText('Assignment saved')).toBeTruthy();
+    expect(sent).toEqual([
+      { date: '2026-11-20', driverId: 'drv-a', truckId: null, fromPlaceId: 'plc-plant', toPlaceId: 'plc-north', materialId: 'mat-minus', foremanId: 'frm-a', note: null },
+    ]);
+    await waitFor(() =>
+      expect(blocks('Sample Driver A')).toEqual([
+        'First · Haul stone · Truck 21 (his own)',
+        'Then · Sample Plant → Sample Site North · 2" minus · Foreman Sample Foreman A · Truck 21 (his own)',
+      ]),
+    );
+  });
+
+  it('adds an Assignment to Unassigned with typed names, saved by name', async () => {
+    await day();
+    const composer = await compose('Unassigned');
+    type(composer, 'Pick up', 'Sample New Pit');
+    tap(composer, 'Drop off', 'Sample Site North');
+    type(composer, 'Hauling what?', 'sample dirt');
+    expect(preview(composer)).toBe('Someone hauls sample dirt from Sample New Pit to Sample Site North');
+    save(composer);
+
+    expect(await screen.findByText('Assignment saved')).toBeTruthy();
+    expect(sent).toEqual([
+      { date: '2026-11-20', driverId: null, truckId: null, fromPlaceName: 'Sample New Pit', toPlaceId: 'plc-north', materialName: 'sample dirt', foremanId: null, note: null },
+    ]);
+    await waitFor(() => expect(blocks('Unassigned')).toEqual(['First · Sample New Pit → Sample Site North · Sample Dirt']));
+  });
+
+  it('drops a typed name when a chip is picked instead, and leaves a row blank when its picked chip is tapped again', async () => {
+    await day();
+    const composer = await compose('Unassigned');
+    type(composer, 'Pick up', 'Sample New Pit');
+    tap(composer, 'Pick up', 'Sample Plant');
+    expect(within(composer).queryByRole('textbox', { name: 'Pick up, typed' })).toBeNull();
+    expect(pressed(composer, 'Pick up')).toEqual(['Sample Plant']);
+    tap(composer, 'Hauling what?', 'Sample Dirt');
+    tap(composer, 'Hauling what?', 'Sample Dirt');
+    expect(pressed(composer, 'Hauling what?')).toEqual([]);
+    save(composer);
+    expect(await screen.findByText('Assignment saved')).toBeTruthy();
+    expect(sent).toEqual([expect.objectContaining({ fromPlaceId: 'plc-plant', materialId: null })]);
+    expect(sent[0]).not.toHaveProperty('fromPlaceName');
+  });
+
+  it('saves with only the day, onto the Unassigned lane', async () => {
+    await day();
+    save(await compose('Unassigned'));
+    expect(await screen.findByText('Assignment saved')).toBeTruthy();
+    await waitFor(() => expect(blocks('Unassigned')).toEqual(['First · No details yet']));
+  });
+
+  it('lets the same Place be both Pick up and Drop off', async () => {
+    await day();
+    const composer = await compose('Sample Driver B');
+    tap(composer, 'Pick up', 'Sample Plant');
+    tap(composer, 'Drop off', 'Sample Plant');
+    save(composer);
+    expect(await screen.findByText('Assignment saved')).toBeTruthy();
+    expect(sent).toEqual([expect.objectContaining({ fromPlaceId: 'plc-plant', toPlaceId: 'plc-plant' })]);
+  });
+
+  it('keeps the Truck on "His own" unless "Note or other truck" names one, and takes a note', async () => {
+    await day();
+    const composer = await compose('Sample Driver B');
+    expect(within(composer).queryByRole('group', { name: 'Truck' })).toBeNull();
+    fireEvent.click(within(composer).getByRole('button', { name: 'Note or other truck' }));
+    expect(chips(composer, 'Truck')).toEqual(['His own', '21', '24']);
+    expect(pressed(composer, 'Truck')).toEqual(['His own']);
+    tap(composer, 'Truck', '21');
+    fireEvent.change(within(composer).getByRole('textbox', { name: 'Note' }), { target: { value: 'Back by noon' } });
+    expect(preview(composer)).toBe('Sample Driver B hauls in Truck 21 · Back by noon');
+    save(composer);
+
+    expect(await screen.findByText('Assignment saved')).toBeTruthy();
+    expect(sent).toEqual([expect.objectContaining({ driverId: 'drv-b', truckId: 'trk-21', note: 'Back by noon' })]);
+    await waitFor(() => expect(blocks('Sample Driver B')).toEqual(['First · Back by noon · Truck 21']));
+    expect(within(lane('Sample Driver B')).getByText('Truck 21', { selector: 'li span' }).className).not.toContain('text-muted-foreground');
+  });
+
+  it('saves His own as no Truck, and the board shows his usual Truck in grey', async () => {
+    await day();
+    save(await compose('Sample Driver B'));
+    expect(await screen.findByText('Assignment saved')).toBeTruthy();
+    expect(sent).toEqual([expect.objectContaining({ driverId: 'drv-b', truckId: null })]);
+    await waitFor(() => expect(blocks('Sample Driver B')).toEqual(['First · No details yet · Truck 24 (his own)']));
+    expect(within(lane('Sample Driver B')).getByText('Truck 24', { selector: 'li span' }).className).toContain('text-muted-foreground');
+  });
+
+  it('remembers the Places and Material after a save, for the next Driver, until it is closed', async () => {
+    await day();
+    let composer = await compose('Sample Driver A');
+    tap(composer, 'Pick up', 'Sample Plant');
+    type(composer, 'Drop off', 'Sample New Site');
+    tap(composer, 'Hauling what?', 'Sample Dirt');
+    fireEvent.click(within(composer).getByRole('button', { name: 'Note or other truck' }));
+    tap(composer, 'Truck', '24');
+    fireEvent.change(within(composer).getByRole('textbox', { name: 'Note' }), { target: { value: 'Two loads' } });
+    save(composer);
+    expect(await screen.findByText('Assignment saved')).toBeTruthy();
+
+    composer = await compose('Sample Driver B');
+    expect(pressed(composer, 'Pick up')).toEqual(['Sample Plant']);
+    expect((within(composer).getByRole('textbox', { name: 'Drop off, typed' }) as HTMLInputElement).value).toBe('Sample New Site');
+    expect(pressed(composer, 'Hauling what?')).toEqual(['Sample Dirt']);
+    expect(preview(composer)).toBe('Sample Driver B hauls Sample Dirt from Sample Plant to Sample New Site');
+    save(composer);
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[1]).toEqual({ date: '2026-11-20', driverId: 'drv-b', truckId: null, fromPlaceId: 'plc-plant', toPlaceName: 'Sample New Site', materialId: 'mat-dirt', foremanId: null, note: null });
+
+    fireEvent.click(within(lane('Sample Driver B')).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('form')).toBeNull();
+    composer = await compose('Sample Driver A');
+    expect(pressed(composer, 'Pick up')).toEqual([]);
+    expect(within(composer).queryByRole('textbox', { name: 'Drop off, typed' })).toBeNull();
+    expect(pressed(composer, 'Hauling what?')).toEqual([]);
+  });
+
+  it('keeps what was typed and says so when a save fails', async () => {
+    failSaves = true;
+    await day();
+    const composer = await compose('Sample Driver A');
+    type(composer, 'Pick up', 'Sample New Pit');
+    save(composer);
+    expect(await within(composer).findByText('Could not save the Assignment. Try again.')).toBeTruthy();
+    expect((within(composer).getByRole('textbox', { name: 'Pick up, typed' }) as HTMLInputElement).value).toBe('Sample New Pit');
+    expect(blocks('Sample Driver A')).toEqual([]);
+  });
+
+  it("shows a refused field's message on its row and keeps the composer open", async () => {
+    refuse = { fromPlaceName: 'Keep it to 100 characters or fewer.' };
+    await day();
+    const composer = await compose('Sample Driver A');
+    type(composer, 'Pick up', 'Sample New Pit');
+    save(composer);
+    const message = await within(composer).findByText('Keep it to 100 characters or fewer.');
+    expect(within(within(composer).getByRole('group', { name: 'Pick up' })).getByText('Keep it to 100 characters or fewer.')).toBe(message);
+  });
+
+  it('is the only way to add: there is no Add Assignment dialog, and a past day has no +', async () => {
+    await day();
+    expect(screen.queryByRole('button', { name: 'Add Assignment' })).toBeNull();
+    cleanup();
+    open('/?date=2026-11-18');
+    await screen.findByText(/read-only/i);
+    expect(screen.queryByRole('button', { name: /^Add an Assignment/ })).toBeNull();
   });
 });
 
@@ -572,7 +715,7 @@ describe('changing the plan', () => {
     // Wait for the Worker's today, so the read-only view is not just the moment before it arrives.
     await waitFor(() => expect(api.mock.calls.some(([url]) => String(url).endsWith('/api/today'))).toBe(true));
     await act(async () => {});
-    expect(screen.queryByRole('button', { name: /Add Assignment|^Edit |Delete/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Add Assignment|^Add an Assignment|^Edit |Delete/ })).toBeNull();
     expect(screen.getByText(/read-only/i)).toBeTruthy();
   });
 
@@ -580,7 +723,7 @@ describe('changing the plan', () => {
     assignments = [planned({ date: '2026-11-19' })];
     open('/?date=2026-11-19');
     expect(await screen.findByRole('button', { name: 'Edit Haul stone' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Add Assignment' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Add an Assignment for Sample Driver A' })).toBeTruthy();
   });
 });
 
@@ -591,48 +734,13 @@ describe('the Truck', () => {
     return dialog.querySelector(`select[name="${name}"]`) as HTMLSelectElement;
   };
   const choices = (select: HTMLSelectElement) => [...select.options].map((o) => o.textContent);
-  const addDialog = async () => {
-    open('/?date=2026-11-20');
-    await screen.findByText('No Assignments for this day');
-    fireEvent.click(screen.getByRole('button', { name: 'Add Assignment' }));
-    return screen.getByRole('dialog');
-  };
-
-  it('has a picker starting on "His own", listing active Trucks only', async () => {
-    const dialog = await addDialog();
-    const truck = await picker(dialog, 'truckId');
-    expect(truck.value).toBe('none');
-    expect(choices(truck)).toEqual(['His own', '21', '24']);
-  });
 
   it('leaves inactive Drivers out of the Driver picker', async () => {
-    const dialog = await addDialog();
+    assignments = [{ id: 'a0', date: '2026-11-20', driverId: 'drv-a', driverName: 'Sample Driver A', note: 'Haul stone', createdAt: '', updatedAt: '' }];
+    open('/?date=2026-11-20');
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit Haul stone' }));
+    const dialog = screen.getByRole('dialog', { name: 'Edit Assignment' });
     expect(choices(await picker(dialog, 'driverId'))).toEqual(['No Driver', 'Sample Driver A', 'Sample Driver B']);
-  });
-
-  it("stays on His own when a Driver is picked: the Assignment names no Truck, and the board shows his usual Truck in grey", async () => {
-    const dialog = await addDialog();
-    fireEvent.change(await picker(dialog, 'driverId'), { target: { value: 'drv-b' } });
-    expect((await picker(dialog, 'truckId')).value).toBe('none');
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
-
-    expect(await screen.findByText('Assignment saved')).toBeTruthy();
-    expect(sent).toEqual([expect.objectContaining({ driverId: 'drv-b', truckId: null })]);
-    expect(within(lane('Sample Driver B')).getByRole('listitem').textContent).toBe('First · No details yet · Truck 24 (his own)');
-    expect(within(lane('Sample Driver B')).getByText('Truck 24', { selector: 'li span' }).className).toContain('text-muted-foreground');
-  });
-
-  it('names a certain Truck when one is picked, shown plainly on the board', async () => {
-    const dialog = await addDialog();
-    fireEvent.change(await picker(dialog, 'truckId'), { target: { value: 'trk-21' } });
-    fireEvent.change(await picker(dialog, 'driverId'), { target: { value: 'drv-b' } });
-    expect((await picker(dialog, 'truckId')).value).toBe('trk-21');
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
-
-    expect(await screen.findByText('Assignment saved')).toBeTruthy();
-    expect(sent).toEqual([expect.objectContaining({ driverId: 'drv-b', truckId: 'trk-21' })]);
-    expect(within(lane('Sample Driver B')).getByRole('listitem').textContent).toBe('First · Truck 21');
-    expect(within(lane('Sample Driver B')).getByText('Truck 21', { selector: 'li span' }).className).not.toContain('text-muted-foreground');
   });
 
   it('shows no Truck on the board for His own when the Driver has no usual Truck', async () => {
@@ -688,64 +796,6 @@ describe('From and To Places', () => {
     return dialog.querySelector(`select[name="${name}"]`) as HTMLSelectElement;
   };
   const choices = (select: HTMLSelectElement) => [...select.options].map((o) => o.textContent);
-  const addDialog = async () => {
-    open('/?date=2026-11-20');
-    await screen.findByText('No Assignments for this day');
-    fireEvent.click(screen.getByRole('button', { name: 'Add Assignment' }));
-    return screen.getByRole('dialog');
-  };
-  const pick = async (dialog: HTMLElement, name: Picker | 'driverId', value: string) => {
-    await waitFor(() => expect(dialog.querySelector(`select[name="${name}"] option[value="${value}"]`)).toBeTruthy());
-    fireEvent.change(dialog.querySelector(`select[name="${name}"]`)!, { target: { value } });
-  };
-
-  it.each([
-    ['From Place', 'fromPlaceId'],
-    ['To Place', 'toPlaceId'],
-  ] as const)('the %s picker has an empty choice and lists active Places by short name', async (label, name) => {
-    const dialog = await addDialog();
-    expect(within(dialog).getByLabelText(label)).toBeTruthy();
-    const select = await picker(dialog, name);
-    expect(select.value).toBe('none');
-    expect(choices(select)).toEqual([label === 'From Place' ? 'No From Place' : 'No To Place', 'Sample Plant', 'Sample Site North']);
-  });
-
-  it('saves both, and the line reads From → To', async () => {
-    const dialog = await addDialog();
-    await pick(dialog, 'driverId', 'drv-a');
-    await pick(dialog, 'fromPlaceId', 'plc-plant');
-    await pick(dialog, 'toPlaceId', 'plc-north');
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
-
-    expect(await screen.findByText('Assignment saved')).toBeTruthy();
-    expect(sent).toEqual([expect.objectContaining({ fromPlaceId: 'plc-plant', toPlaceId: 'plc-north' })]);
-    expect(within(lane('Sample Driver A')).getByRole('listitem').textContent).toBe('First · Sample Plant → Sample Site North · Truck 21 (his own)');
-  });
-
-  it('saves only a To Place, and the line shows it with no arrow', async () => {
-    const dialog = await addDialog();
-    await pick(dialog, 'toPlaceId', 'plc-north');
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
-    expect(await screen.findByText('Assignment saved')).toBeTruthy();
-    expect(within(lane('Unassigned')).getByRole('listitem').textContent).toBe('First · Sample Site North');
-  });
-
-  it('lets the same Place be both From and To', async () => {
-    const dialog = await addDialog();
-    await pick(dialog, 'fromPlaceId', 'plc-plant');
-    await pick(dialog, 'toPlaceId', 'plc-plant');
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
-    expect(await screen.findByText('Assignment saved')).toBeTruthy();
-    expect(sent).toEqual([expect.objectContaining({ fromPlaceId: 'plc-plant', toPlaceId: 'plc-plant' })]);
-  });
-
-  it('shows the message for an unknown Place next to that picker', async () => {
-    refuse = { toPlaceId: 'Pick a Place from the list.' };
-    const dialog = await addDialog();
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
-    const message = await within(dialog).findByText('Pick a Place from the list.');
-    expect(message.closest('div')?.querySelector('select[name="toPlaceId"]')).toBeTruthy();
-  });
 
   it('keeps a Place made inactive since, by name, when something else is edited', async () => {
     assignments = [{
@@ -792,25 +842,6 @@ describe('the Material and Foreman', () => {
     return dialog.querySelector(`select[name="${name}"]`) as HTMLSelectElement;
   };
   const choices = (select: HTMLSelectElement) => [...select.options].map((o) => o.textContent);
-
-  it('have pickers with an empty choice, listing active entries only, and show on the line once saved', async () => {
-    open('/?date=2026-11-20');
-    await screen.findByText('No Assignments for this day');
-    fireEvent.click(screen.getByRole('button', { name: 'Add Assignment' }));
-    const dialog = screen.getByRole('dialog');
-    const material = await picker(dialog, 'materialId');
-    const foreman = await picker(dialog, 'foremanId');
-    expect([material.value, foreman.value]).toEqual(['none', 'none']);
-    expect(choices(material)).toEqual(['No Material', '2" minus', 'Sample Dirt']);
-    expect(choices(foreman)).toEqual(['No Foreman', 'Sample Foreman A']);
-
-    fireEvent.change(material, { target: { value: 'mat-minus' } });
-    fireEvent.change(foreman, { target: { value: 'frm-a' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
-    expect(await screen.findByText('Assignment saved')).toBeTruthy();
-    expect(sent).toEqual([expect.objectContaining({ materialId: 'mat-minus', foremanId: 'frm-a' })]);
-    expect(within(lane('Unassigned')).getByRole('listitem').textContent).toBe('First · 2" minus · Foreman Sample Foreman A');
-  });
 
   it('keep a Material and Foreman made inactive since, by name, when something else is edited', async () => {
     assignments = [{
