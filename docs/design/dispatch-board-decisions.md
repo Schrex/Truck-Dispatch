@@ -88,9 +88,18 @@ The schema for all four is designed now; each phase migrates only its own tables
 - **Order, not Now.** In phase 1 a lane shows its Assignments in order (First, Then…); no Now, "since", Busy or Free until trips exist. Dave can reorder on any editable day; moving one to another Driver puts it last.
 - **Foreman and Jobs stay lists.** A job-site Place gets a usual Foreman that fills in the Assignment's Foreman; the Assignment keeps its own. Settings keeps Jobs (job numbers) and Foremen.
 - **Typed names.** A Place or Material typed in the composer becomes a new list entry on save, flagged "not on the truck map yet".
-- **Driver view.** Until the Hub's sign-in, the scheduler header has a Driver view switch; the Driver picks his name there and sees his own list.
+- **Driver view.** Until the Hub's sign-in, the header toggle is **Scheduler | Driver**. Driver asks "Who are you?" once and the device remembers the name and the view, so a Driver's phone opens on his list. Anyone can still switch to Scheduler until sign-in exists.
+- **Truck on an Assignment** is stored only when Dave names a certain one; blank means "his own". The phone shows the Truck he checked in to (phase 2); the scheduler shows his usual Truck in grey. Replaces "picking a Driver fills in their usual Truck".
+- **Trip and Load.** A Trip is any movement the Truck records, loaded or empty; a Load is a Trip carrying material. Tickets and counts are per Load; the trip log lists Trips.
+- **Truck work** (a lowboy move) is an ordinary Assignment with a note, From and To Places and no Material; it shows by its note. No separate kind.
+- **Settings** is F3's single page, sections Drivers, Trucks, Places, Materials, Jobs, Foremen. Place kinds stay four in the data; Shop and Yard show as one "Shop or yard" choice saved as shop. Places, Materials and Drivers get a sort order (drag or ▲▼) that orders chips and lanes. Truck and Place panels show "Linked to HCSS Fleet" / "On the truck map" from the HCSS id and geofence code.
+
+## Days, copied from the Daily Schedule (`Schrex/daily-schedule`, `docs/specs/week-strip.md`)
+- **Week strip** in the header: Monday to Friday tiles plus narrow Saturday and Sunday, saying Today and Tomorrow, each with the day's state (Sent, Changed, Not sent, "2 unassigned", "–"); arrows that name their day and skip weekends and Holidays, also on the arrow keys; a week pager; "Back to (next working day)". Opens on the next working day. Same date behaviour, built in this app's stack (ADR-0002).
+- **Send per day.** A day is a Draft, invisible to Drivers ("Dave hasn't sent Monday yet."), until Dave taps Send. After that there is no lock and no Send again: each change reaches the Driver at once and is marked "Changed by Dave".
+- **Start from** replaces Copy today: an empty day says "Nothing planned for (day)" and offers "Start from (latest earlier day with Assignments)", copying Driver, order, Places, Material, Foreman and a named Truck, and dropping notes and cancelled ones. A past day offers "Copy to (next working day)" while that day is empty. Duplicate is dropped.
+- **Locks** stay in the Worker by US Eastern time, as now; no "Change this schedule" lock (unlike the Daily Schedule).
+- **Week view** (Drivers by Monday to Friday, read-only, iPad) comes after phase 1.
+- **Same people in two apps.** The Daily Schedule already has these Drivers (Crew Type Trucking), Off Work, Jobs and Foremen. The apps stay separate (ADR-0001). Once both are in the Hub, trucking should read the Daily Schedule's Sent day and grey out Drivers who are Off Work.
 - **Inspection is the official record.** Append-only, item by item, with repairs, Driver, Truck and time; a sign-off is its own signed row and a fix adds a new version. To be confirmed with whoever owns DOT compliance.
 - **Truck problems** show on the Driver's lane and on that Truck in the composer until Dave marks them fixed. No Slack or texts.
-
-## Open
-- Day navigation: copy the Daily Schedule app's date control (waiting on what that is).

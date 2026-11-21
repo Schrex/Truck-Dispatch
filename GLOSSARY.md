@@ -8,8 +8,25 @@ How Dave plans each driver's day and how the work they actually do becomes a tru
 One piece of work given to one Driver for one day, e.g. haul 2" minus from Villager to TIUNY. It covers any number of Loads. A Driver's Assignments for a day are done in an order Dave sets. Dave can cancel one; a cancelled Assignment is kept and the Driver sees it was cancelled. Whether one has started or finished comes from the Truck, never from Dave or the Driver.
 _Avoid_: task, work order, dispatch, dispatch order, job
 
+**Unassigned**:
+An Assignment with no Driver yet. Dave gives it to a Driver later.
+
+**Send**:
+Dave's act of giving a day's Assignments to the Drivers. Before it, the day is a Draft and Drivers see nothing for it; after it, every change Dave makes reaches the Drivers at once.
+_Avoid_: publish, post, dispatch
+
+**Draft**:
+A day that has never been Sent. The Drivers have nothing for it yet.
+
+**Changed**:
+An Assignment that Dave altered or cancelled after its day was Sent. The Driver sees it marked "Changed by Dave".
+_Avoid_: edited, updated
+
+**Working day**:
+A weekday that is not one of the six Holidays (New Year's Day, Memorial Day, Independence Day, Labor Day, Thanksgiving, Christmas), the same as the Daily Schedule's. The board opens on the next one. Weekends and Holidays can still be planned.
+
 **Driver**:
-A person who drives a company Truck and receives Assignments.
+A person who drives a company Truck and receives Assignments. Each has a usual Truck; an Assignment names a Truck only when the work needs a certain one, otherwise the Driver takes his own.
 
 **Foreman**:
 The person running a Job on a given day. Changes from day to day, so an Assignment names one, not a Place. A job site can have a usual Foreman, who is suggested for new Assignments there.
@@ -37,9 +54,13 @@ _Avoid_: site, project
 
 ## Work
 
+**Trip**:
+One movement of a Truck from one Place to another, as the Truck records it, loaded or empty. Nobody enters Trips.
+_Avoid_: run, leg
+
 **Load**:
-One trip carrying material from a pickup Place to a drop Place. Counted from the truck and tickets, never entered by Dave.
-_Avoid_: trip, run
+A Trip carrying material from a pickup Place to a drop Place. Counted from the Truck and tickets, never entered by Dave.
+_Avoid_: run
 
 **Material**:
 What a Load carries, e.g. 2" minus, CR2, dirt, topsoil, stone.
