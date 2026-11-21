@@ -1,7 +1,7 @@
 # Truck-Dispatch
 Assign work to trucks and drivers, let drivers pick up jobs, and capture trips, miles, hours, and material tickets.
 
-Today: a standalone Cloudflare Worker that serves the **Dispatch board**: it opens on tomorrow (US Eastern), shows one card per Driver with that day's **Assignments**, and adds one with **Add Assignment** (only the date is required; a Driver, a Truck, a From and To Place, a Material, a Foreman and a note are optional; picking a Driver fills in their usual Truck). On a day after today, **Copy today** copies today's Assignments onto it without their notes; an open Assignment can be duplicated to another Driver. A second page, **Settings**, has a tab per list (Drivers, Trucks, Jobs, Places, Materials, Foremen) to add, rename and make entries inactive; nothing is ever deleted. Backed by D1 with **synthetic** Drivers, Trucks, Jobs, Places, Materials and Foremen only. Hub integration (at `/truck-dispatch/`), sign-in and production are later phases.
+Today: a standalone Cloudflare Worker that serves the **Dispatch board**: it opens on tomorrow (US Eastern), shows one lane per Driver (name and usual Truck; a removed Driver only on a day he has work) and an Unassigned lane last, each with that day's **Assignments** as blocks reading "From → To" (or the note) in order, marked First and Then, and adds one with **Add Assignment** (only the date is required; a Driver, a Truck, a From and To Place, a Material, a Foreman and a note are optional; picking a Driver fills in their usual Truck). On a day after today, **Copy today** copies today's Assignments onto it without their notes; an open Assignment can be duplicated to another Driver. A second page, **Settings**, has a tab per list (Drivers, Trucks, Jobs, Places, Materials, Foremen) to add, rename and make entries inactive; nothing is ever deleted. Backed by D1 with **synthetic** Drivers, Trucks, Jobs, Places, Materials and Foremen only. Hub integration (at `/truck-dispatch/`), sign-in and production are later phases.
 
 ## Run it locally
 
@@ -13,7 +13,7 @@ bun run setup        # create the local D1, apply migrations, load synthetic dat
 bun run dev          # http://localhost:5173/truck-dispatch/
 ```
 
-Click **Add Assignment**, optionally pick a Driver (their usual Truck fills in) and write a note, and save; the Assignment appears on that Driver's card (or on "Unassigned").
+Click **Add Assignment**, optionally pick a Driver (their usual Truck fills in) and write a note, and save; the Assignment appears last in that Driver's lane (or in "Unassigned").
 
 | Command | What it does |
 |---|---|
@@ -48,9 +48,9 @@ Under `/api/` standalone or `/truck-dispatch/api/` under the Hub. No sign-in yet
 | `POST drivers`, `POST trucks`, `POST jobs`, `POST places`, `POST materials`, `POST foremen` | JSON with the display name and any other field → 201 `{ driver }` / `{ truck }` / `{ job }` / `{ place }` / `{ material }` / `{ foreman }`, or 400 `{ fields }` (missing name, a name already in the list ignoring case, unknown usual Truck or Job, a kind not in the list) |
 | `PATCH <list>/:id` (drivers, trucks, jobs, places, materials, foremen) | JSON with only the fields to change, including `active: true/false` → 200 with the entry as for POST; 400 as for POST; 404 if it does not exist. There is no delete: an entry is made inactive |
 | `GET today` | `{ today, tomorrow }`, dates in US Eastern time |
-| `GET assignments?date=2026-11-20` | `{ assignments: [{ id, date, driverId, driverName, truckId, truckNumber, fromPlaceId, fromPlaceName, toPlaceId, toPlaceName, materialId, materialName, foremanId, foremanName, note, createdAt, updatedAt }] }` (Place names are short names) by Driver name, then creation time; no Driver last. 400 `{ fields: { date } }` without a real date |
-| `POST assignments` | JSON `{ date, driverId?, truckId?, fromPlaceId?, toPlaceId?, materialId?, foremanId?, note? }` → 201 `{ assignment }`, or 400 `{ fields: { name: message } }` (bad date, unknown Driver, Truck, Place, Material or Foreman, note over 1000 characters). From and To may be the same Place. Unknown fields are ignored |
-| `PUT assignments/:id` | JSON `{ date, driverId?, truckId?, fromPlaceId?, toPlaceId?, materialId?, foremanId?, note? }`, every field replaced (one left out or empty is cleared; a new Driver or date moves it) → 200 `{ assignment }` with a new `updatedAt`; 400 `{ fields }` as for POST; 404 if it does not exist |
+| `GET assignments?date=2026-11-20` | `{ assignments: [{ id, date, driverId, driverName, truckId, truckNumber, fromPlaceId, fromPlaceName, toPlaceId, toPlaceName, materialId, materialName, foremanId, foremanName, note, position, createdAt, updatedAt }] }` (Place names are short names) by lane (Driver name, no Driver last), then `position` (its place in the lane, from 0), then creation time. 400 `{ fields: { date } }` without a real date |
+| `POST assignments` | JSON `{ date, driverId?, truckId?, fromPlaceId?, toPlaceId?, materialId?, foremanId?, note? }` → 201 `{ assignment }`, last in its lane (its date and Driver, or Unassigned), or 400 `{ fields: { name: message } }` (bad date, unknown Driver, Truck, Place, Material or Foreman, note over 1000 characters). From and To may be the same Place. Unknown fields are ignored |
+| `PUT assignments/:id` | JSON `{ date, driverId?, truckId?, fromPlaceId?, toPlaceId?, materialId?, foremanId?, note? }`, every field replaced (one left out or empty is cleared; a new Driver or date moves it, last in its new lane) → 200 `{ assignment }` with a new `updatedAt`; 400 `{ fields }` as for POST; 404 if it does not exist |
 | `POST assignments/copy` | JSON `{ to }` (a date after today) → 201 `{ assignments }`: one new Assignment on `to` for each on today (US Eastern, by the Worker's clock), every field kept except the note, which is empty. Adds to what `to` already has; copying twice copies twice. Nothing on today → 201 `{ assignments: [] }`. 400 `{ fields: { to } }` for a bad date, a day before today, or today itself |
 | `DELETE assignments/:id` | → 204; a real delete, nothing kept. 404 if it does not exist |
 

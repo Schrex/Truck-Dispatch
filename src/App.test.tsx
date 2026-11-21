@@ -73,6 +73,9 @@ const resolve = (body: {
     note: body.note || null,
   };
 };
+/** Where the Worker puts an Assignment that joins a lane: after the last one already in it. */
+const lastInLane = (date: unknown, driverId: unknown) =>
+  Math.max(-1, ...assignments.filter((a) => a.date === date && (a.driverId ?? null) === (driverId ?? null)).map((a) => Number(a.position ?? 0))) + 1;
 const sent: unknown[] = [];
 const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = new URL(String(input), 'https://td.example');
@@ -100,9 +103,11 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   if (init?.method === 'POST') {
     if (failSaves) return answer({ error: 'oops' }, 500);
     if (refuse) return answer({ error: 'invalid', fields: refuse }, 400);
+    const fields = resolve(JSON.parse(String(init.body)));
     const assignment = {
       id: `a${assignments.length + 1}`,
-      ...resolve(JSON.parse(String(init.body))),
+      ...fields,
+      position: lastInLane(fields.date, fields.driverId),
       createdAt: '2026-11-19T20:00:00.000Z',
       updatedAt: '2026-11-19T20:00:00.000Z',
     };
@@ -112,9 +117,13 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   const one = /\/api\/assignments\/([^/]+)$/.exec(url.pathname);
   if (one && init?.method === 'PUT') {
     const index = assignments.findIndex((a) => a.id === one[1]);
+    const fields = resolve(JSON.parse(String(init.body)));
+    const before = assignments[index];
+    const sameLane = before.date === fields.date && (before.driverId ?? null) === fields.driverId;
     assignments[index] = {
-      ...assignments[index],
-      ...resolve(JSON.parse(String(init.body))),
+      ...before,
+      ...fields,
+      position: sameLane ? before.position : lastInLane(fields.date, fields.driverId),
       updatedAt: '2026-11-19T21:00:00.000Z',
     };
     return answer({ assignment: assignments[index] });
@@ -124,7 +133,9 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     return new Response(null, { status: 204 });
   }
   if (failLoads) return answer({ error: 'oops' }, 500);
-  return answer({ assignments: assignments.filter((a) => a.date === url.searchParams.get('date')) });
+  // In each lane's order (the page groups the lanes itself).
+  const day = assignments.filter((a) => a.date === url.searchParams.get('date'));
+  return answer({ assignments: day.sort((a, b) => Number(a.position ?? 0) - Number(b.position ?? 0)) });
 });
 
 const open = (address: string) => {
@@ -133,7 +144,9 @@ const open = (address: string) => {
 };
 const address = () => window.location.pathname + window.location.search;
 const subtitle = () => screen.getByRole('heading', { level: 1 }).nextElementSibling?.textContent;
-const card = (driver: string) => screen.getByRole('article', { name: driver });
+const lane = (driver: string) => screen.getByRole('article', { name: driver });
+/** A lane's blocks as they read, in order. */
+const blocks = (driver: string) => within(lane(driver)).queryAllByRole('listitem').map((block) => block.textContent);
 
 beforeEach(() => {
   assignments = [];
@@ -239,7 +252,7 @@ describe.each([
     expect(address()).toBe(`${prefix}/?date=2027-01-04`);
   });
 
-  it('adds an Assignment with only a date, confirms it, and shows it on the "Unassigned" card', async () => {
+  it('adds an Assignment with only a date, confirms it, and shows it on the "Unassigned" lane', async () => {
     open(`${prefix}/?date=2026-11-20`);
     await screen.findByText('No Assignments for this day');
 
@@ -249,7 +262,7 @@ describe.each([
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
 
     expect(await screen.findByText('Assignment saved')).toBeTruthy();
-    expect(within(card('Unassigned')).getByText('No details yet')).toBeTruthy();
+    expect(within(lane('Unassigned')).getByText('No details yet')).toBeTruthy();
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(address()).toBe(`${prefix}/?date=2026-11-20`);
   });
@@ -270,7 +283,7 @@ describe.each([
 });
 
 describe('Board', () => {
-  it('adds an Assignment with a Driver and a note onto that Driver\'s card', async () => {
+  it('adds an Assignment with a Driver and a note onto that Driver\'s lane', async () => {
     open('/?date=2026-11-20');
     await screen.findByText('No Assignments for this day');
 
@@ -283,7 +296,7 @@ describe('Board', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
 
     expect(await screen.findByText('Assignment saved')).toBeTruthy();
-    expect(within(card('Sample Driver B')).getByText('Move the excavator')).toBeTruthy();
+    expect(within(lane('Sample Driver B')).getByText('Move the excavator')).toBeTruthy();
   });
 
   it('goes to the day an Assignment was saved for when it is not the day on screen', async () => {
@@ -337,7 +350,62 @@ describe('Board', () => {
     assignments = [{ id: 'a1', date: '2026-11-20', driverId: 'drv-a', driverName: 'Sample Driver A', note: 'Haul stone' }];
     open('/?date=2026-11-20');
     expect(await screen.findByText('Could not load the Drivers, Trucks, Places, Materials and Foremen to pick from. Reload the page to try again.')).toBeTruthy();
-    expect(within(card('Sample Driver A')).getByText('Haul stone')).toBeTruthy();
+    expect(within(lane('Sample Driver A')).getByText('Haul stone')).toBeTruthy();
+  });
+});
+
+describe('the lanes', () => {
+  const at = (fields: Record<string, unknown>) => ({ date: '2026-11-20', driverId: null, driverName: null, createdAt: '2026-11-19T20:00:00.000Z', updatedAt: '2026-11-19T20:00:00.000Z', ...fields });
+  const a = { driverId: 'drv-a', driverName: 'Sample Driver A' };
+  const lanes = () => screen.getAllByRole('article').map((lane) => within(lane).getByRole('heading').textContent);
+
+  it('shows a lane for each active Driver with his usual Truck, and Unassigned last, each saying "Nothing planned yet" on an empty day', async () => {
+    open('/?date=2026-11-20');
+    await screen.findByText('No Assignments for this day');
+    await waitFor(() => expect(lanes()).toEqual(['Sample Driver A', 'Sample Driver B', 'Unassigned']));
+    expect(within(lane('Sample Driver A')).getByText('Truck 21')).toBeTruthy();
+    expect(within(lane('Sample Driver B')).getByText('Truck 24')).toBeTruthy();
+    for (const driver of ['Sample Driver A', 'Sample Driver B', 'Unassigned']) expect(within(lane(driver)).getByText('Nothing planned yet')).toBeTruthy();
+  });
+
+  it('shows a removed Driver\'s lane, marked removed, only on a day he has Assignments', async () => {
+    assignments = [at({ id: 'a1', driverId: 'drv-x', driverName: 'Sample Driver X', note: 'Haul stone' })];
+    open('/?date=2026-11-20');
+    await waitFor(() => expect(lanes()).toEqual(['Sample Driver A', 'Sample Driver B', 'Sample Driver X', 'Unassigned']));
+    expect(within(lane('Sample Driver X')).getByText('Removed')).toBeTruthy();
+    expect(blocks('Sample Driver X')).toEqual(['First · Haul stone']);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next day' }));
+    await screen.findByText('No Assignments for this day');
+    expect(lanes()).toEqual(['Sample Driver A', 'Sample Driver B', 'Unassigned']);
+  });
+
+  it('shows a lane\'s blocks in the order Dave set, marked First and Then, reading From → To or the note', async () => {
+    assignments = [
+      at({ id: 'a1', ...a, note: 'Move the excavator', position: 1 }),
+      at({ id: 'a2', ...a, fromPlaceId: 'plc-plant', fromPlaceName: 'Sample Plant', toPlaceId: 'plc-north', toPlaceName: 'Sample Site North', position: 0 }),
+      at({ id: 'a3', note: 'Who takes this?', position: 0 }),
+    ];
+    open('/?date=2026-11-20');
+    expect(await screen.findByText('Move the excavator')).toBeTruthy();
+    expect(blocks('Sample Driver A')).toEqual(['First · Sample Plant → Sample Site North', 'Then · Move the excavator']);
+    expect(blocks('Unassigned')).toEqual(['First · Who takes this?']);
+    expect(within(lane('Sample Driver B')).getByText('Nothing planned yet')).toBeTruthy();
+  });
+
+  it('adds a new Assignment last in its lane', async () => {
+    assignments = [at({ id: 'a1', ...a, note: 'Haul stone', position: 0 })];
+    open('/?date=2026-11-20');
+    await screen.findByText('Haul stone');
+    fireEvent.click(screen.getByRole('button', { name: 'Add Assignment' }));
+    const dialog = screen.getByRole('dialog');
+    await waitFor(() => expect(dialog.querySelector('select option[value="drv-a"]')).toBeTruthy());
+    fireEvent.change(dialog.querySelector('select')!, { target: { value: 'drv-a' } });
+    fireEvent.change(within(dialog).getByLabelText(/Note/), { target: { value: 'Topsoil run' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
+
+    expect(await within(await screen.findByRole('article', { name: 'Sample Driver A' })).findByText('Topsoil run')).toBeTruthy();
+    expect(blocks('Sample Driver A')).toEqual(['First · Haul stone', 'Then · Topsoil run · Truck 21']);
   });
 });
 
@@ -356,7 +424,7 @@ describe('changing the plan', () => {
     fireEvent.change(dialog.querySelector('select')!, { target: { value: id } });
   };
 
-  const findCard = (driver: string) => screen.findByRole('article', { name: driver });
+  const findLane = (driver: string) => screen.findByRole('article', { name: driver });
 
   it('opens an Assignment in the same dialog, filled in, and saves an edit onto the Board', async () => {
     assignments = [planned()];
@@ -369,7 +437,7 @@ describe('changing the plan', () => {
     fireEvent.change(within(dialog).getByLabelText(/Note/), { target: { value: 'Haul topsoil' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
 
-    expect(await within(await findCard('Sample Driver A')).findByText('Haul topsoil')).toBeTruthy();
+    expect(await within(await findLane('Sample Driver A')).findByText('Haul topsoil')).toBeTruthy();
     expect(screen.queryByText('Haul stone')).toBeNull();
     expect(screen.queryByRole('dialog')).toBeNull();
   });
@@ -382,18 +450,20 @@ describe('changing the plan', () => {
     await pickDriver(dialog, 'none');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
 
-    expect(await within(await findCard('Unassigned')).findByText('No details yet')).toBeTruthy();
+    expect(await within(await findLane('Unassigned')).findByText('No details yet')).toBeTruthy();
   });
 
-  it('moves the line to the other Driver\'s card when the Driver changes', async () => {
-    assignments = [planned(), planned({ id: 'a2', driverId: 'drv-b', driverName: 'Sample Driver B', note: 'Topsoil run' })];
+  it('moves the block to the end of the other Driver\'s lane when the Driver changes', async () => {
+    assignments = [planned({ position: 0 }), planned({ id: 'a2', driverId: 'drv-b', driverName: 'Sample Driver B', note: 'Topsoil run', position: 0 })];
     open('/?date=2026-11-20');
     const dialog = await edit('Haul stone');
     await pickDriver(dialog, 'drv-b');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
 
-    await waitFor(() => expect(screen.queryByRole('article', { name: 'Sample Driver A' })).toBeNull());
-    expect(within(card('Sample Driver B')).getByText('Haul stone')).toBeTruthy();
+    expect(await within(await findLane('Sample Driver B')).findByText('Haul stone')).toBeTruthy();
+    // Picking a Driver still fills in his usual Truck.
+    expect(blocks('Sample Driver B')).toEqual(['First · Topsoil run', 'Then · Haul stone · Truck 24']);
+    expect(within(lane('Sample Driver A')).getByText('Nothing planned yet')).toBeTruthy();
   });
 
   it('moves it to the other day when the date changes, and shows that day', async () => {
@@ -404,7 +474,7 @@ describe('changing the plan', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
 
     await waitFor(() => expect(address()).toBe('/?date=2026-11-23'));
-    expect(await within(await findCard('Sample Driver A')).findByText('Haul stone')).toBeTruthy();
+    expect(await within(await findLane('Sample Driver A')).findByText('Haul stone')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Previous day' }));
     fireEvent.click(screen.getByRole('button', { name: 'Previous day' }));
     fireEvent.click(screen.getByRole('button', { name: 'Previous day' }));
@@ -421,7 +491,7 @@ describe('changing the plan', () => {
 
     expect(await screen.findByText('Assignment deleted')).toBeTruthy();
     await waitFor(() => expect(screen.queryByText('Haul stone')).toBeNull());
-    expect(within(card('Sample Driver A')).getByText('Topsoil run')).toBeTruthy();
+    expect(within(lane('Sample Driver A')).getByText('Topsoil run')).toBeTruthy();
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
@@ -440,8 +510,8 @@ describe('changing the plan', () => {
   it('shows a past day read-only: no add, edit or delete controls', async () => {
     assignments = [planned({ date: '2026-11-18' }), planned({ id: 'a2', date: '2026-11-18', driverId: null, driverName: null, note: 'Unplanned' })];
     open('/?date=2026-11-18');
-    expect(await within(await findCard('Sample Driver A')).findByText('Haul stone')).toBeTruthy();
-    expect(within(card('Unassigned')).getByText('Unplanned')).toBeTruthy();
+    expect(await within(await findLane('Sample Driver A')).findByText('Haul stone')).toBeTruthy();
+    expect(within(lane('Unassigned')).getByText('Unplanned')).toBeTruthy();
     // Wait for the Worker's today, so the read-only view is not just the moment before it arrives.
     await waitFor(() => expect(api.mock.calls.some(([url]) => String(url).endsWith('/api/today'))).toBe(true));
     await act(async () => {});
@@ -490,7 +560,7 @@ describe('the Truck', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
 
     expect(await screen.findByText('Assignment saved')).toBeTruthy();
-    expect(within(card('Sample Driver B')).getByRole('listitem').textContent).toBe('Truck 24');
+    expect(within(lane('Sample Driver B')).getByRole('listitem').textContent).toBe('First · Truck 24');
   });
 
   it('is left alone when already chosen and a Driver is picked', async () => {
@@ -528,7 +598,7 @@ describe('the Truck', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
     expect(await screen.findByText('Assignment saved')).toBeTruthy();
     expect(sent).toEqual([expect.objectContaining({ driverId: 'drv-x', truckId: 'trk-99', note: 'Haul topsoil' })]);
-    expect(within(card('Sample Driver X')).getByRole('listitem').textContent).toBe('Haul topsoil · Truck 99');
+    expect(within(lane('Sample Driver X')).getByRole('listitem').textContent).toBe('First · Haul topsoil · Truck 99');
   });
 });
 
@@ -571,7 +641,7 @@ describe('From and To Places', () => {
 
     expect(await screen.findByText('Assignment saved')).toBeTruthy();
     expect(sent).toEqual([expect.objectContaining({ fromPlaceId: 'plc-plant', toPlaceId: 'plc-north' })]);
-    expect(within(card('Sample Driver A')).getByRole('listitem').textContent).toBe('Sample Plant → Sample Site North · Truck 21');
+    expect(within(lane('Sample Driver A')).getByRole('listitem').textContent).toBe('First · Sample Plant → Sample Site North · Truck 21');
   });
 
   it('saves only a To Place, and the line shows it with no arrow', async () => {
@@ -579,7 +649,7 @@ describe('From and To Places', () => {
     await pick(dialog, 'toPlaceId', 'plc-north');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
     expect(await screen.findByText('Assignment saved')).toBeTruthy();
-    expect(within(card('Unassigned')).getByRole('listitem').textContent).toBe('Sample Site North');
+    expect(within(lane('Unassigned')).getByRole('listitem').textContent).toBe('First · Sample Site North');
   });
 
   it('lets the same Place be both From and To', async () => {
@@ -617,7 +687,7 @@ describe('From and To Places', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
     expect(await screen.findByText('Assignment saved')).toBeTruthy();
     expect(sent).toEqual([expect.objectContaining({ fromPlaceId: 'plc-x', toPlaceId: 'plc-north', note: 'Haul topsoil' })]);
-    expect(within(card('Sample Driver A')).getByRole('listitem').textContent).toBe('Sample Old Pit → Sample Site North · Haul topsoil');
+    expect(within(lane('Sample Driver A')).getByRole('listitem').textContent).toBe('First · Sample Old Pit → Sample Site North · Haul topsoil');
   });
 
   it('are carried by Duplicate to', async () => {
@@ -661,7 +731,7 @@ describe('the Material and Foreman', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
     expect(await screen.findByText('Assignment saved')).toBeTruthy();
     expect(sent).toEqual([expect.objectContaining({ materialId: 'mat-minus', foremanId: 'frm-a' })]);
-    expect(within(card('Unassigned')).getByRole('listitem').textContent).toBe('2" minus · Foreman Sample Foreman A');
+    expect(within(lane('Unassigned')).getByRole('listitem').textContent).toBe('First · 2" minus · Foreman Sample Foreman A');
   });
 
   it('keep a Material and Foreman made inactive since, by name, when something else is edited', async () => {
@@ -720,7 +790,7 @@ describe('Copy today', () => {
     // The Worker decides which day is today; the page names only the target day.
     expect(sent).toEqual([{ to: '2026-11-21' }]);
     expect(await within(await screen.findByRole('article', { name: 'Sample Driver A' })).findByText('No details yet')).toBeTruthy();
-    expect(within(card('Sample Driver B')).getByText('Already planned')).toBeTruthy();
+    expect(within(lane('Sample Driver B')).getByText('Already planned')).toBeTruthy();
     expect(screen.queryByText('Haul stone')).toBeNull();
   });
 
@@ -765,7 +835,7 @@ describe('Duplicate to…', () => {
 
     expect(await screen.findByText('Duplicated to Sample Driver B')).toBeTruthy();
     expect(await within(await screen.findByRole('article', { name: 'Sample Driver B' })).findByText('Haul stone')).toBeTruthy();
-    expect(within(card('Sample Driver A')).getByText('Haul stone')).toBeTruthy();
+    expect(within(lane('Sample Driver A')).getByText('Haul stone')).toBeTruthy();
     expect(assignments).toHaveLength(2);
     expect(assignments[1]).toMatchObject({ date: '2026-11-20', driverId: 'drv-b', note: 'Haul stone' });
     expect(screen.queryByRole('dialog')).toBeNull();
