@@ -93,6 +93,18 @@ export interface NewAssignment {
   note?: string | null;
 }
 
+/**
+ * A Place or Material an Assignment may give by name instead of by id, when
+ * adding or changing it: the Worker links the entry with that name, ignoring
+ * case, bringing a removed one back, or adds a new one. A Place added this way
+ * has no kind yet.
+ */
+export interface TypedNames {
+  fromPlaceName?: string | null;
+  toPlaceName?: string | null;
+  materialName?: string | null;
+}
+
 /** One piece of work given to one Driver for one day, with the names of its Driver, Truck and Places resolved. */
 export interface Assignment {
   id: string;

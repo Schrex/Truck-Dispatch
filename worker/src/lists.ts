@@ -85,7 +85,8 @@ export const LISTS: Record<ListName, List> = {
   },
 };
 
-const TEXT_LIMIT = 100;
+/** The longest a list entry's name or other text may be. */
+export const TEXT_LIMIT = 100;
 
 export function isList(route: string): route is ListName {
   return Object.hasOwn(LISTS, route);
@@ -94,6 +95,18 @@ export function isList(route: string): route is ListName {
 /** Whether an entry with this id is in the list, active or not. */
 export async function exists(env: Env, list: ListName, id: string): Promise<boolean> {
   return !!(await env.DB.prepare(`SELECT 1 FROM ${LISTS[list].table} WHERE id = ?`).bind(id).first());
+}
+
+/** The entry whose display name is this one, ignoring case, active or not; there is at most one. */
+export function entryNamed(env: Env, list: ListName, name: string): Promise<{ id: string; active: number } | null> {
+  const { table, name: display } = LISTS[list];
+  return env.DB.prepare(`SELECT id, active FROM ${table} WHERE ${display.column} = ? COLLATE NOCASE`).bind(name).first();
+}
+
+/** Whether a write failed because the list's unique index already has the name. */
+export function isNameTaken(error: unknown, list: ListName): boolean {
+  const { table, name } = LISTS[list];
+  return String(error).includes(`UNIQUE constraint failed: ${table}.${name.column}`);
 }
 
 export async function handleList(request: Request, env: Env, list: ListName, id: string | undefined, query: URLSearchParams): Promise<Response> {
@@ -189,7 +202,7 @@ async function save(request: Request, env: Env, list: ListName, id: string | nul
   } catch (error) {
     // The check above covers the usual case; another request can still save the
     // same name between that check and this write, and the unique index stops it.
-    if (String(error).includes(`UNIQUE constraint failed: ${spec.table}.${spec.name.column}`)) {
+    if (isNameTaken(error, list)) {
       return refuse({ [spec.name.key]: spec.name.taken });
     }
     throw error;

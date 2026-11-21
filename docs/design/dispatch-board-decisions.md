@@ -1,6 +1,6 @@
 # Dispatch board: design decisions (grilling, 19 Nov 2026)
 
-Outcome of a design grilling held in another folder (Truck Log Automation) and brought here. Vocabulary: `GLOSSARY.md`. Architecture decisions: `docs/adr/0001`, `docs/adr/0002`. Truck-log pipeline context: `docs/design/system-design.html`, `docs/design/pipeline-map.html`.
+Outcome of a design grilling held in another folder (Truck Log Automation) and brought here. Vocabulary: `GLOSSARY.md`. Architecture decisions: `docs/adr/0001`, `docs/adr/0002`, [`docs/adr/0003`](../adr/0003-send-per-day-without-a-lock.md) (Send without a lock), [`docs/adr/0004`](../adr/0004-past-days-are-enforced-by-the-worker.md) (past days enforced by the Worker). Truck-log pipeline context: `docs/design/system-design.html`, `docs/design/pipeline-map.html`.
 
 ## The problem
 
@@ -96,9 +96,9 @@ The schema for all four is designed now; each phase migrates only its own tables
 
 ## Days, copied from the Daily Schedule (`Schrex/daily-schedule`, `docs/specs/week-strip.md`)
 - **Week strip** in the header: Monday to Friday tiles plus narrow Saturday and Sunday, saying Today and Tomorrow, each with the day's state (Sent, Changed, Not sent, "2 unassigned", "–"); arrows that name their day and skip weekends and Holidays, also on the arrow keys; a week pager; "Back to (next working day)". Opens on the next working day. Same date behaviour, built in this app's stack (ADR-0002).
-- **Send per day.** A day is a Draft, invisible to Drivers ("Dave hasn't sent Monday yet."), until Dave taps Send. After that there is no lock and no Send again: each change reaches the Driver at once and is marked "Changed by Dave".
+- **Send per day.** A day is a Draft, invisible to Drivers ("Dave hasn't sent Monday yet."), until Dave taps Send. After that there is no lock and no Send again: each change reaches the Driver at once and is marked "Changed by Dave". (ADR 0003.)
 - **Start from** replaces Copy today: an empty day says "Nothing planned for (day)" and offers "Start from (latest earlier day with Assignments)", copying Driver, order, Places, Material, Foreman and a named Truck, and dropping notes and cancelled ones. A past day offers "Copy to (next working day)" while that day is empty. Duplicate is dropped.
-- **Locks** stay in the Worker by US Eastern time, as now; no "Change this schedule" lock (unlike the Daily Schedule).
+- **Locks** stay in the Worker by US Eastern time, as now; no "Change this schedule" lock (unlike the Daily Schedule). (ADR 0004.)
 - **Week view** (Drivers by Monday to Friday, read-only, iPad) comes after phase 1.
 - **Same people in two apps.** The Daily Schedule already has these Drivers (Crew Type Trucking), Off Work, Jobs and Foremen. The apps stay separate (ADR-0001). Once both are in the Hub, trucking should read the Daily Schedule's Sent day and grey out Drivers who are Off Work.
 - **Inspection is the official record.** Append-only, item by item, with repairs, Driver, Truck and time; a sign-off is its own signed row and a fix adds a new version. To be confirmed with whoever owns DOT compliance.
