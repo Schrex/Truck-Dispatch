@@ -6,6 +6,8 @@
  *
  * Plain date arithmetic on UTC midnights, no date library, so the same code
  * runs in the Worker and in the browser whatever the viewer's time zone.
+ * Rules that read a day's Assignments and its send (a day's state, Changed
+ * and Added) belong here too, taking those as plain values, as these take today.
  */
 
 /** A real day on the calendar written YYYY-MM-DD (2026-02-30 is not). Checks what a request or an address gives. */
