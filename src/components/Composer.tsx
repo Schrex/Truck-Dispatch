@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/sonner';
 import { addAssignment, FieldErrors, Refused } from '@/lib/api';
+import { foremanSite } from '@/lib/lists';
 import { cn } from '@/lib/utils';
 
 /**
@@ -59,17 +60,34 @@ export interface ComposerLists {
 }
 
 /**
+ * The Place a row names: the picked one, or the one whose short name was
+ * typed (ignoring case), which the Worker will link; null for a new name.
+ */
+function placeIn(slot: Slot, places: Place[] | null): Place | null {
+  const typed = slot.typed?.trim().toLowerCase();
+  if (typed) return places?.find((p) => p.shortName.toLowerCase() === typed) ?? null;
+  return (slot.id && places?.find((p) => p.id === slot.id)) || null;
+}
+
+/**
  * The Foreman a new Assignment gets until Dave picks one. Every rule for
  * filling him in lives here, so it can grow without touching the composer:
- * for now no Place carries a usual Foreman, so there is none.
+ * the drop-off's usual Foreman if it is a job site, otherwise the pick-up's
+ * if that is one (so hauling out of TIUNY still names Brody). A usual Foreman
+ * removed from the Foremen since is left out, as Dave could not pick him.
  */
-export function defaultForeman(_draft: Draft, _places: Place[] | null): string | null {
-  return null;
+export function defaultForeman(draft: Draft, places: Place[] | null, foremen: Foreman[] | null = null): string | null {
+  const to = placeIn(draft.to, places);
+  const from = placeIn(draft.from, places);
+  const site = foremanSite(from?.kind === 'job_site', to?.kind === 'job_site');
+  const usual = (site === 'to' ? to : site === 'from' ? from : null)?.usualForemanId ?? null;
+  if (usual && foremen?.some((f) => f.id === usual && !f.active)) return null;
+  return usual;
 }
 
 /** The Foreman the composer shows and saves: Dave's pick, or the default. */
-function foremanOf(draft: Draft, places: Place[] | null): string | null {
-  return draft.foremanId !== undefined ? draft.foremanId : defaultForeman(draft, places);
+function foremanOf(draft: Draft, lists: Pick<ComposerLists, 'places' | 'foremen'>): string | null {
+  return draft.foremanId !== undefined ? draft.foremanId : defaultForeman(draft, lists.places, lists.foremen);
 }
 
 /** A row's name as it reads: the typed name, or the picked entry's. */
@@ -82,26 +100,29 @@ function nameIn<T extends { id: string }>(slot: Slot, entries: T[] | null, name:
 
 /**
  * The Assignment as a sentence, to check before saving: "Randy hauls 2" minus
- * from Villager to TIUNY (Brody)". The Foreman follows the Place he is at (the
- * drop-off, else the pick-up); a named Truck and the note come last. With
- * nothing but the day, it says so.
+ * from Villager to TIUNY (Brody)". The Foreman follows the job site he runs
+ * (the drop-off, else the pick-up), or with no job site the drop-off, else the
+ * pick-up; a named Truck and the note come last. With nothing but the day, it
+ * says so.
  */
 export function sentence(driverName: string | null, draft: Draft, lists: ComposerLists): string {
   const who = driverName ?? 'Someone';
   const material = nameIn(draft.material, lists.materials, (m) => m.name);
   const from = nameIn(draft.from, lists.places, (p) => p.shortName);
   const to = nameIn(draft.to, lists.places, (p) => p.shortName);
-  const foremanId = foremanOf(draft, lists.places);
+  const foremanId = foremanOf(draft, lists);
   const foreman = lists.foremen?.find((f) => f.id === foremanId)?.name ?? null;
   const truck = lists.trucks?.find((t) => t.id === draft.truckId)?.number ?? null;
   const note = draft.note.trim();
   if (!material && !from && !to && !foreman && !truck) return note ? `${who}: ${note}` : `${who}: just the day so far`;
+  const jobSite = (slot: Slot) => placeIn(slot, lists.places)?.kind === 'job_site';
+  const site = foremanSite(jobSite(draft.from), jobSite(draft.to)) ?? (to ? 'to' : 'from');
   const at = (place: string | null, here: boolean) => (place ? `${place}${here && foreman ? ` (${foreman})` : ''}` : null);
   const words = [
     `${who} hauls`,
     material,
-    from && `from ${at(from, !to)}`,
-    to && `to ${at(to, true)}`,
+    from && `from ${at(from, site === 'from')}`,
+    to && `to ${at(to, site === 'to')}`,
     !from && !to && foreman && `(${foreman})`,
     truck && `in Truck ${truck}`,
   ].filter(Boolean);
@@ -115,7 +136,7 @@ function slotFields<I extends string, N extends string>(slot: Slot, idKey: I, na
 }
 
 /** What Save sends: the day, the lane's Driver and every row, typed names by name. */
-function requestOf(date: string, driverId: string | null, draft: Draft, places: Place[] | null): NewAssignment & TypedNames {
+function requestOf(date: string, driverId: string | null, draft: Draft, lists: ComposerLists): NewAssignment & TypedNames {
   return {
     date,
     driverId,
@@ -123,7 +144,7 @@ function requestOf(date: string, driverId: string | null, draft: Draft, places: 
     ...slotFields(draft.from, 'fromPlaceId', 'fromPlaceName'),
     ...slotFields(draft.to, 'toPlaceId', 'toPlaceName'),
     ...slotFields(draft.material, 'materialId', 'materialName'),
-    foremanId: foremanOf(draft, places),
+    foremanId: foremanOf(draft, lists),
     note: draft.note.trim() || null,
   };
 }
@@ -293,7 +314,7 @@ export function Composer({
     setFailed(null);
     setErrors({});
     try {
-      const assignment = await addAssignment(requestOf(date, driverId, draft, places));
+      const assignment = await addAssignment(requestOf(date, driverId, draft, lists));
       toast.success('Assignment saved');
       onSaved(assignment);
     } catch (error) {
@@ -320,7 +341,7 @@ export function Composer({
       <ChipRow
         label="Foreman"
         chips={active(foremen, (f) => f.name)}
-        picked={foremanOf(draft, places)}
+        picked={foremanOf(draft, lists)}
         onPick={(foremanId) => change('foreman', (d) => ({ ...d, foremanId }))}
         error={errors.foremanId}
       />

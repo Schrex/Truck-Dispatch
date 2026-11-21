@@ -604,6 +604,98 @@ describe('the composer', () => {
     expect(within(within(composer).getByRole('group', { name: 'Pick up' })).getByText('Keep it to 100 characters or fewer.')).toBe(message);
   });
 
+  describe('the usual Foreman', () => {
+    // A second job site whose usual Foreman is Sample Foreman B; Sample Site North has none.
+    const south = { id: 'plc-south', shortName: 'Sample Site South', fullName: null, kind: 'job_site', jobId: null, usualForemanId: 'frm-b', active: true };
+    const brody = { id: 'frm-b', name: 'Sample Foreman B', active: true };
+    beforeEach(() => {
+      places.push(south);
+      foremen.push(brody);
+    });
+    afterEach(() => {
+      places.splice(places.indexOf(south), 1);
+      foremen.splice(foremen.indexOf(brody), 1);
+    });
+
+    it("fills in the drop-off's usual Foreman when it is a job site", async () => {
+      await day();
+      const composer = await compose('Sample Driver A');
+      tap(composer, 'Pick up', 'Sample Plant');
+      tap(composer, 'Drop off', 'Sample Site South');
+      expect(pressed(composer, 'Foreman')).toEqual(['Sample Foreman B']);
+      expect(preview(composer)).toBe('Sample Driver A hauls from Sample Plant to Sample Site South (Sample Foreman B)');
+      save(composer);
+      expect(await screen.findByText('Assignment saved')).toBeTruthy();
+      expect(sent).toEqual([expect.objectContaining({ fromPlaceId: 'plc-plant', toPlaceId: 'plc-south', foremanId: 'frm-b' })]);
+    });
+
+    it("fills in the pick-up's usual Foreman when the drop-off is not a job site", async () => {
+      await day();
+      const composer = await compose('Sample Driver A');
+      tap(composer, 'Pick up', 'Sample Site South');
+      expect(pressed(composer, 'Foreman')).toEqual(['Sample Foreman B']);
+      tap(composer, 'Drop off', 'Sample Plant');
+      expect(pressed(composer, 'Foreman')).toEqual(['Sample Foreman B']);
+      expect(preview(composer)).toBe('Sample Driver A hauls from Sample Site South (Sample Foreman B) to Sample Plant');
+    });
+
+    it("takes the drop-off's job site over the pick-up's, even when it has no usual Foreman", async () => {
+      await day();
+      const composer = await compose('Sample Driver A');
+      tap(composer, 'Pick up', 'Sample Site South');
+      tap(composer, 'Drop off', 'Sample Site North');
+      expect(pressed(composer, 'Foreman')).toEqual([]);
+    });
+
+    it('fills it in for a job site typed by its name', async () => {
+      await day();
+      const composer = await compose('Unassigned');
+      type(composer, 'Drop off', 'sample site south');
+      expect(pressed(composer, 'Foreman')).toEqual(['Sample Foreman B']);
+    });
+
+    it('lets Dave change or clear it, and keeps his pick when the Places change', async () => {
+      await day();
+      const composer = await compose('Sample Driver A');
+      tap(composer, 'Drop off', 'Sample Site South');
+      tap(composer, 'Foreman', 'Sample Foreman A');
+      expect(pressed(composer, 'Foreman')).toEqual(['Sample Foreman A']);
+      tap(composer, 'Drop off', 'Sample Plant');
+      tap(composer, 'Drop off', 'Sample Site South');
+      expect(pressed(composer, 'Foreman')).toEqual(['Sample Foreman A']);
+      tap(composer, 'Foreman', 'Sample Foreman A');
+      expect(pressed(composer, 'Foreman')).toEqual([]);
+      save(composer);
+      expect(await screen.findByText('Assignment saved')).toBeTruthy();
+      expect(sent).toEqual([expect.objectContaining({ toPlaceId: 'plc-south', foremanId: null })]);
+    });
+
+    it("fills it in again for the next Driver, after Dave changed it for the last one", async () => {
+      await day();
+      let composer = await compose('Sample Driver A');
+      tap(composer, 'Drop off', 'Sample Site South');
+      tap(composer, 'Foreman', 'Sample Foreman A');
+      save(composer);
+      expect(await screen.findByText('Assignment saved')).toBeTruthy();
+      composer = await compose('Sample Driver B');
+      expect(pressed(composer, 'Foreman')).toEqual(['Sample Foreman B']);
+    });
+
+    it('leaves out a usual Foreman who has been removed since', async () => {
+      brody.active = false;
+      try {
+        await day();
+        const composer = await compose('Sample Driver A');
+        tap(composer, 'Drop off', 'Sample Site South');
+        save(composer);
+        expect(await screen.findByText('Assignment saved')).toBeTruthy();
+        expect(sent).toEqual([expect.objectContaining({ toPlaceId: 'plc-south', foremanId: null })]);
+      } finally {
+        brody.active = true;
+      }
+    });
+  });
+
   it('is the only way to add: there is no Add Assignment dialog, and a past day has no +', async () => {
     await day();
     expect(screen.queryByRole('button', { name: 'Add Assignment' })).toBeNull();
