@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { handle } from './app';
 import { localD1 } from './testing/localD1';
-import type { Assignment } from '../../shared/types';
+import type { Assignment, DriverDay } from '../../shared/types';
 
 const d1 = localD1();
 /** The tests' clock: 2026-11-19 in the afternoon, US Eastern, unless a test sets its own. */
@@ -47,7 +47,7 @@ describe.each([
 
     const day = await get(`${prefix}/api/assignments?date=2026-11-20`);
     expect(day.status).toBe(200);
-    expect(await day.json()).toEqual({ assignments: [assignment] });
+    expect(await day.json()).toEqual({ assignments: [assignment], sentAt: null });
   });
 
   // The page files answer any address that is not a file with the page itself
@@ -57,6 +57,7 @@ describe.each([
     ['Board', '/'],
     ['Board on a given day', '/?date=2026-11-18'],
     ['Settings', '/settings'],
+    ['Driver view', '/driver'],
   ])('serves the %s page on a direct load', async (_page, address) => {
     const response = await get(`${prefix}${address}`);
     expect(response.status).toBe(200);
@@ -108,7 +109,7 @@ describe('Assignments', () => {
     const response = await post('/api/assignments', { date: '2026-11-20', startTime: '07:30', job: 'Sample Job' });
     expect(response.status).toBe(201);
     expect(Object.keys(((await response.json()) as { assignment: object }).assignment).sort()).toEqual(
-      ['createdAt', 'date', 'driverId', 'driverName', 'foremanId', 'foremanName', 'fromPlaceId', 'fromPlaceName', 'id', 'materialId', 'materialName', 'note', 'toPlaceId', 'toPlaceName', 'truckId', 'truckNumber', 'updatedAt'],
+      ['cancelledAt', 'changedAt', 'createdAt', 'date', 'driverId', 'driverName', 'foremanId', 'foremanName', 'fromPlaceId', 'fromPlaceName', 'id', 'materialId', 'materialName', 'note', 'position', 'sinceSent', 'toPlaceId', 'toPlaceName', 'truckId', 'truckNumber', 'updatedAt'],
     );
   });
 
@@ -183,7 +184,8 @@ const send = (method: string, path: string, body?: unknown, vars: Parameters<typ
     }),
     env(vars),
   );
-const change = (id: string, body: unknown, vars = {}) => send('PUT', `/api/assignments/${id}`, body, vars);
+/** Changes only the fields given; the rest stay as they are. */
+const change = (id: string, body: unknown, vars = {}) => send('PATCH', `/api/assignments/${id}`, body, vars);
 const remove = (id: string, vars = {}) => send('DELETE', `/api/assignments/${id}`, undefined, vars);
 
 type Entry = { id: string; active: boolean } & Record<string, unknown>;
@@ -195,27 +197,38 @@ const list = async (path: string) => {
 
 /**
  * The tests' D1, except that another request (`other`) runs just before the
- * first write to `table`: after this request has checked, before it writes.
+ * first write to `table`, run alone or in a batch: after this request has
+ * checked, before it writes.
  */
 const racedBy = (table: string, other: () => Promise<unknown>): D1Database => {
   const db = d1.database();
+  const writes = new RegExp(`^\\s*(INSERT INTO|UPDATE) ${table}\\b`);
   let raced = false;
+  const race = async () => {
+    if (raced) return;
+    raced = true;
+    await other();
+  };
   const prepare = (sql: string): D1PreparedStatement => {
     const statement = db.prepare(sql);
-    if (raced || !new RegExp(`^\\s*(INSERT INTO|UPDATE) ${table}\\b`).test(sql)) return statement;
-    raced = true;
+    if (raced || !writes.test(sql)) return statement;
     const bind = (...values: unknown[]) => {
       const bound = statement.bind(...values);
       return Object.assign(Object.create(bound) as D1PreparedStatement, {
         run: async () => {
-          await other();
+          await race();
           return bound.run();
         },
+        racing: true,
       });
     };
     return Object.assign(Object.create(statement) as D1PreparedStatement, { bind });
   };
-  return new Proxy(db, { get: (target, key) => (key === 'prepare' ? prepare : Reflect.get(target, key, target)) });
+  const batch = async (statements: D1PreparedStatement[]) => {
+    if (statements.some((statement) => (statement as { racing?: boolean }).racing)) await race();
+    return db.batch(statements);
+  };
+  return new Proxy(db, { get: (target, key) => (key === 'prepare' ? prepare : key === 'batch' ? batch : Reflect.get(target, key, target)) });
 };
 
 // Every list behaves the same way; each is named by its display field.
@@ -364,6 +377,34 @@ describe('Drivers', () => {
   });
 });
 
+describe('a Driver\'s later days', () => {
+  const laterDays = async (id: string) => {
+    const response = await get(`/api/drivers/${id}/later-days`);
+    expect(response.status).toBe(200);
+    return ((await response.json()) as { laterDays: number }).laterDays;
+  };
+
+  it('are none for a Driver with nothing planned', async () => {
+    expect(await laterDays('drv-a')).toBe(0);
+  });
+
+  it('count each day after today with one of his Assignments once, leaving out today, past days and other Drivers', async () => {
+    await add({ date: '2026-11-20', driverId: 'drv-a' });
+    await add({ date: '2026-11-20', driverId: 'drv-a' });
+    await add({ date: '2026-11-23', driverId: 'drv-a' });
+    await add({ date: '2026-11-19', driverId: 'drv-a' });
+    await add({ date: '2026-11-24', driverId: 'drv-b' });
+    await add({ date: '2026-11-24' });
+    await send('POST', '/api/assignments', { date: '2026-11-18', driverId: 'drv-a' }, { NOW: '2026-11-18T15:00:00.000Z' });
+    expect(await laterDays('drv-a')).toBe(2);
+  });
+
+  it('answer 404 for a Driver that does not exist, and only to a read', async () => {
+    expect((await get('/api/drivers/nobody/later-days')).status).toBe(404);
+    expect((await send('POST', '/api/drivers/drv-a/later-days', {})).status).toBe(405);
+  });
+});
+
 describe('Jobs', () => {
   it('list the seeded Jobs by name, with their job number', async () => {
     expect(await list('/api/jobs')).toEqual([
@@ -381,11 +422,19 @@ describe('Jobs', () => {
 });
 
 describe('Places', () => {
-  it('list the seeded Places by short name, with full name, kind and Job, and no geofence code', async () => {
+  it('list the seeded Places by short name, with full name, kind, Job and whether each is on the truck map, and no geofence code', async () => {
     const places = await list('/api/places');
     expect(places.map((p) => p.shortName)).toEqual(['Sample Plant', 'Sample Shop', 'Sample Site North', 'Sample Yard']);
-    expect(places[2]).toEqual({ id: 'plc-north', shortName: 'Sample Site North', fullName: 'Sample Job North site', kind: 'job_site', jobId: 'job-n', active: true });
+    expect(places[2]).toEqual({ id: 'plc-north', shortName: 'Sample Site North', fullName: 'Sample Job North site', kind: 'job_site', jobId: 'job-n', usualForemanId: null, onTruckMap: false, sortOrder: null, active: true });
+    expect(places.map((p) => p.onTruckMap)).toEqual([true, false, false, false]);
     for (const place of places) expect(Object.keys(place)).not.toContain('geofenceCode');
+  });
+
+  it('are not on the truck map when added, and cannot be put on it from Settings', async () => {
+    const { place } = (await (await post('/api/places', { shortName: 'Sample Pit', onTruckMap: true })).json()) as { place: Entry };
+    expect(place.onTruckMap).toBe(false);
+    const changed = await send('PATCH', `/api/places/${place.id}`, { onTruckMap: true });
+    expect(((await changed.json()) as { place: Entry }).place.onTruckMap).toBe(false);
   });
 
   it('save a short name alone, or with a full name, kind and Job, and clear them', async () => {
@@ -417,6 +466,55 @@ describe('Places', () => {
   });
 });
 
+describe('a job site\'s usual Foreman', () => {
+  const place = async (response: Response) => ((await response.json()) as { place: Entry }).place;
+
+  it('is saved on a job site, read back with the Place, and cleared', async () => {
+    const set = await send('PATCH', '/api/places/plc-north', { usualForemanId: 'frm-b' });
+    expect(set.status).toBe(200);
+    expect(await place(set)).toMatchObject({ id: 'plc-north', usualForemanId: 'frm-b' });
+    expect(await list('/api/places')).toContainEqual(expect.objectContaining({ id: 'plc-north', usualForemanId: 'frm-b' }));
+    expect(await place(await send('PATCH', '/api/places/plc-north', { usualForemanId: null }))).toMatchObject({ usualForemanId: null });
+  });
+
+  it('is saved on a new job site with its kind', async () => {
+    const added = await post('/api/places', { shortName: 'Sample Site South', kind: 'job_site', usualForemanId: 'frm-c' });
+    expect(added.status).toBe(201);
+    expect(await place(added)).toMatchObject({ kind: 'job_site', usualForemanId: 'frm-c' });
+  });
+
+  it('is refused on a Place that is not a job site, with a message on the usual Foreman', async () => {
+    expect(await refusal(await send('PATCH', '/api/places/plc-plant', { usualForemanId: 'frm-a' }))).toEqual({ usualForemanId: 'Only a job site can have a usual Foreman.' });
+    expect(Object.keys(await refusal(await post('/api/places', { shortName: 'Sample Pit', usualForemanId: 'frm-a' })))).toEqual(['usualForemanId']);
+    expect(Object.keys(await refusal(await post('/api/places', { shortName: 'Sample Pit', kind: 'plant', usualForemanId: 'frm-a' })))).toEqual(['usualForemanId']);
+  });
+
+  it('is refused when the Foreman does not exist or was removed, with a message on the usual Foreman', async () => {
+    expect(await refusal(await send('PATCH', '/api/places/plc-north', { usualForemanId: 'nobody' }))).toEqual({ usualForemanId: 'Pick a Foreman from the list.' });
+    await send('PATCH', '/api/foremen/frm-c', { active: false });
+    expect(Object.keys(await refusal(await send('PATCH', '/api/places/plc-north', { usualForemanId: 'frm-c' })))).toEqual(['usualForemanId']);
+    expect((await list('/api/places')).find((p) => p.id === 'plc-north')).toMatchObject({ usualForemanId: null });
+  });
+
+  it('is dropped when the Place stops being a job site, and not given back when it is one again', async () => {
+    await send('PATCH', '/api/places/plc-north', { usualForemanId: 'frm-b' });
+    expect(await place(await send('PATCH', '/api/places/plc-north', { kind: 'plant' }))).toMatchObject({ kind: 'plant', usualForemanId: null });
+    expect(await place(await send('PATCH', '/api/places/plc-north', { kind: 'job_site' }))).toMatchObject({ usualForemanId: null });
+  });
+
+  it('stays when its Foreman is removed later, and the Place\'s other fields still save', async () => {
+    await send('PATCH', '/api/places/plc-north', { usualForemanId: 'frm-b' });
+    await send('PATCH', '/api/foremen/frm-b', { active: false });
+    expect(await place(await send('PATCH', '/api/places/plc-north', { fullName: 'Sample North' }))).toMatchObject({ usualForemanId: 'frm-b' });
+  });
+
+  it('never changes the Foreman of an Assignment already planned there', async () => {
+    const planned = await add({ date: '2026-11-20', toPlaceId: 'plc-north', foremanId: 'frm-a' });
+    await send('PATCH', '/api/places/plc-north', { usualForemanId: 'frm-b' });
+    expect((await day('2026-11-20')).find((a) => a.id === planned.id)).toMatchObject({ foremanId: 'frm-a', foremanName: 'Sample Foreman A' });
+  });
+});
+
 describe('an Assignment\'s Driver, Truck, Places, Material and Foreman', () => {
   const fields = {
     driverId: 'Pick a Driver from the list.',
@@ -435,15 +533,20 @@ describe('an Assignment\'s Driver, Truck, Places, Material and Foreman', () => {
     expect(await refusal(await change(assignment.id, { date: '2026-11-20', ...every('nothing') }))).toEqual(fields);
   });
 
-  it('are each saved on add and on change, and cleared when left out', async () => {
+  it('are each saved on add and on change, kept when left out, and cleared when empty', async () => {
     const chosen = { driverId: 'drv-a', truckId: 'trk-21', fromPlaceId: 'plc-plant', toPlaceId: 'plc-north', materialId: 'mat-minus', foremanId: 'frm-a' };
     const added = (await (await post('/api/assignments', { date: '2026-11-20', ...chosen })).json()) as { assignment: Assignment };
     expect(added.assignment).toMatchObject(chosen);
     const changed = { driverId: 'drv-b', truckId: 'trk-24', fromPlaceId: 'plc-shop', toPlaceId: 'plc-yard', materialId: 'mat-dirt', foremanId: 'frm-b' };
     const moved = (await (await change(added.assignment.id, { date: '2026-11-20', ...changed })).json()) as { assignment: Assignment };
     expect(moved.assignment).toMatchObject(changed);
-    const cleared = (await (await change(added.assignment.id, { date: '2026-11-20' })).json()) as { assignment: Assignment };
+    const kept = (await (await change(added.assignment.id, { note: 'Only the note' })).json()) as { assignment: Assignment };
+    expect(kept.assignment).toMatchObject(changed);
+    const cleared = (await (await change(added.assignment.id, every(null))).json()) as { assignment: Assignment };
     expect(cleared.assignment).toMatchObject(every(null));
+    await change(added.assignment.id, changed);
+    const blanked = (await (await change(added.assignment.id, every(''))).json()) as { assignment: Assignment };
+    expect(blanked.assignment).toMatchObject(every(null));
   });
 });
 
@@ -500,11 +603,154 @@ describe('Assignments and the lists', () => {
 describe('Materials and Foremen', () => {
   it('list the seeded entries by name', async () => {
     expect(await list('/api/materials')).toEqual([
-      { id: 'mat-minus', name: '2" minus', active: true },
-      { id: 'mat-dirt', name: 'Sample Dirt', active: true },
-      { id: 'mat-stone', name: 'Sample Stone', active: true },
+      { id: 'mat-minus', name: '2" minus', sortOrder: null, active: true },
+      { id: 'mat-dirt', name: 'Sample Dirt', sortOrder: null, active: true },
+      { id: 'mat-stone', name: 'Sample Stone', sortOrder: null, active: true },
     ]);
     expect((await list('/api/foremen')).map((f) => f.name)).toEqual(['Sample Foreman A', 'Sample Foreman B', 'Sample Foreman C']);
+  });
+});
+
+/** Puts a list in Dave's own order: the ids given, first to last; any left out have no order. */
+const reorder = (route: string, order: unknown) => send('PUT', `/api/${route}/order`, { order });
+
+// Drivers, Places and Materials each have an order Dave sets in Settings.
+describe.each([
+  { route: 'drivers', one: 'driver', name: 'name', ids: ['drv-a', 'drv-b', 'drv-c'], names: ['Sample Driver A', 'Sample Driver B', 'Sample Driver C'], fresh: 'Sample Driver D' },
+  { route: 'places', one: 'place', name: 'shortName', ids: ['plc-plant', 'plc-shop', 'plc-north', 'plc-yard'], names: ['Sample Plant', 'Sample Shop', 'Sample Site North', 'Sample Yard'], fresh: 'Sample Pit' },
+  { route: 'materials', one: 'material', name: 'name', ids: ['mat-minus', 'mat-dirt', 'mat-stone'], names: ['2" minus', 'Sample Dirt', 'Sample Stone'], fresh: 'Sample Fill' },
+])('Dave\'s own order of the $route', ({ route, one, name, ids, names, fresh }) => {
+  const read = async (search = '') => (await list(`/api/${route}${search}`)).map((e) => e[name]);
+  const [first, second, third] = ids;
+  const reversed = [...names].reverse();
+
+  it('is none at first: every entry comes without an order, by name', async () => {
+    const entries = await list(`/api/${route}`);
+    expect(entries.map((e) => e[name])).toEqual(names);
+    expect(entries.map((e) => e.sortOrder)).toEqual(names.map(() => null));
+  });
+
+  it('is set for the whole list in one request, and the list answers in it, first to last', async () => {
+    const response = await reorder(route, [...ids].reverse());
+    expect(response.status).toBe(200);
+    const answered = ((await response.json()) as Record<string, Entry[]>)[route];
+    expect(answered.map((e) => e[name])).toEqual(reversed);
+    expect(answered.map((e) => e.sortOrder)).toEqual(names.map((_, i) => i + 1));
+    expect(await read()).toEqual(reversed);
+    expect(await read('?include=inactive')).toEqual(reversed);
+  });
+
+  it('puts entries left out of it after the ordered ones, by name', async () => {
+    await reorder(route, [third, first]);
+    expect(await read()).toEqual([names[2], names[0], ...names.slice(1).filter((n) => n !== names[2])]);
+    expect((await list(`/api/${route}`)).find((e) => e.id === second)?.sortOrder).toBeNull();
+  });
+
+  it('can name a removed entry, which stays out of the default read', async () => {
+    await send('PATCH', `/api/${route}/${third}`, { active: false });
+    await reorder(route, [third, second, first]);
+    expect(await read()).toEqual([names[1], names[0], ...names.slice(3)]);
+    expect(await read('?include=inactive')).toEqual([names[2], names[1], names[0], ...names.slice(3)]);
+  });
+
+  it('puts a new entry last', async () => {
+    await reorder(route, [...ids].reverse());
+    const added = await post(`/api/${route}`, { [name]: fresh });
+    expect(((await added.json()) as Record<string, Entry>)[one]).toMatchObject({ sortOrder: names.length + 1 });
+    expect(await read()).toEqual([...reversed, fresh]);
+  });
+
+  it('puts a new entry last even in a list never put in order, and two new ones in the order they were added', async () => {
+    await post(`/api/${route}`, { [name]: `Zed ${fresh}` });
+    await post(`/api/${route}`, { [name]: `A ${fresh}` });
+    expect(await read()).toEqual([...names, `Zed ${fresh}`, `A ${fresh}`]);
+    expect(await read('?include=inactive')).toEqual([...names, `Zed ${fresh}`, `A ${fresh}`]);
+  });
+
+  it('puts an entry brought back last even in a list never put in order', async () => {
+    await send('PATCH', `/api/${route}/${first}`, { active: false });
+    await send('PATCH', `/api/${route}/${first}`, { active: true });
+    expect(await read()).toEqual([...names.slice(1), names[0]]);
+  });
+
+  it('puts an entry brought back last, whatever its place before it was removed', async () => {
+    await reorder(route, ids);
+    await send('PATCH', `/api/${route}/${first}`, { active: false });
+    const back = await send('PATCH', `/api/${route}/${first}`, { active: true });
+    expect(((await back.json()) as Record<string, Entry>)[one]).toMatchObject({ active: true, sortOrder: names.length + 1 });
+    expect(await read()).toEqual([...names.slice(1), names[0]]);
+  });
+
+  it('keeps an entry\'s place when it is changed without being brought back', async () => {
+    await reorder(route, [...ids].reverse());
+    await send('PATCH', `/api/${route}/${first}`, { active: true });
+    await send('PATCH', `/api/${route}/${third}`, { [name]: `${names[2]} 2` });
+    expect(await read()).toEqual([...reversed.slice(0, -3), `${names[2]} 2`, names[1], names[0]]);
+  });
+
+  it.each([
+    ['not a list', () => 'drv-a'],
+    ['not a list of ids', () => [1, 2]],
+    ['naming an entry that is not in the list', () => ['nobody']],
+    ['naming an entry twice', () => [first, first]],
+  ])('is refused when %s, with a message on the order, and the list keeps its order', async (_case, order) => {
+    await reorder(route, ids);
+    expect(Object.keys(await refusal(await reorder(route, order())))).toEqual(['order']);
+    expect(await read()).toEqual(names);
+  });
+
+  it('is set only by a PUT of the whole list', async () => {
+    expect((await send('PATCH', `/api/${route}/order`, { order: ids })).status).toBe(405);
+    expect((await send('GET', `/api/${route}/order`)).status).toBe(405);
+  });
+});
+
+describe('the lists Dave does not order', () => {
+  it.each(['trucks', 'jobs', 'foremen'])('have no order: the %s cannot be reordered and come by name', async (route) => {
+    expect((await send('PUT', `/api/${route}/order`, { order: [] })).status).toBe(405);
+    expect((await list(`/api/${route}`)).every((e) => !('sortOrder' in e))).toBe(true);
+  });
+});
+
+describe('Dave\'s own order and the board', () => {
+  it('reads a day\'s lanes in the order of the Drivers, Unassigned last', async () => {
+    await add({ date: '2026-11-20', note: 'Who takes this?' });
+    await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone' });
+    await add({ date: '2026-11-20', driverId: 'drv-c', note: 'Topsoil haul' });
+    await add({ date: '2026-11-20', driverId: 'drv-b', note: 'Move the excavator' });
+    await reorder('drivers', ['drv-c', 'drv-a']);
+    expect((await day('2026-11-20')).map((a) => a.note)).toEqual(['Topsoil haul', 'Haul stone', 'Move the excavator', 'Who takes this?']);
+  });
+
+  it('puts a Place or Material typed new in the composer last in its list', async () => {
+    await reorder('places', ['plc-yard', 'plc-plant', 'plc-shop', 'plc-north']);
+    await reorder('materials', ['mat-stone', 'mat-dirt', 'mat-minus']);
+    await add({ date: '2026-11-20', fromPlaceName: 'Sample Pit', materialName: 'Sample Fill' });
+    expect((await list('/api/places')).map((p) => p.shortName)).toEqual(['Sample Yard', 'Sample Plant', 'Sample Shop', 'Sample Site North', 'Sample Pit']);
+    expect((await list('/api/materials')).map((m) => m.name)).toEqual(['Sample Stone', 'Sample Dirt', '2" minus', 'Sample Fill']);
+  });
+
+  it('puts Places and Materials typed new last even in lists never put in order, in the order they were added', async () => {
+    await add({ date: '2026-11-20', fromPlaceName: 'Zed Pit', toPlaceName: 'A Pit', materialName: 'Zed Fill' });
+    await add({ date: '2026-11-20', materialName: 'A Fill' });
+    expect((await list('/api/places')).map((p) => p.shortName)).toEqual(['Sample Plant', 'Sample Shop', 'Sample Site North', 'Sample Yard', 'Zed Pit', 'A Pit']);
+    expect((await list('/api/materials')).map((m) => m.name)).toEqual(['2" minus', 'Sample Dirt', 'Sample Stone', 'Zed Fill', 'A Fill']);
+  });
+
+  it('puts a removed Material brought back by typing its name last in a list never put in order', async () => {
+    await send('PATCH', '/api/materials/mat-minus', { active: false });
+    await add({ date: '2026-11-20', materialName: '2" MINUS' });
+    expect((await list('/api/materials')).map((m) => m.name)).toEqual(['Sample Dirt', 'Sample Stone', '2" minus']);
+  });
+
+  it('puts a removed Place or Material brought back by typing its name last in its list', async () => {
+    await reorder('places', ['plc-yard', 'plc-plant', 'plc-shop', 'plc-north']);
+    await reorder('materials', ['mat-stone', 'mat-dirt', 'mat-minus']);
+    await send('PATCH', '/api/places/plc-yard', { active: false });
+    await send('PATCH', '/api/materials/mat-stone', { active: false });
+    await add({ date: '2026-11-20', toPlaceName: 'sample yard', materialName: 'sample stone' });
+    expect((await list('/api/places')).map((p) => p.shortName)).toEqual(['Sample Plant', 'Sample Shop', 'Sample Site North', 'Sample Yard']);
+    expect((await list('/api/materials')).map((m) => m.name)).toEqual(['Sample Dirt', '2" minus', 'Sample Stone']);
   });
 });
 
@@ -594,56 +840,295 @@ describe('Assignments and Places', () => {
     expect(kept.status).toBe(200);
     expect(((await kept.json()) as { assignment: Assignment }).assignment).toMatchObject({ fromPlaceId: 'plc-plant', fromPlaceName: 'Sample Plant', toPlaceId: 'plc-north' });
 
-    await change(id, { date: '2026-11-20', fromPlaceId: 'plc-yard' });
-    expect(await day('2026-11-20')).toEqual([expect.objectContaining({ fromPlaceId: 'plc-yard', fromPlaceName: 'Sample Yard', toPlaceId: null, toPlaceName: null })]);
+    await change(id, { fromPlaceId: 'plc-yard' });
+    expect(await day('2026-11-20')).toEqual([expect.objectContaining({ fromPlaceId: 'plc-yard', fromPlaceName: 'Sample Yard', toPlaceId: 'plc-north', toPlaceName: 'Sample Site North' })]);
   });
 });
 
 describe('changing an Assignment', () => {
-  it('saves every field and the day shows the change', async () => {
+  it('saves the fields sent and the day shows the change', async () => {
     const { id } = await add({ date: '2026-11-20', note: 'Haul stone' });
-    const response = await change(id, { date: '2026-11-20', driverId: 'drv-a', note: 'Haul topsoil' });
+    const response = await change(id, { driverId: 'drv-a', note: 'Haul topsoil' });
     expect(response.status).toBe(200);
     const { assignment } = (await response.json()) as { assignment: Assignment };
     expect(assignment).toMatchObject({ id, date: '2026-11-20', driverId: 'drv-a', driverName: 'Sample Driver A', note: 'Haul topsoil' });
     expect(await day('2026-11-20')).toEqual([assignment]);
   });
 
-  it('clears a field that was set', async () => {
+  it('leaves every field it is not sent as it was, so two changes to different fields both stay', async () => {
+    const { id } = await add({ date: '2026-11-20', driverId: 'drv-a', truckId: 'trk-21', materialId: 'mat-minus', note: 'Haul stone' });
+    await change(id, { truckId: 'trk-24' });
+    await change(id, { note: 'Two loads' });
+    expect(await day('2026-11-20')).toEqual([expect.objectContaining({ id, driverId: 'drv-a', truckId: 'trk-24', materialId: 'mat-minus', note: 'Two loads' })]);
+  });
+
+  it('clears a field sent empty', async () => {
     const { id } = await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone' });
-    await change(id, { date: '2026-11-20', driverId: null, note: '' });
+    await change(id, { driverId: null, note: '' });
     expect(await day('2026-11-20')).toEqual([expect.objectContaining({ id, driverId: null, driverName: null, note: null })]);
   });
 
   it('moves it to another Driver', async () => {
     const { id } = await add({ date: '2026-11-20', driverId: 'drv-a' });
-    await change(id, { date: '2026-11-20', driverId: 'drv-b' });
+    await change(id, { driverId: 'drv-b' });
     expect(await day('2026-11-20')).toEqual([expect.objectContaining({ id, driverId: 'drv-b', driverName: 'Sample Driver B' })]);
   });
 
-  it('moves it to another day', async () => {
-    const { id } = await add({ date: '2026-11-20', note: 'Haul stone' });
-    await change(id, { date: '2026-11-23', note: 'Haul stone' });
-    expect(await day('2026-11-20')).toEqual([]);
-    expect(await day('2026-11-23')).toEqual([expect.objectContaining({ id, note: 'Haul stone' })]);
+  it('refuses a change of day, and leaves the Assignment as it was', async () => {
+    const added = await add({ date: '2026-11-20', note: 'Haul stone' });
+    const response = await change(added.id, { date: '2026-11-23', note: 'Monday instead' });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: 'day_fixed', message: 'An Assignment stays on its day. Add a new one on the other day instead.' });
+    expect(await day('2026-11-20')).toEqual([added]);
+    expect(await day('2026-11-23')).toEqual([]);
   });
 
-  it('updates the updated time and keeps the created time', async () => {
+  it('accepts its own day sent again', async () => {
     const { id } = await add({ date: '2026-11-20' });
-    const response = await change(id, { date: '2026-11-20', note: 'Later' }, { NOW: '2026-11-19T22:15:00.000Z' });
+    expect((await change(id, { date: '2026-11-20', note: 'Same day' })).status).toBe(200);
+  });
+
+  it('records when it was changed, from the clock, and keeps the created time', async () => {
+    const added = await add({ date: '2026-11-20' });
+    expect(added.changedAt).toBeNull();
+    const response = await change(added.id, { note: 'Later' }, { NOW: '2026-11-19T22:15:00.000Z' });
     const { assignment } = (await response.json()) as { assignment: Assignment };
-    expect(assignment).toMatchObject({ createdAt: '2026-11-19T20:00:00.000Z', updatedAt: '2026-11-19T22:15:00.000Z' });
+    expect(assignment).toMatchObject({ createdAt: '2026-11-19T20:00:00.000Z', updatedAt: '2026-11-19T22:15:00.000Z', changedAt: '2026-11-19T22:15:00.000Z' });
+  });
+
+  it('changes nothing, not even the changed time, when every field sent is as it was', async () => {
+    const added = await add({ date: '2026-11-20', driverId: 'drv-a', truckId: 'trk-21', fromPlaceId: 'plc-plant', note: 'Haul stone' });
+    const later = { NOW: '2026-11-19T22:15:00.000Z' };
+    const same = await change(added.id, { date: '2026-11-20', driverId: 'drv-a', truckId: 'trk-21', fromPlaceName: 'sample plant', toPlaceId: '', note: ' Haul stone ' }, later);
+    expect(same.status).toBe(200);
+    expect(((await same.json()) as { assignment: Assignment }).assignment).toEqual(added);
+    const nothing = await change(added.id, {}, later);
+    expect(((await nothing.json()) as { assignment: Assignment }).assignment).toEqual(added);
   });
 
   it('refuses wrong fields as adding does, and leaves the Assignment as it was', async () => {
     const { id } = await add({ date: '2026-11-20', note: 'Haul stone' });
-    const fields = await refusal(await change(id, { date: 'soon', driverId: 'nobody', note: 'x'.repeat(1001) }));
-    expect(Object.keys(fields).sort()).toEqual(['date', 'driverId', 'note']);
+    const fields = await refusal(await change(id, { driverId: 'nobody', truckId: 7, note: 'x'.repeat(1001) }));
+    expect(Object.keys(fields).sort()).toEqual(['driverId', 'note', 'truckId']);
     expect(await day('2026-11-20')).toEqual([expect.objectContaining({ id, note: 'Haul stone' })]);
   });
 
   it('answers not found for an Assignment that does not exist', async () => {
-    expect((await change('nothing', { date: '2026-11-20' })).status).toBe(404);
+    expect((await change('nothing', { note: 'x' })).status).toBe(404);
+  });
+
+  it('can no longer be replaced whole', async () => {
+    const { id } = await add({ date: '2026-11-20' });
+    const response = await send('PUT', `/api/assignments/${id}`, { date: '2026-11-20' });
+    expect(response.status).toBe(405);
+    expect(response.headers.get('Allow')).toBe('PATCH, DELETE');
+  });
+});
+
+describe('the order of Assignments in a lane', () => {
+  const lanes = async (date: string) => (await day(date)).map((a) => `${a.driverName ?? 'Unassigned'}: ${a.note}`);
+
+  it('puts a new Assignment last in its lane and answers its position', async () => {
+    const first = await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone' });
+    const second = await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Topsoil haul' });
+    const other = await add({ date: '2026-11-20', driverId: 'drv-b', note: 'Move the excavator' });
+    expect([first.position, second.position, other.position]).toEqual([0, 1, 0]);
+  });
+
+  it('counts the Unassigned Assignments as one lane, and each day on its own', async () => {
+    const unassigned = [await add({ date: '2026-11-20', note: 'Who takes this?' }), await add({ date: '2026-11-20', note: 'And this?' })];
+    const nextDay = await add({ date: '2026-11-23', note: 'Monday' });
+    expect(unassigned.map((a) => a.position)).toEqual([0, 1]);
+    expect(nextDay.position).toBe(0);
+  });
+
+  it('reads a day by lane (Drivers, Unassigned last), then position, with the position in each', async () => {
+    await add({ date: '2026-11-20', note: 'Who takes this?' });
+    await add({ date: '2026-11-20', driverId: 'drv-b', note: 'Topsoil haul' });
+    await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone' });
+    await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Two loads' });
+    expect(await lanes('2026-11-20')).toEqual(['Sample Driver A: Haul stone', 'Sample Driver A: Two loads', 'Sample Driver B: Topsoil haul', 'Unassigned: Who takes this?']);
+    expect((await day('2026-11-20')).map((a) => a.position)).toEqual([0, 1, 0, 0]);
+  });
+
+  it('orders Assignments saved before they had a position (all at 0) by when they were added, and puts a new one after them', async () => {
+    for (const note of ['one', 'two', 'three']) await add({ date: '2026-11-20', driverId: 'drv-a', note });
+    // As the migration left every existing Assignment.
+    await d1.database().prepare('UPDATE assignments SET position = 0').run();
+    const added = await add({ date: '2026-11-20', driverId: 'drv-a', note: 'four' });
+    expect(added.position).toBe(1);
+    expect(await lanes('2026-11-20')).toEqual(['one', 'two', 'three', 'four'].map((n) => `Sample Driver A: ${n}`));
+  });
+
+  it('puts an Assignment given to another Driver last in his lane', async () => {
+    await add({ date: '2026-11-20', driverId: 'drv-b', note: 'Topsoil haul' });
+    await add({ date: '2026-11-20', driverId: 'drv-b', note: 'Fill the shop' });
+    const moved = await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone' });
+    const response = await change(moved.id, { date: '2026-11-20', driverId: 'drv-b', note: 'Haul stone' });
+    expect(((await response.json()) as { assignment: Assignment }).assignment.position).toBe(2);
+    expect(await lanes('2026-11-20')).toEqual(['Sample Driver B: Topsoil haul', 'Sample Driver B: Fill the shop', 'Sample Driver B: Haul stone']);
+  });
+
+  it('puts an Assignment taken off its Driver last in the Unassigned lane', async () => {
+    await add({ date: '2026-11-20', note: 'Who takes this?' });
+    const moved = await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone' });
+    await change(moved.id, { date: '2026-11-20', driverId: null, note: 'Haul stone' });
+    expect(await lanes('2026-11-20')).toEqual(['Unassigned: Who takes this?', 'Unassigned: Haul stone']);
+  });
+
+  it('keeps an Assignment in its place when a change leaves its Driver as it was', async () => {
+    const first = await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone' });
+    await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Topsoil haul' });
+    await change(first.id, { date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone, two loads' });
+    expect(await lanes('2026-11-20')).toEqual(['Sample Driver A: Haul stone, two loads', 'Sample Driver A: Topsoil haul']);
+  });
+
+  it('leaves the order and the changed time alone when the same Driver is sent again', async () => {
+    const first = await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone' });
+    await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Topsoil haul' });
+    const response = await change(first.id, { driverId: 'drv-a' }, { NOW: '2026-11-19T22:15:00.000Z' });
+    expect(((await response.json()) as { assignment: Assignment }).assignment).toEqual(first);
+    expect(await lanes('2026-11-20')).toEqual(['Sample Driver A: Haul stone', 'Sample Driver A: Topsoil haul']);
+  });
+
+  it('records a change on the Assignment that moved lanes, not on the ones it moved past', async () => {
+    await add({ date: '2026-11-20', driverId: 'drv-b', note: 'Topsoil haul' });
+    await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Fill the shop' });
+    const moved = await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone' });
+    await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Two loads' });
+    await change(moved.id, { driverId: 'drv-b' });
+    const changed = Object.fromEntries((await day('2026-11-20')).map((a) => [a.note, a.changedAt !== null]));
+    expect(changed).toEqual({ 'Topsoil haul': false, 'Haul stone': true, 'Fill the shop': false, 'Two loads': false });
+  });
+});
+
+describe('moving an Assignment one place in its lane', () => {
+  const move = (id: string, direction: unknown, vars = {}) => send('POST', `/api/assignments/${id}/move`, { direction }, vars);
+  const lane = async (date: string, driver: string) =>
+    (await day(date)).filter((a) => (a.driverName ?? 'Unassigned') === driver).map((a) => a.note);
+  /** Sample Driver A's day of three, and one for Sample Driver B. */
+  const threeForA = async () => {
+    const [stone, topsoil, shop] = [
+      await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone' }),
+      await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Topsoil haul' }),
+      await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Fill the shop' }),
+    ];
+    await add({ date: '2026-11-20', driverId: 'drv-b', note: 'Move the excavator' });
+    return { stone, topsoil, shop };
+  };
+
+  it('"Do this first" swaps it with the one before it, and answers the lane in its new order', async () => {
+    const { shop } = await threeForA();
+    const response = await move(shop.id, 'earlier');
+    expect(response.status).toBe(200);
+    const { assignments } = (await response.json()) as { assignments: Assignment[] };
+    expect(assignments.map((a) => [a.note, a.position])).toEqual([['Haul stone', 0], ['Fill the shop', 1], ['Topsoil haul', 2]]);
+    expect(await lane('2026-11-20', 'Sample Driver A')).toEqual(['Haul stone', 'Fill the shop', 'Topsoil haul']);
+    expect(await lane('2026-11-20', 'Sample Driver B')).toEqual(['Move the excavator']);
+  });
+
+  it('"Do this later" swaps it with the one after it', async () => {
+    const { stone } = await threeForA();
+    await move(stone.id, 'later');
+    expect(await lane('2026-11-20', 'Sample Driver A')).toEqual(['Topsoil haul', 'Haul stone', 'Fill the shop']);
+  });
+
+  it('records the change on the one moved, not on the neighbour that shifted', async () => {
+    const { stone, topsoil, shop } = await threeForA();
+    await move(topsoil.id, 'earlier', { NOW: '2026-11-19T22:15:00.000Z' });
+    const after = Object.fromEntries((await day('2026-11-20')).map((a) => [a.id, a]));
+    expect(after[topsoil.id].changedAt).toBe('2026-11-19T22:15:00.000Z');
+    expect(after[topsoil.id].updatedAt).toBe('2026-11-19T22:15:00.000Z');
+    expect(after[stone.id]).toMatchObject({ changedAt: null, updatedAt: stone.updatedAt });
+    expect(after[shop.id]).toMatchObject({ changedAt: null, updatedAt: shop.updatedAt });
+  });
+
+  it('moves in the Unassigned lane too', async () => {
+    await add({ date: '2026-11-20', note: 'Who takes this?' });
+    const second = await add({ date: '2026-11-20', note: 'And this?' });
+    await move(second.id, 'earlier');
+    expect(await lane('2026-11-20', 'Unassigned')).toEqual(['And this?', 'Who takes this?']);
+  });
+
+  it('moves one place among Assignments saved before they had a position (all at 0), in the order they were added', async () => {
+    for (const note of ['one', 'two', 'three']) await add({ date: '2026-11-20', driverId: 'drv-a', note });
+    await d1.database().prepare('UPDATE assignments SET position = 0').run();
+    const three = (await day('2026-11-20')).find((a) => a.note === 'three')!;
+    await move(three.id, 'earlier');
+    expect(await lane('2026-11-20', 'Sample Driver A')).toEqual(['one', 'three', 'two']);
+    expect((await day('2026-11-20')).map((a) => a.position)).toEqual([0, 1, 2]);
+  });
+
+  it.each([
+    ['first', 'earlier', 'stone'],
+    ['last', 'later', 'shop'],
+  ] as const)('refuses to move the %s one past the end of its lane, and changes nothing', async (_end, direction, which) => {
+    const planned = await threeForA();
+    const before = await day('2026-11-20');
+    const response = await move(planned[which].id, direction);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: 'lane_end', message: expect.any(String) });
+    expect(await day('2026-11-20')).toEqual(before);
+  });
+
+  /** On a Sent day, Sample Driver A's lane with the middle one cancelled: [Haul stone, cancelled Topsoil haul, Fill the shop]. */
+  const sentWithMiddleCancelled = async () => {
+    const planned = await threeForA();
+    await send('POST', '/api/days/2026-11-20/send', undefined, { NOW: '2026-11-19T21:15:00.000Z' });
+    await send('DELETE', `/api/assignments/${planned.topsoil.id}`, undefined, { NOW: '2026-11-19T21:30:00.000Z' });
+    return planned;
+  };
+
+  it('steps over a cancelled Assignment: "Do this first" swaps with the nearest one that is not cancelled', async () => {
+    const { shop } = await sentWithMiddleCancelled();
+    expect((await move(shop.id, 'earlier')).status).toBe(200);
+    const after = (await day('2026-11-20')).filter((a) => a.driverId === 'drv-a');
+    expect(after.filter((a) => !a.cancelledAt).map((a) => a.note)).toEqual(['Fill the shop', 'Haul stone']);
+    expect(after.map((a) => a.note)).toEqual(['Fill the shop', 'Topsoil haul', 'Haul stone']);
+  });
+
+  it('steps over a cancelled Assignment: "Do this later" swaps with the nearest one that is not cancelled', async () => {
+    const { stone } = await sentWithMiddleCancelled();
+    expect((await move(stone.id, 'later')).status).toBe(200);
+    expect(await lane('2026-11-20', 'Sample Driver A')).toEqual(['Fill the shop', 'Topsoil haul', 'Haul stone']);
+  });
+
+  it('counts only Assignments that are not cancelled when deciding a lane end', async () => {
+    const { stone, topsoil, shop } = await threeForA();
+    await send('POST', '/api/days/2026-11-20/send', undefined, { NOW: '2026-11-19T21:15:00.000Z' });
+    await send('DELETE', `/api/assignments/${stone.id}`, undefined, { NOW: '2026-11-19T21:30:00.000Z' });
+    await send('DELETE', `/api/assignments/${shop.id}`, undefined, { NOW: '2026-11-19T21:30:00.000Z' });
+    for (const direction of ['earlier', 'later']) {
+      const response = await move(topsoil.id, direction);
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ error: 'lane_end' });
+    }
+  });
+
+  it('refuses a direction other than earlier or later, with a message on it', async () => {
+    const { stone } = await threeForA();
+    expect(await refusal(await move(stone.id, 'sideways'))).toEqual({ direction: 'Move it earlier or later.' });
+  });
+
+  it('refuses moving one on a past day', async () => {
+    await send('POST', '/api/assignments', { date: '2026-11-18', note: 'one' }, { NOW: '2026-11-18T15:00:00.000Z' });
+    const past = (
+      (await (await send('POST', '/api/assignments', { date: '2026-11-18', note: 'two' }, { NOW: '2026-11-18T15:00:00.000Z' })).json()) as {
+        assignment: Assignment;
+      }
+    ).assignment;
+    const response = await move(past.id, 'earlier');
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: 'past_day' });
+    expect((await day('2026-11-18')).map((a) => a.note)).toEqual(['one', 'two']);
+  });
+
+  it('answers not found for an Assignment that does not exist, and only to a POST', async () => {
+    expect((await move('nothing', 'earlier')).status).toBe(404);
+    const { stone } = await threeForA();
+    const response = await send('GET', `/api/assignments/${stone.id}/move`);
+    expect(response.status).toBe(405);
+    expect(response.headers.get('Allow')).toBe('POST');
   });
 });
 
@@ -660,6 +1145,531 @@ describe('deleting an Assignment', () => {
     await remove(id);
     expect((await remove(id)).status).toBe(404);
     expect((await remove('nothing')).status).toBe(404);
+  });
+});
+
+describe('sending a day', () => {
+  // Today is Thursday 2026-11-19; Dave plans Friday 2026-11-20 and Sends it at 4:15 PM Eastern.
+  const PLANNED = { NOW: '2026-11-19T20:00:00.000Z' };
+  const SENT = '2026-11-19T21:15:00.000Z';
+  const LATER = { NOW: '2026-11-19T22:00:00.000Z' };
+  const sendDay = (date: string, vars: Parameters<typeof env>[0] = { NOW: SENT }) => send('POST', `/api/days/${date}/send`, undefined, vars);
+  const read = async (date: string) => (await (await get(`/api/assignments?date=${date}`)).json()) as { assignments: Assignment[]; sentAt: string | null };
+  const addAt = async (body: unknown, vars: Parameters<typeof env>[0]) =>
+    ((await (await send('POST', '/api/assignments', body, vars)).json()) as { assignment: Assignment }).assignment;
+  const marks = async (date: string) => Object.fromEntries((await day(date)).map((a) => [a.note, a.sinceSent]));
+  /** The earlier fields kept for an Assignment, oldest first. No route reads them yet; the Driver view will. */
+  const earlier = async (id: string) =>
+    (
+      await d1.database().prepare('SELECT changed_at AS changedAt, before FROM assignment_changes WHERE assignment_id = ? ORDER BY changed_at').bind(id).all<{ changedAt: string; before: string }>()
+    ).results.map((row) => ({ changedAt: row.changedAt, before: JSON.parse(row.before) }));
+
+  it('starts every day as a Draft, with no sent time and nothing marked', async () => {
+    await add({ date: '2026-11-20', note: 'Haul stone' });
+    const { sentAt, assignments } = await read('2026-11-20');
+    expect(sentAt).toBeNull();
+    expect(assignments.map((a) => a.sinceSent)).toEqual([null]);
+  });
+
+  it('records the first Send of a day, and the day then carries its sent time', async () => {
+    await addAt({ date: '2026-11-20', note: 'Haul stone' }, PLANNED);
+    const response = await sendDay('2026-11-20');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ date: '2026-11-20', sentAt: SENT });
+    expect((await read('2026-11-20')).sentAt).toBe(SENT);
+    expect((await read('2026-11-23')).sentAt).toBeNull();
+  });
+
+  it('does nothing when the day is Sent again: it keeps its first sent time', async () => {
+    await addAt({ date: '2026-11-20', note: 'Haul stone' }, PLANNED);
+    await sendDay('2026-11-20');
+    const again = await sendDay('2026-11-20', LATER);
+    expect(again.status).toBe(200);
+    expect(await again.json()).toEqual({ date: '2026-11-20', sentAt: SENT });
+    expect((await read('2026-11-20')).sentAt).toBe(SENT);
+  });
+
+  it('can Send today', async () => {
+    await add({ date: '2026-11-19', note: 'Haul stone' });
+    expect((await sendDay('2026-11-19')).status).toBe(200);
+  });
+
+  it.each([
+    ['not a real date', '2026-02-30'],
+    ['written another way', '20-11-2026'],
+    ['a day before today', '2026-11-18'],
+  ])('refuses a date that is %s, with a message on the date', async (_why, date) => {
+    const fields = await refusal(await sendDay(date));
+    expect(Object.keys(fields)).toEqual(['date']);
+    expect(fields.date).toBeTruthy();
+  });
+
+  it('refuses a day with no Assignments, which stays a Draft', async () => {
+    await add({ date: '2026-11-23', note: 'Another day' });
+    const response = await sendDay('2026-11-20');
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: 'nothing_to_send', message: expect.any(String) });
+    expect((await read('2026-11-20')).sentAt).toBeNull();
+  });
+
+  it('only Sends with POST', async () => {
+    const response = await send('GET', '/api/days/2026-11-20/send');
+    expect(response.status).toBe(405);
+    expect(response.headers.get('Allow')).toBe('POST');
+  });
+
+  it('marks an Assignment changed after the Send Changed, and leaves the rest alone', async () => {
+    const stone = await addAt({ date: '2026-11-20', note: 'Haul stone' }, PLANNED);
+    await addAt({ date: '2026-11-20', note: 'Fill the shop' }, PLANNED);
+    await sendDay('2026-11-20');
+    expect(await marks('2026-11-20')).toEqual({ 'Haul stone': null, 'Fill the shop': null });
+    await change(stone.id, { materialId: 'mat-stone' }, LATER);
+    expect(await marks('2026-11-20')).toEqual({ 'Haul stone': 'changed', 'Fill the shop': null });
+  });
+
+  it('marks an Assignment added after the Send Added, also in the answer that adds it', async () => {
+    await addAt({ date: '2026-11-20', note: 'Haul stone' }, PLANNED);
+    await sendDay('2026-11-20');
+    const added = await addAt({ date: '2026-11-20', note: 'Two more loads' }, LATER);
+    expect(added.sinceSent).toBe('added');
+    expect(await marks('2026-11-20')).toEqual({ 'Haul stone': null, 'Two more loads': 'added' });
+  });
+
+  it('does not mark what changed before the Send', async () => {
+    const stone = await addAt({ date: '2026-11-20', note: 'Haul stone' }, PLANNED);
+    await change(stone.id, { driverId: 'drv-a' }, { NOW: '2026-11-19T20:30:00.000Z' });
+    await sendDay('2026-11-20');
+    expect(await marks('2026-11-20')).toEqual({ 'Haul stone': null });
+  });
+
+  it('keeps an Assignment\'s fields as they were before each change after the Send', async () => {
+    const stone = await addAt(
+      { date: '2026-11-20', driverId: 'drv-a', truckId: 'trk-24', fromPlaceId: 'plc-plant', toPlaceId: 'plc-north', materialId: 'mat-stone', foremanId: 'frm-a', note: 'Haul stone' },
+      PLANNED,
+    );
+    await sendDay('2026-11-20');
+    await change(stone.id, { materialId: 'mat-dirt', note: 'Haul dirt' }, LATER);
+    await change(stone.id, { toPlaceName: 'Sample New Pit' }, { NOW: '2026-11-19T23:00:00.000Z' });
+    expect(await earlier(stone.id)).toEqual([
+      {
+        changedAt: LATER.NOW,
+        before: {
+          driverId: 'drv-a', driverName: 'Sample Driver A', truckId: 'trk-24', truckNumber: '24',
+          fromPlaceId: 'plc-plant', fromPlaceName: 'Sample Plant', toPlaceId: 'plc-north', toPlaceName: 'Sample Site North',
+          materialId: 'mat-stone', materialName: 'Sample Stone', foremanId: 'frm-a', foremanName: 'Sample Foreman A',
+          note: 'Haul stone', position: 0, cancelledAt: null,
+        },
+      },
+      {
+        changedAt: '2026-11-19T23:00:00.000Z',
+        before: expect.objectContaining({ toPlaceId: 'plc-north', toPlaceName: 'Sample Site North', materialName: 'Sample Dirt', note: 'Haul dirt' }),
+      },
+    ]);
+  });
+
+  it('keeps nothing for changes on a Draft day, or for a change that changes nothing', async () => {
+    const stone = await addAt({ date: '2026-11-20', note: 'Haul stone', materialId: 'mat-stone' }, PLANNED);
+    await change(stone.id, { note: 'Haul stone, two loads' }, PLANNED);
+    await sendDay('2026-11-20');
+    await change(stone.id, { note: 'Haul stone, two loads', materialId: 'mat-stone' }, LATER);
+    expect(await earlier(stone.id)).toEqual([]);
+    expect(await marks('2026-11-20')).toEqual({ 'Haul stone, two loads': null });
+  });
+
+  it('marks the Assignment moved one place Changed and keeps its earlier place, but not the neighbour it passed', async () => {
+    await addAt({ date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone' }, PLANNED);
+    const shop = await addAt({ date: '2026-11-20', driverId: 'drv-a', note: 'Fill the shop' }, PLANNED);
+    await sendDay('2026-11-20');
+    await send('POST', `/api/assignments/${shop.id}/move`, { direction: 'earlier' }, LATER);
+    expect(await marks('2026-11-20')).toEqual({ 'Fill the shop': 'changed', 'Haul stone': null });
+    expect(await earlier(shop.id)).toEqual([{ changedAt: LATER.NOW, before: expect.objectContaining({ note: 'Fill the shop', position: 1 }) }]);
+    const stone = (await day('2026-11-20')).find((a) => a.note === 'Haul stone')!;
+    expect(await earlier(stone.id)).toEqual([]);
+  });
+
+  it('keeps nothing for a move on a Draft day', async () => {
+    await addAt({ date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone' }, PLANNED);
+    const shop = await addAt({ date: '2026-11-20', driverId: 'drv-a', note: 'Fill the shop' }, PLANNED);
+    await send('POST', `/api/assignments/${shop.id}/move`, { direction: 'earlier' }, LATER);
+    expect(await earlier(shop.id)).toEqual([]);
+  });
+
+});
+
+describe('✕ and Put back', () => {
+  // Today is Thursday 2026-11-19; Dave plans Friday 2026-11-20, Sends it at 4:15 PM Eastern, then takes work off it.
+  const PLANNED = { NOW: '2026-11-19T20:00:00.000Z' };
+  const SENT = { NOW: '2026-11-19T21:15:00.000Z' };
+  const LATER = { NOW: '2026-11-19T22:00:00.000Z' };
+  const BACK = { NOW: '2026-11-19T22:30:00.000Z' };
+  const plan = async (body: Record<string, unknown>, vars = PLANNED) =>
+    ((await (await send('POST', '/api/assignments', body, vars)).json()) as { assignment: Assignment }).assignment;
+  const sendDay = (date: string) => send('POST', `/api/days/${date}/send`, undefined, SENT);
+  const cancel = (id: string, vars = LATER) => send('DELETE', `/api/assignments/${id}`, undefined, vars);
+  const putBack = (id: string, vars = BACK) => send('POST', `/api/assignments/${id}/put-back`, undefined, vars);
+  const answered = async (response: Response) => ((await response.json()) as { assignment: Assignment }).assignment;
+  const earlier = async (id: string) =>
+    (
+      await d1.database().prepare('SELECT changed_at AS changedAt, before FROM assignment_changes WHERE assignment_id = ? ORDER BY changed_at').bind(id).all<{ changedAt: string; before: string }>()
+    ).results.map((row) => ({ changedAt: row.changedAt, before: JSON.parse(row.before) }));
+
+  it('deletes the Assignment on a Draft day, leaving nothing behind', async () => {
+    const stone = await plan({ date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone' });
+    expect((await cancel(stone.id)).status).toBe(204);
+    expect(await day('2026-11-20')).toEqual([]);
+  });
+
+  it('cancels it on a Sent day instead: it stays in its place, cancelled and Changed', async () => {
+    const stone = await plan({ date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone' });
+    const shop = await plan({ date: '2026-11-20', driverId: 'drv-a', note: 'Fill the shop' });
+    await sendDay('2026-11-20');
+    const response = await cancel(stone.id);
+    expect(response.status).toBe(200);
+    expect(await answered(response)).toMatchObject({ id: stone.id, cancelledAt: LATER.NOW, changedAt: LATER.NOW, sinceSent: 'changed', position: 0 });
+    expect((await day('2026-11-20')).map((a) => [a.note, a.cancelledAt, a.sinceSent])).toEqual([
+      ['Haul stone', LATER.NOW, 'changed'],
+      ['Fill the shop', null, null],
+    ]);
+    expect(shop.cancelledAt).toBeNull();
+  });
+
+  it('changes nothing when a cancelled Assignment is cancelled again', async () => {
+    const stone = await plan({ date: '2026-11-20', note: 'Haul stone' });
+    await sendDay('2026-11-20');
+    await cancel(stone.id);
+    const again = await cancel(stone.id, BACK);
+    expect(again.status).toBe(200);
+    expect(await answered(again)).toMatchObject({ cancelledAt: LATER.NOW, changedAt: LATER.NOW });
+  });
+
+  it('puts a cancelled Assignment back: no longer cancelled, still Changed, changed time from the clock', async () => {
+    const stone = await plan({ date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone' });
+    await sendDay('2026-11-20');
+    await cancel(stone.id);
+    const response = await putBack(stone.id);
+    expect(response.status).toBe(200);
+    expect(await answered(response)).toMatchObject({ id: stone.id, cancelledAt: null, changedAt: BACK.NOW, sinceSent: 'changed', position: 0 });
+    expect(await day('2026-11-20')).toEqual([expect.objectContaining({ id: stone.id, cancelledAt: null })]);
+  });
+
+  it('changes nothing when Put back is tapped on one that is not cancelled', async () => {
+    const stone = await plan({ date: '2026-11-20', note: 'Haul stone' });
+    await sendDay('2026-11-20');
+    const response = await putBack(stone.id);
+    expect(response.status).toBe(200);
+    expect(await answered(response)).toMatchObject({ cancelledAt: null, changedAt: null, sinceSent: null });
+    expect(await earlier(stone.id)).toEqual([]);
+  });
+
+  it('keeps the fields as they were before the cancel and before the Put back, for the Driver view', async () => {
+    const stone = await plan({ date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone' });
+    await sendDay('2026-11-20');
+    await cancel(stone.id);
+    await putBack(stone.id);
+    expect(await earlier(stone.id)).toEqual([
+      { changedAt: LATER.NOW, before: expect.objectContaining({ driverName: 'Sample Driver A', note: 'Haul stone', cancelledAt: null }) },
+      { changedAt: BACK.NOW, before: expect.objectContaining({ note: 'Haul stone', cancelledAt: LATER.NOW }) },
+    ]);
+  });
+
+  it('refuses changing or moving a cancelled Assignment until it is put back', async () => {
+    const stone = await plan({ date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone' });
+    await plan({ date: '2026-11-20', driverId: 'drv-a', note: 'Fill the shop' });
+    await sendDay('2026-11-20');
+    await cancel(stone.id);
+    const changing = await change(stone.id, { note: 'Haul dirt' }, BACK);
+    expect(changing.status).toBe(409);
+    expect(await changing.json()).toEqual({ error: 'cancelled', message: 'This Assignment is cancelled. Put it back first to change it.' });
+    expect((await send('POST', `/api/assignments/${stone.id}/move`, { direction: 'later' }, BACK)).status).toBe(409);
+    expect(await day('2026-11-20')).toEqual([
+      expect.objectContaining({ note: 'Haul stone', position: 0, changedAt: LATER.NOW }),
+      expect.objectContaining({ note: 'Fill the shop', position: 1 }),
+    ]);
+  });
+
+  it('answers not found for an Assignment that does not exist, and Put back only to a POST', async () => {
+    expect((await putBack('nothing')).status).toBe(404);
+    const { id } = await plan({ date: '2026-11-20' });
+    const other = await send('GET', `/api/assignments/${id}/put-back`);
+    expect(other.status).toBe(405);
+    expect(other.headers.get('Allow')).toBe('POST');
+  });
+
+  it('keeps a day with only cancelled Assignments planned: Sending it again keeps its first sent time', async () => {
+    const stone = await plan({ date: '2026-11-20', note: 'Haul stone' });
+    await sendDay('2026-11-20');
+    await cancel(stone.id);
+    const again = await send('POST', '/api/days/2026-11-20/send', undefined, BACK);
+    expect(again.status).toBe(200);
+    expect(await again.json()).toEqual({ date: '2026-11-20', sentAt: SENT.NOW });
+  });
+});
+
+describe('giving an Assignment to another Driver on a Sent day', () => {
+  const PLANNED = { NOW: '2026-11-19T20:00:00.000Z' };
+  const SENT = { NOW: '2026-11-19T21:15:00.000Z' };
+  const LATER = { NOW: '2026-11-19T22:00:00.000Z' };
+  const plan = async (body: Record<string, unknown>, vars = PLANNED) =>
+    ((await (await send('POST', '/api/assignments', body, vars)).json()) as { assignment: Assignment }).assignment;
+  const sendDay = (date: string) => send('POST', `/api/days/${date}/send`, undefined, SENT);
+  const lanes = async (date: string) => (await day(date)).map((a) => [a.driverId, a.note, a.position, a.cancelledAt, a.sinceSent]);
+  const FULL = { date: '2026-11-20', driverId: 'drv-a', truckId: 'trk-24', fromPlaceId: 'plc-plant', toPlaceId: 'plc-north', materialId: 'mat-stone', foremanId: 'frm-a', note: 'Haul stone' };
+
+  it('cancels it for the first Driver and adds a copy, Added, last in the other Driver\'s lane', async () => {
+    const stone = await plan(FULL);
+    await plan({ date: '2026-11-20', driverId: 'drv-b', note: 'Fill the shop' });
+    await sendDay('2026-11-20');
+    const response = await change(stone.id, { driverId: 'drv-b' }, LATER);
+    expect(response.status).toBe(200);
+    const { assignment, cancelled } = (await response.json()) as { assignment: Assignment; cancelled: Assignment };
+    expect(cancelled).toMatchObject({ id: stone.id, driverId: 'drv-a', cancelledAt: LATER.NOW, changedAt: LATER.NOW, sinceSent: 'changed' });
+    expect(assignment.id).not.toBe(stone.id);
+    expect(assignment).toMatchObject({
+      ...FULL, driverId: 'drv-b', driverName: 'Sample Driver B', position: 1, cancelledAt: null,
+      createdAt: LATER.NOW, changedAt: null, sinceSent: 'added',
+    });
+    expect(await lanes('2026-11-20')).toEqual([
+      ['drv-a', 'Haul stone', 0, LATER.NOW, 'changed'],
+      ['drv-b', 'Fill the shop', 0, null, null],
+      ['drv-b', 'Haul stone', 1, null, 'added'],
+    ]);
+  });
+
+  it('records the first Driver\'s fields as they were, on the cancelled one', async () => {
+    const stone = await plan(FULL);
+    await sendDay('2026-11-20');
+    await change(stone.id, { driverId: null }, LATER);
+    const { results } = await d1.database().prepare('SELECT changed_at AS changedAt, before FROM assignment_changes WHERE assignment_id = ?').bind(stone.id).all<{ changedAt: string; before: string }>();
+    expect(results.map((r) => ({ changedAt: r.changedAt, before: JSON.parse(r.before) }))).toEqual([
+      { changedAt: LATER.NOW, before: expect.objectContaining({ driverId: 'drv-a', driverName: 'Sample Driver A', note: 'Haul stone', cancelledAt: null }) },
+    ]);
+  });
+
+  it('takes it off his day into the Unassigned lane the same way', async () => {
+    const stone = await plan(FULL);
+    await sendDay('2026-11-20');
+    await change(stone.id, { driverId: null }, LATER);
+    expect(await lanes('2026-11-20')).toEqual([
+      ['drv-a', 'Haul stone', 0, LATER.NOW, 'changed'],
+      [null, 'Haul stone', 0, null, 'added'],
+    ]);
+  });
+
+  it('gives the copy any other fields changed with the Driver, and leaves the cancelled one as the first Driver had it', async () => {
+    const stone = await plan(FULL);
+    await sendDay('2026-11-20');
+    const response = await change(stone.id, { driverId: 'drv-b', note: 'Haul stone, two loads', materialName: 'Sample Dirt' }, LATER);
+    const { assignment, cancelled } = (await response.json()) as { assignment: Assignment; cancelled: Assignment };
+    expect(assignment).toMatchObject({ driverId: 'drv-b', note: 'Haul stone, two loads', materialId: 'mat-dirt' });
+    expect(cancelled).toMatchObject({ driverId: 'drv-a', note: 'Haul stone', materialId: 'mat-stone' });
+  });
+
+  it('changes nothing when the same Driver is sent again', async () => {
+    const stone = await plan(FULL);
+    await sendDay('2026-11-20');
+    const response = await change(stone.id, { driverId: 'drv-a' }, LATER);
+    expect(await response.json()).toEqual({ assignment: stone });
+    expect(await lanes('2026-11-20')).toEqual([['drv-a', 'Haul stone', 0, null, null]]);
+  });
+
+  it('stays a plain move on a Draft day', async () => {
+    const stone = await plan(FULL);
+    const response = await change(stone.id, { driverId: 'drv-b' }, LATER);
+    expect(await response.json()).toEqual({ assignment: expect.objectContaining({ id: stone.id, driverId: 'drv-b', cancelledAt: null }) });
+    expect(await lanes('2026-11-20')).toEqual([['drv-b', 'Haul stone', 0, null, null]]);
+  });
+});
+
+describe('the Driver view read', () => {
+  // Today is Thursday 2026-11-19; Dave plans Friday 2026-11-20 and Sends it at 4:15 PM Eastern.
+  const PLANNED = { NOW: '2026-11-19T20:00:00.000Z' };
+  const SENT = { NOW: '2026-11-19T21:15:00.000Z' };
+  const LATER = { NOW: '2026-11-19T22:00:00.000Z' };
+  const plan = async (body: Record<string, unknown>, vars = PLANNED) =>
+    ((await (await send('POST', '/api/assignments', body, vars)).json()) as { assignment: Assignment }).assignment;
+  const sendDay = (date: string) => send('POST', `/api/days/${date}/send`, undefined, SENT);
+  const driverDay = (driverId: string, date: string) => get(`/api/drivers/${driverId}/days/${date}`);
+  const cards = async (driverId: string, date: string) => {
+    const response = await driverDay(driverId, date);
+    expect(response.status).toBe(200);
+    return ((await response.json()) as Extract<DriverDay, { state: 'sent' }>).assignments;
+  };
+  const FULL = { date: '2026-11-20', driverId: 'drv-a', truckId: 'trk-24', fromPlaceId: 'plc-plant', toPlaceId: 'plc-north', materialId: 'mat-stone', foremanId: 'frm-a', note: 'Haul stone' };
+
+  it('says a day Dave has not Sent is a Draft, and shows the Driver nothing of it', async () => {
+    await plan(FULL);
+    const response = await driverDay('drv-a', '2026-11-20');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ date: '2026-11-20', state: 'draft' });
+  });
+
+  it('shows only his Assignments on a Sent day, in Dave\'s order, with nothing marked', async () => {
+    await plan(FULL);
+    await plan({ date: '2026-11-20', driverId: 'drv-b', note: 'Not his' });
+    await plan({ date: '2026-11-20', note: 'Unassigned' });
+    await plan({ date: '2026-11-20', driverId: 'drv-a', note: 'Fill the shop' });
+    await sendDay('2026-11-20');
+    const response = await driverDay('drv-a', '2026-11-20');
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Extract<DriverDay, { state: 'sent' }>;
+    expect(body).toMatchObject({ date: '2026-11-20', state: 'sent', sentAt: SENT.NOW });
+    expect(body.assignments.map((a) => [a.note, a.position, a.sinceSent, a.cancelledAt, a.was])).toEqual([
+      ['Haul stone', 0, null, null, {}],
+      ['Fill the shop', 1, null, null, {}],
+    ]);
+    expect(body.assignments[0]).toMatchObject({ truckNumber: '24', fromPlaceName: 'Sample Plant', toPlaceName: 'Sample Site North', materialName: 'Sample Stone' });
+  });
+
+  it('says a Sent day with nothing for him has no Assignments', async () => {
+    await plan({ date: '2026-11-20', driverId: 'drv-b', note: 'Not his' });
+    await sendDay('2026-11-20');
+    expect(await driverDay('drv-a', '2026-11-20').then((r) => r.json())).toEqual({ date: '2026-11-20', state: 'sent', sentAt: SENT.NOW, assignments: [] });
+  });
+
+  it('marks one changed after the Send Changed, with what each changed field was when Sent', async () => {
+    const stone = await plan(FULL);
+    await sendDay('2026-11-20');
+    await change(stone.id, { materialId: 'mat-dirt', truckId: null }, LATER);
+    await change(stone.id, { materialId: 'mat-minus', note: 'Haul stone, two loads' }, { NOW: '2026-11-19T22:30:00.000Z' });
+    const [card] = await cards('drv-a', '2026-11-20');
+    expect(card).toMatchObject({ sinceSent: 'changed', materialName: '2" minus', truckNumber: null });
+    expect(card.was).toEqual({ materialName: 'Sample Stone', truckNumber: '24', note: 'Haul stone' });
+  });
+
+  it('shows Changed with nothing it was when only its place in his order changed, or it was changed back', async () => {
+    const stone = await plan(FULL);
+    await plan({ date: '2026-11-20', driverId: 'drv-a', note: 'Fill the shop' });
+    await sendDay('2026-11-20');
+    await send('POST', `/api/assignments/${stone.id}/move`, { direction: 'later' }, LATER);
+    const shop = (await cards('drv-a', '2026-11-20'))[0];
+    await change(shop.id, { note: 'Fill the yard' }, LATER);
+    await change(shop.id, { note: 'Fill the shop' }, { NOW: '2026-11-19T22:30:00.000Z' });
+    expect((await cards('drv-a', '2026-11-20')).map((a) => [a.note, a.sinceSent, a.was])).toEqual([
+      ['Fill the shop', 'changed', {}],
+      ['Haul stone', 'changed', {}],
+    ]);
+  });
+
+  it('keeps the name a field had when Sent, even after its entry is renamed', async () => {
+    const stone = await plan(FULL);
+    await sendDay('2026-11-20');
+    await change(stone.id, { materialId: 'mat-dirt' }, LATER);
+    await send('PATCH', '/api/materials/mat-stone', { name: 'Cobblestone' });
+    await send('PATCH', '/api/materials/mat-dirt', { name: 'Fill' });
+    const [card] = await cards('drv-a', '2026-11-20');
+    expect([card.materialName, card.was]).toEqual(['Fill', { materialName: 'Sample Stone' }]);
+  });
+
+  it('marks one added after the Send Added, with nothing it was', async () => {
+    await plan(FULL);
+    await sendDay('2026-11-20');
+    const added = await plan({ date: '2026-11-20', driverId: 'drv-a', note: 'Fill the shop' }, LATER);
+    await change(added.id, { note: 'Fill the yard' }, { NOW: '2026-11-19T22:30:00.000Z' });
+    expect((await cards('drv-a', '2026-11-20')).map((a) => [a.note, a.sinceSent, a.was])).toEqual([
+      ['Haul stone', null, {}],
+      ['Fill the yard', 'added', {}],
+    ]);
+  });
+
+  it('includes a cancelled one, in its place and marked cancelled', async () => {
+    const stone = await plan(FULL);
+    await plan({ date: '2026-11-20', driverId: 'drv-a', note: 'Fill the shop' });
+    await sendDay('2026-11-20');
+    await send('DELETE', `/api/assignments/${stone.id}`, undefined, LATER);
+    expect((await cards('drv-a', '2026-11-20')).map((a) => [a.note, a.cancelledAt, a.sinceSent])).toEqual([
+      ['Haul stone', LATER.NOW, 'changed'],
+      ['Fill the shop', null, null],
+    ]);
+  });
+
+  it('shows one given to another Driver after the Send cancelled for the first Driver and Added for the second', async () => {
+    const stone = await plan(FULL);
+    await sendDay('2026-11-20');
+    await change(stone.id, { driverId: 'drv-b' }, LATER);
+    expect((await cards('drv-a', '2026-11-20')).map((a) => [a.note, a.cancelledAt, a.sinceSent])).toEqual([['Haul stone', LATER.NOW, 'changed']]);
+    expect((await cards('drv-b', '2026-11-20')).map((a) => [a.note, a.cancelledAt, a.sinceSent, a.was])).toEqual([['Haul stone', null, 'added', {}]]);
+  });
+
+  it('refuses a date that is not real, a Driver that does not exist, and anything but a read', async () => {
+    expect(await refusal(await driverDay('drv-a', '2026-02-30'))).toEqual({ date: 'Pick a date.' });
+    expect((await driverDay('nobody', '2026-11-20')).status).toBe(404);
+    const writing = await send('POST', '/api/drivers/drv-a/days/2026-11-20', {});
+    expect(writing.status).toBe(405);
+    expect(writing.headers.get('Allow')).toBe('GET, HEAD');
+  });
+});
+
+describe('reading a week', () => {
+  // Today is Thursday 2026-11-19; Dave plans the next week, Monday 2026-11-23 to Sunday 2026-11-29 (Thanksgiving on the Thursday).
+  const PLANNED = { NOW: '2026-11-19T20:00:00.000Z' };
+  const SENT = { NOW: '2026-11-19T21:15:00.000Z' };
+  const LATER = { NOW: '2026-11-19T22:00:00.000Z' };
+  const plan = async (body: Record<string, unknown>, vars = PLANNED) =>
+    ((await (await send('POST', '/api/assignments', body, vars)).json()) as { assignment: Assignment }).assignment;
+  const sendDay = (date: string) => send('POST', `/api/days/${date}/send`, undefined, SENT);
+  const week = async (monday: string) => (await (await get(`/api/weeks/${monday}`)).json()) as { days: unknown[] };
+
+  it('answers each of its seven days with its state, its count Unassigned and its Holiday', async () => {
+    await plan({ date: '2026-11-23', driverId: 'drv-a' });
+    await plan({ date: '2026-11-23' });
+    await plan({ date: '2026-11-23' });
+    await plan({ date: '2026-11-24', driverId: 'drv-a' });
+    await sendDay('2026-11-24');
+    const wednesday = await plan({ date: '2026-11-25' });
+    await sendDay('2026-11-25');
+    await change(wednesday.id, { driverId: 'drv-b' }, LATER);
+    await plan({ date: '2026-11-27', driverId: 'drv-b' });
+    await plan({ date: '2026-11-29' });
+    await plan({ date: '2026-11-30' });
+
+    const response = await get('/api/weeks/2026-11-23');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      days: [
+        { date: '2026-11-23', state: 'draft', unassigned: 2, holiday: null },
+        { date: '2026-11-24', state: 'sent', unassigned: 0, holiday: null },
+        { date: '2026-11-25', state: 'changed', unassigned: 0, holiday: null },
+        { date: '2026-11-26', state: 'none', unassigned: 0, holiday: 'Thanksgiving' },
+        { date: '2026-11-27', state: 'draft', unassigned: 0, holiday: null },
+        { date: '2026-11-28', state: 'none', unassigned: 0, holiday: null },
+        { date: '2026-11-29', state: 'draft', unassigned: 1, holiday: null },
+      ],
+    });
+  });
+
+  it('marks a Sent day Changed once an Assignment is added to it', async () => {
+    await plan({ date: '2026-11-24', driverId: 'drv-a' });
+    await sendDay('2026-11-24');
+    await plan({ date: '2026-11-24', driverId: 'drv-b' }, LATER);
+    expect((await week('2026-11-23')).days[1]).toMatchObject({ date: '2026-11-24', state: 'changed' });
+  });
+
+  it('keeps a Sent day whose only Assignment is cancelled planned, and does not count it Unassigned', async () => {
+    const off = await plan({ date: '2026-11-24' });
+    await sendDay('2026-11-24');
+    await send('DELETE', `/api/assignments/${off.id}`, undefined, LATER);
+    expect((await week('2026-11-23')).days[1]).toEqual({ date: '2026-11-24', state: 'changed', unassigned: 0, holiday: null });
+  });
+
+  it('reads a week before today too', async () => {
+    expect((await week('2026-11-16')).days).toHaveLength(7);
+  });
+
+  it.each([
+    ['a Tuesday', '2026-11-24'],
+    ['a Sunday', '2026-11-22'],
+    ['not a real date', '2026-02-30'],
+    ['written another way', '23-11-2026'],
+  ])('refuses a date that is %s, with a message on the date', async (_why, date) => {
+    const fields = await refusal(await get(`/api/weeks/${date}`));
+    expect(Object.keys(fields)).toEqual(['date']);
+    expect(fields.date).toBeTruthy();
+  });
+
+  it('is only read', async () => {
+    const response = await send('POST', '/api/weeks/2026-11-23', {});
+    expect(response.status).toBe(405);
+    expect(response.headers.get('Allow')).toBe('GET, HEAD');
   });
 });
 
@@ -699,10 +1709,9 @@ describe('past days', () => {
     expect(await day('2026-11-20')).toEqual([]);
   });
 
-  it('refuse moving an Assignment into a past day, with a message on the date', async () => {
+  it('refuse moving an Assignment into a past day, as any change of day', async () => {
     const { id } = await add({ date: '2026-11-20' });
-    const fields = await refusal(await change(id, { date: '2026-11-18' }));
-    expect(fields).toEqual({ date: 'Days before today are read-only. Pick today or a later day.' });
+    expect((await change(id, { date: '2026-11-18' })).status).toBe(409);
     expect(await day('2026-11-20')).toEqual([expect.objectContaining({ id })]);
   });
 
@@ -712,13 +1721,25 @@ describe('past days', () => {
     expect(await day('2026-11-18')).toEqual([past]);
   });
 
-  it.each(['2026-11-19', '2026-11-20'])('allow adding, changing, moving and deleting on %s (today and tomorrow)', async (date) => {
+  it('refuse ✕ and Put back on a past day that was Sent, and leave it as it was', async () => {
+    const yesterday = { NOW: '2026-11-18T15:00:00.000Z' };
+    const kept = await onPastDay();
+    const off = await onPastDay();
+    await send('POST', '/api/days/2026-11-18/send', undefined, yesterday);
+    await send('DELETE', `/api/assignments/${off.id}`, undefined, { NOW: '2026-11-18T16:00:00.000Z' });
+    const before = await day('2026-11-18');
+    expect(before.map((a) => a.cancelledAt)).toEqual([null, '2026-11-18T16:00:00.000Z']);
+    await pastDay(await remove(kept.id));
+    await pastDay(await send('POST', `/api/assignments/${off.id}/put-back`));
+    expect(await day('2026-11-18')).toEqual(before);
+  });
+
+  it.each(['2026-11-19', '2026-11-20'])('allow adding, changing and deleting on %s (today and tomorrow)', async (date) => {
     const { id } = await add({ date });
-    expect((await change(id, { date, note: 'changed' })).status).toBe(200);
-    const other = await add({ date: date === '2026-11-19' ? '2026-11-20' : '2026-11-19' });
-    expect((await change(other.id, { date })).status).toBe(200);
-    expect((await remove(id)).status).toBe(204);
-    expect((await day(date)).map((a) => a.id)).toEqual([other.id]);
+    const other = await add({ date });
+    expect((await change(id, { note: 'changed' })).status).toBe(200);
+    expect((await remove(other.id)).status).toBe(204);
+    expect(await day(date)).toEqual([expect.objectContaining({ id, note: 'changed' })]);
   });
 
   // 03:30 UTC on 20 November is still 22:30 on the 19th in US Eastern; 05:01 UTC is just past midnight there.
@@ -737,136 +1758,274 @@ describe('past days', () => {
   });
 });
 
-const copy = (body: unknown, vars = {}) => send('POST', '/api/assignments/copy', body, vars);
+/** Start from on a day: copies the latest earlier day with Assignments onto it. */
+const startFrom = (date: string, vars = {}) => send('POST', `/api/days/${date}/start-from`, undefined, vars);
+/** Copy to: copies a day onto another, empty one. */
+const copyTo = (date: string, body: unknown, vars = {}) => send('POST', `/api/days/${date}/copy-to`, body, vars);
 const copied = async (response: Response) => {
   expect(response.status).toBe(201);
   return ((await response.json()) as { assignments: Assignment[] }).assignments;
 };
+/** Adds an Assignment on a day before today, as if added back when that day was still to come. */
+const addOn = async (date: string, body: object) =>
+  ((await (await send('POST', '/api/assignments', { date, ...body }, { NOW: `${date}T15:00:00.000Z` })).json()) as { assignment: Assignment }).assignment;
+/** What a copy is about: who, in what order, from where to where, hauling what, under whom, in which named Truck, and the note. */
+const plan = (a: Assignment) => [a.driverId, a.position, a.fromPlaceId, a.toPlaceId, a.materialId, a.foremanId, a.truckId, a.note];
 
-describe('copying a day', () => {
-  // The tests' clock says today is 2026-11-19 in US Eastern.
-  it('creates one new Assignment on the target day for each on the source day, with every field but the note', async () => {
-    await add({ date: '2026-11-19', driverId: 'drv-b', note: 'Haul stone' });
+describe('Start from', () => {
+  // The tests' clock says today is Thursday 2026-11-19; Monday 2026-11-23 is empty.
+  it('copies the latest earlier day with Assignments onto an empty day, keeping Driver, order, Places, Material, Foreman and named Truck, and dropping notes', async () => {
+    await addOn('2026-11-17', { driverId: 'drv-a', note: 'Older day' });
+    await add({ date: '2026-11-19', driverId: 'drv-a', fromPlaceId: 'plc-plant', toPlaceId: 'plc-north', materialId: 'mat-minus', foremanId: 'frm-a', truckId: 'trk-24', note: 'Haul stone' });
+    await add({ date: '2026-11-19', driverId: 'drv-a', fromPlaceId: 'plc-north', toPlaceId: 'plc-yard' });
+    await add({ date: '2026-11-19', driverId: 'drv-b', materialId: 'mat-dirt' });
     await add({ date: '2026-11-19', note: 'Unplanned' });
-    await add({ date: '2026-11-19', driverId: 'drv-a' });
+    await add({ date: '2026-11-24', driverId: 'drv-c', note: 'A later day is never copied' });
 
-    const created = await copied(await copy({ to: '2026-11-21' }));
+    const created = await copied(await startFrom('2026-11-23'));
 
-    expect(created).toEqual([
-      expect.objectContaining({ date: '2026-11-21', driverId: 'drv-a', driverName: 'Sample Driver A', note: null }),
-      expect.objectContaining({ date: '2026-11-21', driverId: 'drv-b', driverName: 'Sample Driver B', note: null }),
-      expect.objectContaining({ date: '2026-11-21', driverId: null, driverName: null, note: null }),
+    expect(created.map(plan)).toEqual([
+      ['drv-a', 0, 'plc-plant', 'plc-north', 'mat-minus', 'frm-a', 'trk-24', null],
+      ['drv-a', 1, 'plc-north', 'plc-yard', null, null, null, null],
+      ['drv-b', 0, null, null, 'mat-dirt', null, null, null],
+      [null, 0, null, null, null, null, null, null],
     ]);
-    expect(await day('2026-11-21')).toEqual(created);
+    expect(created.every((a) => a.date === '2026-11-23')).toBe(true);
+    expect(await day('2026-11-23')).toEqual(created);
   });
 
-  it('leaves the source day as it was', async () => {
-    await add({ date: '2026-11-19', driverId: 'drv-b', note: 'Haul stone' });
-    const before = await day('2026-11-19');
-    await copied(await copy({ to: '2026-11-20' }));
-    expect(await day('2026-11-19')).toEqual(before);
+  it('keeps the order Dave set in each lane, with fresh positions 0, 1, 2…', async () => {
+    const stone = await add({ date: '2026-11-19', driverId: 'drv-a', materialId: 'mat-stone' });
+    await add({ date: '2026-11-19', driverId: 'drv-a', materialId: 'mat-dirt' });
+    const minus = await add({ date: '2026-11-19', driverId: 'drv-a', materialId: 'mat-minus' });
+    // Stone, dirt, minus becomes minus, stone, dirt.
+    await send('POST', `/api/assignments/${minus.id}/move`, { direction: 'earlier' });
+    await send('POST', `/api/assignments/${minus.id}/move`, { direction: 'earlier' });
+    expect((await day('2026-11-19')).map((a) => [a.materialId, a.position])[0]).toEqual(['mat-minus', 0]);
+    expect(stone.position).toBe(0);
+
+    const created = await copied(await startFrom('2026-11-23'));
+
+    expect(created.map((a) => [a.materialId, a.position])).toEqual([
+      ['mat-minus', 0],
+      ['mat-stone', 1],
+      ['mat-dirt', 2],
+    ]);
   });
 
-  it('adds to what the target day already has, and copying twice creates the Assignments twice', async () => {
-    await add({ date: '2026-11-19', driverId: 'drv-a', note: 'Haul stone' });
-    const already = await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Already planned' });
-    await copied(await copy({ to: '2026-11-20' }));
-    await copied(await copy({ to: '2026-11-20' }));
-    const target = await day('2026-11-20');
-    expect(target.map((a) => a.note)).toEqual(['Already planned', null, null]);
-    expect(target[0]).toEqual(already);
-    expect(new Set(target.map((a) => a.id)).size).toBe(3);
+  it('leaves cancelled Assignments behind, so a call-off is not planned again', async () => {
+    await add({ date: '2026-11-19', driverId: 'drv-a', materialId: 'mat-stone' });
+    const off = await add({ date: '2026-11-19', driverId: 'drv-b', materialId: 'mat-dirt' });
+    await send('POST', '/api/days/2026-11-19/send');
+    await remove(off.id);
+
+    const created = await copied(await startFrom('2026-11-23'));
+
+    expect(created.map((a) => [a.driverId, a.materialId, a.cancelledAt])).toEqual([['drv-a', 'mat-stone', null]]);
   });
 
-  it('creates nothing when the source day has no Assignments', async () => {
-    expect(await copied(await copy({ to: '2026-11-20' }))).toEqual([]);
-    expect(await day('2026-11-20')).toEqual([]);
+  it('skips an earlier day whose Assignments are all cancelled, as it has nothing to copy', async () => {
+    await addOn('2026-11-18', { driverId: 'drv-a', materialId: 'mat-stone' });
+    const off = await add({ date: '2026-11-19', driverId: 'drv-b' });
+    await send('POST', '/api/days/2026-11-19/send');
+    await remove(off.id);
+
+    const created = await copied(await startFrom('2026-11-23'));
+
+    expect(created.map((a) => [a.driverId, a.materialId])).toEqual([['drv-a', 'mat-stone']]);
   });
 
-  it('records the copies as created and updated now', async () => {
-    await add({ date: '2026-11-19' });
-    const [one] = await copied(await copy({ to: '2026-11-20' }, { NOW: '2026-11-19T22:15:00.000Z' }));
-    expect(one).toMatchObject({ createdAt: '2026-11-19T22:15:00.000Z', updatedAt: '2026-11-19T22:15:00.000Z' });
+  it('leaves out Places, Materials, Trucks and Foremen removed since, keeping the rest of the Assignment', async () => {
+    await add({ date: '2026-11-19', driverId: 'drv-a', fromPlaceId: 'plc-plant', toPlaceId: 'plc-north', materialId: 'mat-minus', foremanId: 'frm-a', truckId: 'trk-24' });
+    await add({ date: '2026-11-19', driverId: 'drv-a', fromPlaceId: 'plc-north', toPlaceId: 'plc-plant', materialId: 'mat-dirt', foremanId: 'frm-b', truckId: 'trk-27' });
+    for (const removed of ['places/plc-north', 'materials/mat-minus', 'foremen/frm-a', 'trucks/trk-24']) {
+      expect((await send('PATCH', `/api/${removed}`, { active: false })).status).toBe(200);
+    }
+
+    const created = await copied(await startFrom('2026-11-23'));
+
+    expect(created.map(plan)).toEqual([
+      ['drv-a', 0, 'plc-plant', null, null, null, null, null],
+      ['drv-a', 1, null, 'plc-plant', 'mat-dirt', 'frm-b', 'trk-27', null],
+    ]);
   });
 
-  it('refuses copying onto a day before today, with a message on the target day, and creates nothing', async () => {
-    await add({ date: '2026-11-19', note: 'Haul stone' });
-    const fields = await refusal(await copy({ to: '2026-11-18' }));
-    expect(fields).toEqual({ to: 'Days before today are read-only. Pick today or a later day.' });
-    expect(await day('2026-11-18')).toEqual([]);
+  it('puts an Assignment whose Driver was removed in Unassigned, after the lane\'s own copies are numbered', async () => {
+    await add({ date: '2026-11-19', driverId: 'drv-b', materialId: 'mat-dirt' });
+    await add({ date: '2026-11-19', driverId: 'drv-b', materialId: 'mat-stone' });
+    await add({ date: '2026-11-19', materialId: 'mat-minus' });
+    expect((await send('PATCH', '/api/drivers/drv-b', { active: false })).status).toBe(200);
+
+    const created = await copied(await startFrom('2026-11-23'));
+
+    expect(created.map((a) => [a.driverId, a.position, a.materialId])).toEqual([
+      [null, 0, 'mat-dirt'],
+      [null, 1, 'mat-stone'],
+      [null, 2, 'mat-minus'],
+    ]);
   });
 
-  it('refuses copying today onto itself, and creates nothing', async () => {
-    await add({ date: '2026-11-19', note: 'Haul stone' });
-    const fields = await refusal(await copy({ to: '2026-11-19' }));
-    expect(fields).toEqual({ to: 'Today cannot be copied onto itself. Pick a later day.' });
-    expect(await day('2026-11-19')).toHaveLength(1);
+  it('lands the copies on a Draft day, created now', async () => {
+    await add({ date: '2026-11-19', driverId: 'drv-a' });
+    const response = await startFrom('2026-11-23', { NOW: '2026-11-19T22:15:00.000Z' });
+    const [one] = await copied(response.clone());
+    expect(await response.json()).toMatchObject({ from: '2026-11-19', to: '2026-11-23' });
+    expect(one).toMatchObject({ createdAt: '2026-11-19T22:15:00.000Z', updatedAt: '2026-11-19T22:15:00.000Z', changedAt: null, sinceSent: null });
+    expect((await (await get('/api/assignments?date=2026-11-23')).json()) as object).toMatchObject({ sentAt: null });
   });
 
-  it('copies from today by the Worker\'s clock, never a day the page sends', async () => {
-    await add({ date: '2026-11-19', note: 'Yesterday by now' });
-    await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Today by now' });
-    const afterMidnight = { NOW: '2026-11-20T05:01:00.000Z' };
-    // A page left open since yesterday still thinks today is 2026-11-19.
-    const created = await copied(await copy({ from: '2026-11-19', to: '2026-11-22' }, afterMidnight));
-    expect(created).toEqual([expect.objectContaining({ date: '2026-11-22', driverId: 'drv-a', note: null })]);
+  it('marks the copies Added on a Sent day that was emptied of its rows', async () => {
+    await add({ date: '2026-11-19', driverId: 'drv-a' });
+    await d1.database().prepare('INSERT INTO day_sends (date, sent_at) VALUES (?, ?)').bind('2026-11-23', '2026-11-19T18:00:00.000Z').run();
+
+    const created = await copied(await startFrom('2026-11-23'));
+
+    expect(created.map((a) => a.sinceSent)).toEqual(['added']);
+  });
+
+  it('can start from an earlier day that is before today, and leaves that day as it was', async () => {
+    await addOn('2026-11-18', { driverId: 'drv-a', note: 'Haul stone' });
+    const before = await day('2026-11-18');
+    expect((await copied(await startFrom('2026-11-19'))).map((a) => a.driverId)).toEqual(['drv-a']);
+    expect(await day('2026-11-18')).toEqual(before);
+  });
+
+  it('makes ordinary Assignments that can be changed and taken off', async () => {
+    await add({ date: '2026-11-19', driverId: 'drv-a' });
+    await add({ date: '2026-11-19', driverId: 'drv-b' });
+    const [first, second] = await copied(await startFrom('2026-11-23'));
+    expect((await change(first.id, { driverId: 'drv-c', note: 'Changed' })).status).toBe(200);
+    expect((await remove(second.id)).status).toBe(204);
+    expect(await day('2026-11-23')).toEqual([expect.objectContaining({ id: first.id, driverId: 'drv-c', note: 'Changed' })]);
+  });
+
+  it('refuses a day that already has Assignments, cancelled ones included, and copies nothing', async () => {
+    await add({ date: '2026-11-19', driverId: 'drv-a' });
+    const off = await add({ date: '2026-11-23', driverId: 'drv-b' });
+    await send('POST', '/api/days/2026-11-23/send');
+    await remove(off.id);
+    const before = await day('2026-11-23');
+
+    const response = await startFrom('2026-11-23');
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: 'day_planned', message: 'That day already has Assignments, so nothing was copied onto it.' });
+    expect(await day('2026-11-23')).toEqual(before);
+  });
+
+  it('refuses when no earlier day has Assignments to copy', async () => {
+    await add({ date: '2026-11-24', driverId: 'drv-a' });
+    const response = await startFrom('2026-11-23');
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: 'nothing_to_copy', message: 'No earlier day has Assignments to start from.' });
+    expect(await day('2026-11-23')).toEqual([]);
   });
 
   it.each([
-    ['no day', {}, ['to']],
-    ['a target day that is not on the calendar', { to: '2026-02-30' }, ['to']],
-    ['a target day written another way', { to: '20-11-2026' }, ['to']],
-  ])('refuses %s, with a message on each', async (_why, body, wrong) => {
-    expect(Object.keys(await refusal(await copy(body))).sort()).toEqual(wrong);
+    ['a day before today', '2026-11-18', 'Days before today are read-only. Pick today or a later day.'],
+    ['a day not on the calendar', '2026-02-30', 'Pick a day to start.'],
+    ['a day written another way', '23-11-2026', 'Pick a day to start.'],
+  ])('refuses %s, with a message on the date, and copies nothing', async (_why, date, message) => {
+    await addOn('2026-11-17', { driverId: 'drv-a' });
+    expect(await refusal(await startFrom(date))).toEqual({ date: message });
+    expect(await day('2026-11-18')).toEqual([]);
   });
 
-  it('refuses a body that is not JSON, and other methods', async () => {
-    expect((await handle(new Request('https://td.example/api/assignments/copy', { method: 'POST', body: 'x' }), env())).status).toBe(415);
-    expect((await send('GET', '/api/assignments/copy')).status).toBe(405);
-  });
-
-  it('makes ordinary Assignments that can be changed and deleted', async () => {
-    await add({ date: '2026-11-19', driverId: 'drv-a', note: 'Haul stone' });
-    await add({ date: '2026-11-19', driverId: 'drv-b' });
-    const [first, second] = await copied(await copy({ to: '2026-11-20' }));
-    expect((await change(first.id, { date: '2026-11-20', driverId: 'drv-c', note: 'Changed' })).status).toBe(200);
-    expect((await remove(second.id)).status).toBe(204);
-    expect(await day('2026-11-20')).toEqual([expect.objectContaining({ id: first.id, driverId: 'drv-c', note: 'Changed' })]);
+  it('names the day it would copy, or none', async () => {
+    const from = async (date: string) => (await (await get(`/api/days/${date}/start-from`)).json()) as { from: string | null };
+    expect(await from('2026-11-23')).toEqual({ from: null });
+    await addOn('2026-11-17', { driverId: 'drv-a' });
+    await add({ date: '2026-11-19', driverId: 'drv-a' });
+    expect(await from('2026-11-23')).toEqual({ from: '2026-11-19' });
+    expect(await from('2026-11-19')).toEqual({ from: '2026-11-17' });
+    expect(Object.keys(await refusal(await get('/api/days/2026-02-30/start-from')))).toEqual(['date']);
+    expect((await send('DELETE', '/api/days/2026-11-23/start-from')).status).toBe(405);
   });
 
   /**
-   * Guards later fields: the source fills every column of the assignments
-   * table, so a column a migration adds must be filled here (or this fails),
-   * and the copy must then carry it.
+   * The copy names the columns it takes. The source fills every column of the
+   * assignments table (a column a migration adds must be filled here, or this
+   * fails), and every column outside the named list must come out as on a
+   * new Assignment, so a later column is never copied by accident.
    */
-  it('carries every column of the assignments table except id, date, note and the times', async () => {
+  it('copies only the named columns: Driver, Truck, Places, Material and Foreman; the rest are as on a new Assignment', async () => {
     const source = await add({
       date: '2026-11-19', driverId: 'drv-b', truckId: 'trk-24', fromPlaceId: 'plc-plant', toPlaceId: 'plc-north',
       materialId: 'mat-minus', foremanId: 'frm-a', note: 'Haul stone',
     });
-    const [copy1] = await copied(await copy({ to: '2026-11-20' }));
+    await change(source.id, { note: 'Haul stone, two loads' });
+    const fresh = await add({ date: '2026-11-24' });
+    const [copy] = await copied(await startFrom('2026-11-23'));
 
-    const row = (id: string) => d1.database().prepare('SELECT * FROM assignments WHERE id = ?').bind(id).first<Record<string, unknown>>();
-    const [from, to] = [await row(source.id), await row(copy1.id)];
-    const unfilled = Object.keys(from!).filter((column) => from![column] == null);
+    const row = async (id: string) => (await d1.database().prepare('SELECT * FROM assignments WHERE id = ?').bind(id).first<Record<string, unknown>>())!;
+    const [from, to, added] = [await row(source.id), await row(copy.id), await row(fresh.id)];
+    // Only an Assignment that is not cancelled is copied, so its cancelled time is always empty.
+    const unfilled = Object.keys(from).filter((column) => from[column] == null && column !== 'cancelled_at');
     expect(unfilled, 'fill these columns in this test\'s source Assignment').toEqual([]);
 
-    const notCopied = ['id', 'date', 'note', 'created_at', 'updated_at'];
-    const carried = (r: Record<string, unknown>) => Object.fromEntries(Object.entries(r).filter(([c]) => !notCopied.includes(c)));
-    expect(carried(to!)).toEqual(carried(from!));
-    expect(to).toMatchObject({ date: '2026-11-20', note: null });
-    expect(Object.keys(carried(from!)).length).toBeGreaterThan(0);
+    const copiedColumns = ['driver_id', 'truck_id', 'from_place_id', 'to_place_id', 'material_id', 'foreman_id'];
+    const only = (r: Record<string, unknown>, keep: (column: string) => boolean) => Object.fromEntries(Object.entries(r).filter(([c]) => keep(c)));
+    expect(only(to, (c) => copiedColumns.includes(c))).toEqual(only(from, (c) => copiedColumns.includes(c)));
+    // Its own: a new id and day, made now, first in its lane.
+    const own = ['id', 'date', 'created_at', 'updated_at', 'position'];
+    expect(only(to, (c) => !copiedColumns.includes(c) && !own.includes(c))).toEqual(only(added, (c) => !copiedColumns.includes(c) && !own.includes(c)));
+    expect(to).toMatchObject({ date: '2026-11-23', note: null, changed_at: null, cancelled_at: null, position: 0 });
+  });
+});
+
+describe('Copy to', () => {
+  // The tests' clock says today is Thursday 2026-11-19; the next Working day is Friday 2026-11-20.
+  it('copies a past day onto the next Working day while it is empty, by the same rules as Start from', async () => {
+    await addOn('2026-11-17', { driverId: 'drv-a', materialId: 'mat-stone', note: 'Haul stone' });
+    await addOn('2026-11-17', { driverId: 'drv-a', materialId: 'mat-dirt' });
+    const off = await addOn('2026-11-17', { driverId: 'drv-b' });
+    await send('POST', '/api/days/2026-11-17/send', undefined, { NOW: '2026-11-17T15:00:00.000Z' });
+    await send('DELETE', `/api/assignments/${off.id}`, undefined, { NOW: '2026-11-17T16:00:00.000Z' });
+
+    const response = await copyTo('2026-11-17', { to: '2026-11-20' });
+    const created = await copied(response.clone());
+
+    expect(await response.json()).toMatchObject({ from: '2026-11-17', to: '2026-11-20' });
+    expect(created.map((a) => [a.date, a.driverId, a.position, a.materialId, a.note])).toEqual([
+      ['2026-11-20', 'drv-a', 0, 'mat-stone', null],
+      ['2026-11-20', 'drv-a', 1, 'mat-dirt', null],
+    ]);
+    expect(await day('2026-11-20')).toEqual(created);
   });
 
-  it('copies an Assignment whose Truck was made inactive since, keeping the Truck, and the copy can be saved again', async () => {
-    await add({ date: '2026-11-19', driverId: 'drv-a', truckId: 'trk-21', note: 'Haul stone' });
-    await send('PATCH', '/api/trucks/trk-21', { active: false });
-    const [copy1] = await copied(await copy({ to: '2026-11-20' }));
-    expect(copy1).toMatchObject({ date: '2026-11-20', truckId: 'trk-21', truckNumber: '21' });
+  it('refuses a target day that already has Assignments, and copies nothing', async () => {
+    await addOn('2026-11-17', { driverId: 'drv-a' });
+    const already = await add({ date: '2026-11-20', driverId: 'drv-b', note: 'Already planned' });
+    const response = await copyTo('2026-11-17', { to: '2026-11-20' });
+    expect(response.status).toBe(409);
+    expect(((await response.json()) as { error: string }).error).toBe('day_planned');
+    expect(await day('2026-11-20')).toEqual([already]);
+  });
 
-    const saved = await change(copy1.id, { date: '2026-11-20', driverId: 'drv-a', truckId: 'trk-21', note: 'Only the note' });
-    expect(saved.status).toBe(200);
-    expect(await day('2026-11-20')).toEqual([expect.objectContaining({ id: copy1.id, truckNumber: '21', note: 'Only the note' })]);
+  it('refuses a day with nothing to copy, cancelled ones left out', async () => {
+    const response = await copyTo('2026-11-17', { to: '2026-11-20' });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: 'nothing_to_copy', message: 'That day has no Assignments to copy.' });
+  });
+
+  it.each([
+    ['no target day', '2026-11-17', {}, { to: 'Pick a day to copy onto.' }],
+    ['a target day before today', '2026-11-17', { to: '2026-11-18' }, { to: 'Days before today are read-only. Pick today or a later day.' }],
+    ['a target day not on the calendar', '2026-11-17', { to: '2026-02-30' }, { to: 'Pick a day to copy onto.' }],
+    ['a source day not on the calendar', '2026-02-30', { to: '2026-11-20' }, { date: 'Pick a day to copy.' }],
+    ['a source day that is today', '2026-11-19', { to: '2026-11-20' }, { date: 'Copy to copies a day before today. Pick an earlier day.' }],
+    ['a source day after today', '2026-11-20', { to: '2026-11-23' }, { date: 'Copy to copies a day before today. Pick an earlier day.' }],
+  ])('refuses %s, with a message on it, and copies nothing', async (_why, from, body, fields) => {
+    await addOn('2026-11-17', { driverId: 'drv-a' });
+    expect(await refusal(await copyTo(from, body))).toEqual(fields);
+    expect(await day('2026-11-18')).toEqual([]);
+    expect(await day('2026-11-20')).toEqual([]);
+  });
+
+  it('refuses a body that is not JSON, and other methods; Copy today is gone', async () => {
+    expect((await handle(new Request('https://td.example/api/days/2026-11-17/copy-to', { method: 'POST', body: 'x' }), env())).status).toBe(415);
+    expect((await send('GET', '/api/days/2026-11-17/copy-to')).status).toBe(405);
+    expect((await send('POST', '/api/assignments/copy', { to: '2026-11-20' })).status).toBe(405);
   });
 });
 
@@ -889,7 +2048,20 @@ describe('the business day', () => {
     ['at the end of a year', '2026-12-31T23:00:00Z', '2026-12-31', '2027-01-01'],
   ])('knows today and tomorrow %s', async (_when, now, today, tomorrow) => {
     const response = await handle(new Request('https://td.example/api/today'), env({ NOW: now }));
-    expect(await response.json()).toEqual({ today, tomorrow });
+    expect(await response.json()).toMatchObject({ today, tomorrow });
+  });
+
+  // The board opens on the next Working day: a weekday that is not a Holiday.
+  it.each([
+    ['on a Thursday, the Friday', '2026-11-19T20:00:00Z', '2026-11-20'],
+    ['on a Friday, the Monday', '2026-11-20T20:00:00Z', '2026-11-23'],
+    ['late on a Friday in Eastern, already Saturday in UTC, still the Monday', '2026-11-21T03:30:00Z', '2026-11-23'],
+    ['on a Saturday, the Monday', '2026-11-21T15:00:00Z', '2026-11-23'],
+    ['on the day before Thanksgiving, the Friday after it', '2026-11-25T20:00:00Z', '2026-11-27'],
+    ['on the Friday before Memorial Day, the Tuesday', '2026-05-22T20:00:00Z', '2026-05-26'],
+  ])('gives the next Working day %s', async (_when, now, nextWorkingDay) => {
+    const response = await handle(new Request('https://td.example/api/today'), env({ NOW: now }));
+    expect(await response.json()).toMatchObject({ nextWorkingDay });
   });
 
   it.each(['not a moment', '2026-13-45'])('uses the real clock when NOW is set but is not a moment (%s)', async (now) => {
@@ -898,10 +2070,121 @@ describe('the business day', () => {
       vi.setSystemTime(new Date('2026-11-25T15:00:00Z'));
       const response = await handle(new Request('https://td.example/api/today'), env({ NOW: now }));
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ today: '2026-11-25', tomorrow: '2026-11-26' });
+      expect(await response.json()).toEqual({ today: '2026-11-25', tomorrow: '2026-11-26', nextWorkingDay: '2026-11-27' });
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('typed Place and Material names', () => {
+  it('link to the active entry with that name, ignoring case, and create nothing, on add and on change', async () => {
+    const before = { places: await list('/api/places?include=inactive'), materials: await list('/api/materials?include=inactive') };
+    const added = await add({ date: '2026-11-20', fromPlaceName: 'sample plant', toPlaceName: 'SAMPLE SITE NORTH', materialName: '2" MINUS' });
+    expect(added).toMatchObject({ fromPlaceId: 'plc-plant', toPlaceId: 'plc-north', materialId: 'mat-minus', materialName: '2" minus' });
+    const changed = await change(added.id, { fromPlaceName: ' sample shop ', materialName: 'sample dirt' });
+    expect(changed.status).toBe(200);
+    expect(((await changed.json()) as { assignment: Assignment })).toMatchObject({ assignment: { fromPlaceId: 'plc-shop', toPlaceId: 'plc-north', materialId: 'mat-dirt' } });
+    expect(await list('/api/places?include=inactive')).toEqual(before.places);
+    expect(await list('/api/materials?include=inactive')).toEqual(before.materials);
+  });
+
+  it('bring back a removed entry with that name and link to it', async () => {
+    await send('PATCH', '/api/places/plc-yard', { active: false });
+    await send('PATCH', '/api/materials/mat-stone', { active: false });
+    const added = await add({ date: '2026-11-20', toPlaceName: 'sample yard', materialName: 'Sample Stone' });
+    expect(added).toMatchObject({ toPlaceId: 'plc-yard', toPlaceName: 'Sample Yard', materialId: 'mat-stone' });
+    expect(await list('/api/places')).toContainEqual(expect.objectContaining({ id: 'plc-yard', active: true }));
+    expect(await list('/api/materials')).toContainEqual(expect.objectContaining({ id: 'mat-stone', active: true }));
+  });
+
+  it('add a new entry, a Place with no kind, and link to it, on add and on change', async () => {
+    const added = await add({ date: '2026-11-20', fromPlaceName: ' Sample Pit ', materialName: 'Sample Fill' });
+    expect(added).toMatchObject({ fromPlaceName: 'Sample Pit', materialName: 'Sample Fill' });
+    expect(await list('/api/places')).toContainEqual({ id: added.fromPlaceId, shortName: 'Sample Pit', fullName: null, kind: null, jobId: null, usualForemanId: null, onTruckMap: false, sortOrder: 5, active: true });
+    expect(await list('/api/materials')).toContainEqual({ id: added.materialId, name: 'Sample Fill', sortOrder: 4, active: true });
+
+    const changed = await change(added.id, { toPlaceName: 'Sample Dump', materialId: null });
+    const { assignment } = (await changed.json()) as { assignment: Assignment };
+    expect(assignment).toMatchObject({ fromPlaceName: 'Sample Pit', toPlaceName: 'Sample Dump', materialId: null });
+    expect(await list('/api/places')).toContainEqual(expect.objectContaining({ id: assignment.toPlaceId, shortName: 'Sample Dump', kind: null }));
+  });
+
+  it('add one Place when From and To type the same new name, in any case', async () => {
+    const added = await add({ date: '2026-11-20', fromPlaceName: 'Sample Pit', toPlaceName: 'SAMPLE PIT' });
+    expect(added.toPlaceId).toBe(added.fromPlaceId);
+    expect((await list('/api/places')).filter((p) => String(p.shortName).toLowerCase() === 'sample pit')).toHaveLength(1);
+  });
+
+  const typed = (value: unknown) => ({ fromPlaceName: value, toPlaceName: value, materialName: value });
+
+  it('refuse a blank name, with a message on each field, on add and on change', async () => {
+    const blank = { fromPlaceName: 'Write the Place\'s name.', toPlaceName: 'Write the Place\'s name.', materialName: 'Write the Material\'s name.' };
+    expect(await refusal(await post('/api/assignments', { date: '2026-11-20', ...typed('  ') }))).toEqual(blank);
+    const assignment = await add({ date: '2026-11-20' });
+    expect(await refusal(await change(assignment.id, typed('')))).toEqual(blank);
+  });
+
+  it('refuse a name over 100 characters, or not text, with a message on each field', async () => {
+    const long = 'Keep it to 100 characters or fewer.';
+    expect(await refusal(await post('/api/assignments', { date: '2026-11-20', ...typed('x'.repeat(101)) }))).toEqual(typed(long));
+    expect((await post('/api/assignments', { date: '2026-11-20', materialName: 'x'.repeat(100) })).status).toBe(201);
+    const notText = { fromPlaceName: 'Write the Place\'s name.', toPlaceName: 'Write the Place\'s name.', materialName: 'Write the Material\'s name.' };
+    expect(await refusal(await post('/api/assignments', { date: '2026-11-20', ...typed(7) }))).toEqual(notText);
+  });
+
+  it('refuse a name given alongside an id for the same field, with a message on the name', async () => {
+    const fields = await refusal(await post('/api/assignments', { date: '2026-11-20', fromPlaceId: 'plc-plant', fromPlaceName: 'Sample Pit', materialId: 'mat-dirt', materialName: 'Sample Dirt' }));
+    expect(fields).toEqual({
+      fromPlaceName: 'Pick a Place from the list or write its name, not both.',
+      materialName: 'Pick a Material from the list or write its name, not both.',
+    });
+  });
+
+  it('add or bring back nothing when the Assignment is refused', async () => {
+    await send('PATCH', '/api/places/plc-yard', { active: false });
+    const before = { places: await list('/api/places?include=inactive'), materials: await list('/api/materials?include=inactive') };
+    const refused = { fromPlaceName: 'Sample Pit', toPlaceName: 'Sample Yard', materialName: 'Sample Fill', driverId: 'nobody' };
+    expect(Object.keys(await refusal(await post('/api/assignments', { date: '2026-11-20', ...refused })))).toEqual(['driverId']);
+    expect(Object.keys(await refusal(await post('/api/assignments', { date: '2026-11-18', ...refused, driverId: null })))).toEqual(['date']);
+    expect(await list('/api/places?include=inactive')).toEqual(before.places);
+    expect(await list('/api/materials?include=inactive')).toEqual(before.materials);
+  });
+
+  it('add or bring back nothing when saving the Assignment itself fails', async () => {
+    await send('PATCH', '/api/materials/mat-stone', { active: false });
+    const before = { places: await list('/api/places?include=inactive'), materials: await list('/api/materials?include=inactive') };
+    const db = d1.database();
+    const failing = new Proxy(db, {
+      get: (target, key) => key === 'prepare'
+        ? (sql: string) => target.prepare(/^\s*INSERT INTO assignments\b/.test(sql) ? sql.replace('assignments', 'no_such_table') : sql)
+        : Reflect.get(target, key, target),
+    });
+    await expect(send('POST', '/api/assignments', { date: '2026-11-20', fromPlaceName: 'Sample Pit', materialName: 'Sample Stone' }, { DB: failing })).rejects.toThrow();
+    expect(await list('/api/places?include=inactive')).toEqual(before.places);
+    expect(await list('/api/materials?include=inactive')).toEqual(before.materials);
+  });
+
+  it('link to the entry another request added with the same name after the lookup, rather than failing', async () => {
+    const db = d1.database();
+    let raced = false;
+    const racing = new Proxy(db, {
+      get: (target, key) => key === 'batch'
+        ? async (statements: D1PreparedStatement[]) => {
+          if (!raced) {
+            raced = true;
+            await post('/api/places', { shortName: 'Sample Pit' });
+          }
+          return target.batch(statements);
+        }
+        : Reflect.get(target, key, target),
+    });
+    const response = await send('POST', '/api/assignments', { date: '2026-11-20', fromPlaceName: 'sample pit' }, { DB: racing });
+    expect(response.status).toBe(201);
+    const { assignment } = (await response.json()) as { assignment: Assignment };
+    const pits = (await list('/api/places')).filter((p) => p.shortName === 'Sample Pit');
+    expect(pits).toHaveLength(1);
+    expect(assignment.fromPlaceId).toBe(pits[0].id);
   });
 });
 

@@ -1,4 +1,5 @@
 import type { Env } from './app';
+import { addDays, nextWorkingDay } from '../../shared/days';
 
 /** The business runs on US Eastern time: "today" there decides tomorrow's board and which days are past. */
 const BUSINESS_TIME_ZONE = 'America/New_York';
@@ -17,6 +18,8 @@ export interface Clock {
   today: string;
   /** The day after today, YYYY-MM-DD. */
   tomorrow: string;
+  /** The first Working day after today (on a Friday, the Monday): the day the board opens on. */
+  nextWorkingDay: string;
 }
 
 /**
@@ -28,11 +31,5 @@ export function clock(env: Pick<Env, 'NOW'>): Clock {
   const fixed = env.NOW ? new Date(env.NOW) : null;
   const now = fixed && !Number.isNaN(fixed.getTime()) ? fixed : new Date();
   const today = businessDate.format(now);
-  return { now, today, tomorrow: addDays(today, 1) };
-}
-
-/** 2026-12-31 + 1 → 2027-01-01. Plain calendar arithmetic on a date with no time of day. */
-export function addDays(date: string, days: number): string {
-  const [y, m, d] = date.split('-').map(Number);
-  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+  return { now, today, tomorrow: addDays(today, 1), nextWorkingDay: nextWorkingDay(today) };
 }
