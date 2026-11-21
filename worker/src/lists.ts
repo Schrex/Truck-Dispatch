@@ -157,12 +157,32 @@ export function listOrder(list: ListName, alias = ''): string {
 }
 
 /**
+ * Puts an entry (just added or brought back) last in an ordered list, after
+ * every other entry, and after any added before it: run in the same batch,
+ * right after the write that adds it or brings it back. Entries still without
+ * an order would otherwise come after it by name, so first every other entry
+ * is numbered in the order the list is read now (nothing moves), then this one
+ * takes the number after the highest. A list Dave does not order needs nothing.
+ */
+export function goLast(env: Env, list: ListName, id: string): D1PreparedStatement[] {
+  if (!isOrdered(list)) return [];
+  const { table } = LISTS[list];
+  return [
+    env.DB.prepare(
+      `UPDATE ${table} SET sort_order = (SELECT n FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY ${listOrder(list)}) AS n FROM ${table} WHERE id IS NOT ?1) AS numbered WHERE numbered.id = ${table}.id)
+        WHERE id IS NOT ?1 AND EXISTS (SELECT 1 FROM ${table} WHERE sort_order IS NULL AND id IS NOT ?1)`,
+    ).bind(id),
+    env.DB.prepare(`UPDATE ${table} SET sort_order = (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM ${table} WHERE id IS NOT ?1) WHERE id = ?1`).bind(id),
+  ];
+}
+
+/**
  * Makes a removed entry active again. In an ordered list it loses its old
  * place and goes last, since the list may have been reordered without it.
  */
-export function bringBack(env: Env, list: ListName, id: string): D1PreparedStatement {
+export function bringBack(env: Env, list: ListName, id: string): D1PreparedStatement[] {
   const { table } = LISTS[list];
-  return env.DB.prepare(`UPDATE ${table} SET active = 1${isOrdered(list) ? ', sort_order = NULL' : ''} WHERE id = ? AND active = 0`).bind(id);
+  return [env.DB.prepare(`UPDATE ${table} SET active = 1 WHERE id = ? AND active = 0`).bind(id), ...goLast(env, list, id)];
 }
 
 export async function handleList(request: Request, env: Env, list: ListName, id: string | undefined, query: URLSearchParams): Promise<Response> {
@@ -266,16 +286,18 @@ async function save(request: Request, env: Env, list: ListName, id: string | nul
   const savedId = id ?? crypto.randomUUID();
   try {
     if (adding) {
-      await env.DB.prepare(`INSERT INTO ${spec.table} (id, ${columns.join(', ')}) VALUES (?, ${columns.map(() => '?').join(', ')})`)
-        .bind(savedId, ...Object.values(values))
-        .run();
+      // A new entry goes last, in the same batch, so it is never saved without its place.
+      await env.DB.batch([
+        env.DB.prepare(`INSERT INTO ${spec.table} (id, ${columns.join(', ')}) VALUES (?, ${columns.map(() => '?').join(', ')})`).bind(savedId, ...Object.values(values)),
+        ...goLast(env, list, savedId),
+      ]);
     } else if (columns.length > 0) {
-      const sets = columns.map((c) => `${c} = ?`);
-      // Brought back (active from 0 to 1): it goes last, as bringBack does. SET reads the row as it was.
-      if (isOrdered(list) && values.active === 1) sets.push('sort_order = CASE WHEN active = 0 THEN NULL ELSE sort_order END');
-      await env.DB.prepare(`UPDATE ${spec.table} SET ${sets.join(', ')} WHERE id = ?`)
-        .bind(...Object.values(values), savedId)
-        .run();
+      // Brought back (active from 0 to 1): it goes last, as bringBack does; one already active keeps its place.
+      const comingBack = values.active === 1 && !(await isActive(env, list, savedId));
+      await env.DB.batch([
+        env.DB.prepare(`UPDATE ${spec.table} SET ${columns.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`).bind(...Object.values(values), savedId),
+        ...(comingBack ? goLast(env, list, savedId) : []),
+      ]);
     }
   } catch (error) {
     // The check above covers the usual case; another request can still save the

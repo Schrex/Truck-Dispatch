@@ -57,7 +57,16 @@ export interface InLane {
 }
 
 /**
- * The Dispatch board's lanes: each Driver's name and usual Truck, then his
+ * Whether the open Assignment is the first or the last of its lane that is not
+ * cancelled: cancelled ones keep their place but moves step over them.
+ */
+function inLane(assignments: Assignment[], openId: string | null | undefined): InLane {
+  const on = assignments.filter((assignment) => !assignment.cancelledAt);
+  return { first: on[0]?.id === openId, last: on[on.length - 1]?.id === openId };
+}
+
+/**
+ * The board's lanes: each Driver's name and usual Truck, then his
  * Assignments as blocks in the order Dave set, marked First and Then. Tapping
  * a block calls onEdit; the block named by openId is shown open, with what
  * `editor` gives for it under the lane's blocks. With onAdd each lane but a removed
@@ -147,7 +156,7 @@ export function Lanes({
                 </ol>
               )}
             </div>
-            {openAt >= 0 && editor?.(lane.assignments[openAt], { first: openAt === 0, last: openAt === lane.assignments.length - 1 })}
+            {openAt >= 0 && editor?.(lane.assignments[openAt], inLane(lane.assignments, openId))}
             {composingFor === lane.driverId && composer}
           </Card>
         );

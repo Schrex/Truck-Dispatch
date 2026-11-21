@@ -1,6 +1,6 @@
 import type { Env } from './app';
 import { text } from './http';
-import { bringBack, entryNamed, isNameTaken, LISTS, TEXT_LIMIT } from './lists';
+import { bringBack, entryNamed, goLast, isNameTaken, LISTS, TEXT_LIMIT } from './lists';
 import type { ListName, NewAssignment, TypedNames } from '../../shared/types';
 
 /**
@@ -75,7 +75,7 @@ export async function saveLinked(
  */
 async function linkTyped(env: Env, typed: Typed[]) {
   // From and To may type the same name: it is looked up, and added, once.
-  const links = new Map<string, Promise<{ id: string; write: D1PreparedStatement | null }>>();
+  const links = new Map<string, Promise<{ id: string; writes: D1PreparedStatement[] }>>();
   const linked = typed.map(({ field, name }) => {
     const key = `${field.list}:${sameIgnoringCase(name)}`;
     if (!links.has(key)) links.set(key, linkName(env, field.list, name));
@@ -83,19 +83,19 @@ async function linkTyped(env: Env, typed: Typed[]) {
   });
   const ids: Partial<Record<TypedIdKey, string>> = {};
   (await Promise.all(linked)).forEach(({ id }, i) => (ids[typed[i].field.idKey] = id));
-  const writes = (await Promise.all(links.values())).flatMap(({ write }) => (write ? [write] : []));
+  const writes = (await Promise.all(links.values())).flatMap(({ writes }) => writes);
   return { ids, writes };
 }
 
-/** The entry one name links to, and the write it needs first, if any. */
+/** The entry one name links to, and the writes it needs first, if any. */
 async function linkName(env: Env, list: ListName, name: string) {
   const { table, name: display } = LISTS[list];
   const found = await entryNamed(env, list, name);
   if (found) {
-    return { id: found.id, write: found.active ? null : bringBack(env, list, found.id) };
+    return { id: found.id, writes: found.active ? [] : bringBack(env, list, found.id) };
   }
   const id = crypto.randomUUID();
-  return { id, write: env.DB.prepare(`INSERT INTO ${table} (id, ${display.column}) VALUES (?, ?)`).bind(id, name) };
+  return { id, writes: [env.DB.prepare(`INSERT INTO ${table} (id, ${display.column}) VALUES (?, ?)`).bind(id, name), ...goLast(env, list, id)] };
 }
 
 /** A name as SQLite's NOCASE compares it: only A to Z ignore case. */

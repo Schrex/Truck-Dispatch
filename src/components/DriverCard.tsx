@@ -1,5 +1,5 @@
 import type { DriverAssignment, SinceSent } from '../../shared/types';
-import { cn } from '@/lib/utils';
+import { cancelledText, cn } from '@/lib/utils';
 
 /** Whose changes the Driver is told about: the dispatcher, by name, as he knows him. */
 const DISPATCHER = 'Dave';
@@ -47,7 +47,7 @@ export function DriverCard({ assignment }: { assignment: DriverAssignment }) {
       className={cn('rounded-lg border bg-card p-5 text-card-foreground shadow-sm', cancelledAt && 'bg-muted')}
     >
       {mark && <p className={cn('mb-3 inline-block rounded px-2 py-1 text-base font-semibold', mark.className)}>{mark.word}</p>}
-      <div className={cn('space-y-3', cancelledAt && 'text-muted-foreground line-through')}>
+      <div className={cn('space-y-3', cancelledAt && cancelledText)}>
         <p className="text-2xl font-semibold">
           {materialName ?? 'No Material named'}
           <Was value={was.materialName} />

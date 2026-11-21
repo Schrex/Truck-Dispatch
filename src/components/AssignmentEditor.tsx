@@ -1,11 +1,12 @@
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import { ArrowDown, ArrowUp, Loader2, X } from 'lucide-react';
-import type { Assignment, AssignmentChange, ChangedAssignment, Driver, Foreman, Material, Place, Truck } from '../../shared/types';
+import type { Assignment, AssignmentChange, ChangedAssignment, Driver, Foreman, Material, Place, Truck, TypedNames } from '../../shared/types';
+import { chipClass, OrTypeIt, TypedBox } from '@/components/TypedName';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { changeAssignment, FieldErrors, moveAssignment, Refused } from '@/lib/api';
-import { cn } from '@/lib/utils';
+import { cancelledText, cn } from '@/lib/utils';
 
 /** Every entry of each list, inactive ones included, so a part that uses one still shows it; null while loading. */
 export interface EditorLists {
@@ -40,6 +41,8 @@ interface Part {
   blankFirst?: boolean;
   /** The entry's name as the Assignment carries it, for an entry the lists do not have (yet). */
   saved: string | null;
+  /** For a Place or Material, the field that sends a name typed with "Or type it". */
+  typedKey?: keyof TypedNames;
 }
 
 function partsOf(assignment: Assignment, lists: EditorLists): Part[] {
@@ -48,9 +51,9 @@ function partsOf(assignment: Assignment, lists: EditorLists): Part[] {
   const places = choices(lists.places, (p) => p.shortName);
   return [
     { key: 'driverId', name: 'Driver', choices: choices(lists.drivers, (d) => d.name), blankWords: 'Unassigned', blankChoice: 'Unassigned', saved: assignment.driverName },
-    { key: 'materialId', name: 'Material', lead: 'hauls', choices: choices(lists.materials, (m) => m.name), blankWords: 'no Material', blankChoice: 'Leave blank', saved: assignment.materialName },
-    { key: 'fromPlaceId', name: 'From', lead: 'from', choices: places, blankWords: 'no Place', blankChoice: 'Leave blank', saved: assignment.fromPlaceName },
-    { key: 'toPlaceId', name: 'To', lead: 'to', choices: places, blankWords: 'no Place', blankChoice: 'Leave blank', saved: assignment.toPlaceName },
+    { key: 'materialId', name: 'Material', lead: 'hauls', choices: choices(lists.materials, (m) => m.name), blankWords: 'no Material', blankChoice: 'Leave blank', saved: assignment.materialName, typedKey: 'materialName' },
+    { key: 'fromPlaceId', name: 'From', lead: 'from', choices: places, blankWords: 'no Place', blankChoice: 'Leave blank', saved: assignment.fromPlaceName, typedKey: 'fromPlaceName' },
+    { key: 'toPlaceId', name: 'To', lead: 'to', choices: places, blankWords: 'no Place', blankChoice: 'Leave blank', saved: assignment.toPlaceName, typedKey: 'toPlaceName' },
     { key: 'truckId', name: 'Truck', lead: 'in', choices: choices(lists.trucks, (t) => t.number), blankWords: 'His own', blankChoice: 'His own', blankFirst: true, saved: assignment.truckNumber },
     { key: 'foremanId', name: 'Foreman', lead: 'for', choices: choices(lists.foremen, (f) => f.name), blankWords: 'no Foreman', blankChoice: 'Leave blank', saved: assignment.foremanName },
   ];
@@ -75,7 +78,8 @@ function messageOf(error: unknown, key: string | null, fallback: string): string
  * offers that part's list as a row of chips (one row at a time): active
  * entries, plus the one the Assignment uses if it was removed since, and a
  * choice that leaves it blank (Unassigned for the Driver, His own for the
- * Truck, "Leave blank" for the rest). Each pick saves only that part, and the
+ * Truck, "Leave blank" for the rest); From, To and Material also offer "Or
+ * type it", as the composer does, sending the name typed. Each pick saves only that part, and the
  * note saves on its own when Dave leaves it, so nothing waits on a Save and a
  * change made on another device to another part stays. The chips show the
  * Assignment as saved: a save that fails says so and the old value stays.
@@ -157,8 +161,8 @@ export function AssignmentEditor({
       .join(' ');
     return (
       <section aria-label="Open Assignment" className="space-y-4 rounded-md border bg-background p-4 shadow-sm">
-        <p className="text-base text-muted-foreground line-through">{sentence}</p>
-        {assignment.note && <p className="whitespace-pre-line text-sm text-muted-foreground line-through">{assignment.note}</p>}
+        <p className={cn('text-base', cancelledText)}>{sentence}</p>
+        {assignment.note && <p className={cn('whitespace-pre-line text-sm', cancelledText)}>{assignment.note}</p>}
         <p className="text-sm">Cancelled: the Driver is told it is off his day. Put it back to change it.</p>
         <div data-actions className="flex flex-wrap items-center justify-end gap-2">
           {actions}
@@ -204,7 +208,16 @@ export function AssignmentEditor({
         })}
       </p>
 
-      {open && <ChoiceRow part={open} value={assignment[open.key]} busy={saving === open.key} onPick={(id) => save(open.key, { [open.key]: id }, open.name)} />}
+      {open && (
+        <ChoiceRow
+          key={open.key}
+          part={open}
+          value={assignment[open.key]}
+          busy={saving === open.key}
+          onPick={(id) => save(open.key, { [open.key]: id }, open.name)}
+          onTyped={(name) => open.typedKey && saving !== open.key && save(open.key, { [open.typedKey]: name }, open.name)}
+        />
+      )}
       {open && alert(open.key)}
 
       <div className="space-y-2">
@@ -245,9 +258,25 @@ export function AssignmentEditor({
  * The row of choices a tapped part offers: its list's active entries, plus
  * the one the Assignment uses if it has been removed since, marked so, and
  * the blank choice. The one it has now is pressed; tapping it changes nothing.
+ * A Place or Material also offers "Or type it", as the composer does: what is
+ * typed is handed to onTyped on Enter or on leaving the box, unless blank.
  */
-function ChoiceRow({ part, value, busy, onPick }: { part: Part; value: string | null; busy: boolean; onPick: (id: string | null) => void }) {
+function ChoiceRow({
+  part,
+  value,
+  busy,
+  onPick,
+  onTyped,
+}: {
+  part: Part;
+  value: string | null;
+  busy: boolean;
+  onPick: (id: string | null) => void;
+  onTyped: (name: string) => void;
+}) {
   const labelId = useId();
+  const [typed, setTyped] = useState<string | null>(null);
+  const typing = typed !== null;
   const entries = (part.choices ?? [])
     .filter((choice) => choice.active || choice.id === value)
     .map((choice) => ({ id: choice.id as string | null, label: choice.active ? choice.label : `${choice.label} (removed)` }));
@@ -260,7 +289,7 @@ function ChoiceRow({ part, value, busy, onPick }: { part: Part; value: string | 
       </p>
       <div className="flex flex-wrap gap-2">
         {chips.map((chip) => {
-          const pressed = chip.id === value;
+          const pressed = !typing && chip.id === value;
           return (
             <Button
               key={chip.id ?? 'blank'}
@@ -268,14 +297,25 @@ function ChoiceRow({ part, value, busy, onPick }: { part: Part; value: string | 
               variant={pressed ? 'default' : 'outline'}
               aria-pressed={pressed}
               disabled={busy}
-              className={cn('h-11 rounded-full px-4 text-base', pressed ? 'border border-primary' : 'text-foreground')}
+              className={chipClass(pressed)}
               onClick={() => !pressed && onPick(chip.id)}
             >
               {chip.label}
             </Button>
           );
         })}
+        {part.typedKey && <OrTypeIt typing={typing} onClick={() => setTyped(typing ? null : '')} />}
       </div>
+      {typing && (
+        <TypedBox
+          label={part.name}
+          value={typed}
+          onChange={setTyped}
+          onDone={() => {
+            if (typed.trim()) onTyped(typed.trim());
+          }}
+        />
+      )}
     </div>
   );
 }

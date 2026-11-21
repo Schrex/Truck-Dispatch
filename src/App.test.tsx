@@ -864,10 +864,10 @@ describe('opening an Assignment', () => {
   });
 
   it('keeps one Assignment open at a time', async () => {
-    assignments = [planned(), planned({ id: 'a2', driverId: 'drv-b', driverName: 'Sample Driver B', note: 'Topsoil run' })];
+    assignments = [planned(), planned({ id: 'a2', driverId: 'drv-b', driverName: 'Sample Driver B', note: 'Topsoil haul' })];
     open('/?date=2026-11-20');
     await openBlock('Haul stone');
-    await openBlock('Topsoil run');
+    await openBlock('Topsoil haul');
     expect(screen.getAllByRole('region', { name: 'Open Assignment' })).toHaveLength(1);
     expect(within(lane('Sample Driver B')).getByRole('region', { name: 'Open Assignment' })).toBeTruthy();
   });
@@ -877,9 +877,9 @@ describe('opening an Assignment', () => {
     open('/?date=2026-11-20');
     const opened = await openBlock('Haul stone');
     expect(choicesIn(tapPart(opened, 'Driver'))).toEqual(['Sample Driver A', 'Sample Driver B', 'Unassigned']);
-    expect(choicesIn(tapPart(opened, 'Material'))).toEqual(['2" minus', 'Sample Dirt', 'Leave blank']);
-    expect(choicesIn(tapPart(opened, 'From'))).toEqual(['Sample Plant', 'Sample Site North', 'Leave blank']);
-    expect(choicesIn(tapPart(opened, 'To'))).toEqual(['Sample Plant', 'Sample Site North', 'Leave blank']);
+    expect(choicesIn(tapPart(opened, 'Material'))).toEqual(['2" minus', 'Sample Dirt', 'Leave blank', 'Or type it']);
+    expect(choicesIn(tapPart(opened, 'From'))).toEqual(['Sample Plant', 'Sample Site North', 'Leave blank', 'Or type it']);
+    expect(choicesIn(tapPart(opened, 'To'))).toEqual(['Sample Plant', 'Sample Site North', 'Leave blank', 'Or type it']);
     expect(choicesIn(tapPart(opened, 'Truck'))).toEqual(['His own', '21', '24']);
     expect(choicesIn(tapPart(opened, 'Foreman'))).toEqual(['Sample Foreman A', 'Leave blank']);
     // One row of choices at a time.
@@ -891,8 +891,8 @@ describe('opening an Assignment', () => {
     open('/?date=2026-11-20');
     const opened = await openBlock('Sample Old Pit · Haul stone · Truck 99');
     expect(sentenceOf(opened).slice(0, 5)).toEqual(['Driver: Sample Driver X', 'Material: no Material', 'From: Sample Old Pit', 'To: no Place', 'Truck: 99']);
-    expect(choicesIn(tapPart(opened, 'From'))).toEqual(['Sample Plant', 'Sample Site North', 'Sample Old Pit (removed)', 'Leave blank']);
-    expect(choicesIn(tapPart(opened, 'To'))).toEqual(['Sample Plant', 'Sample Site North', 'Leave blank']);
+    expect(choicesIn(tapPart(opened, 'From'))).toEqual(['Sample Plant', 'Sample Site North', 'Sample Old Pit (removed)', 'Leave blank', 'Or type it']);
+    expect(choicesIn(tapPart(opened, 'To'))).toEqual(['Sample Plant', 'Sample Site North', 'Leave blank', 'Or type it']);
   });
 
   it('saves a chip on its own, sending only that field, and the block shows it', async () => {
@@ -904,6 +904,29 @@ describe('opening an Assignment', () => {
     expect(sent).toEqual([{ materialId: 'mat-dirt' }]);
     expect(blocks('Sample Driver A')).toEqual(['First · Haul stone · Sample Dirt · Truck 21 (his own)']);
     expect(within(opened).queryByRole('group')).toBeNull();
+  });
+
+  it('types a From, To or Material not in the list with "Or type it", saved by name on Enter or on leaving the box', async () => {
+    assignments = [planned()];
+    open('/?date=2026-11-20');
+    const opened = await openBlock('Haul stone');
+    fireEvent.click(within(tapPart(opened, 'From')).getByRole('button', { name: 'Or type it' }));
+    const from = within(opened).getByRole('textbox', { name: 'From, typed' });
+    fireEvent.change(from, { target: { value: ' Sample Pit ' } });
+    fireEvent.keyDown(from, { key: 'Enter' });
+    await waitFor(() => expect(sentenceOf(opened)[2]).toBe('From: Sample Pit'));
+    expect(within(opened).queryByRole('group')).toBeNull();
+
+    fireEvent.click(within(tapPart(opened, 'Material')).getByRole('button', { name: 'Or type it' }));
+    const material = within(opened).getByRole('textbox', { name: 'Material, typed' });
+    fireEvent.change(material, { target: { value: 'sample dirt' } });
+    fireEvent.blur(material);
+    await waitFor(() => expect(sentenceOf(opened)[1]).toBe('Material: Sample Dirt'));
+
+    // Left blank, nothing is saved.
+    fireEvent.click(within(tapPart(opened, 'To')).getByRole('button', { name: 'Or type it' }));
+    fireEvent.blur(within(opened).getByRole('textbox', { name: 'To, typed' }));
+    expect(sent).toEqual([{ fromPlaceName: 'Sample Pit' }, { materialName: 'sample dirt' }]);
   });
 
   it('clears a part with "Leave blank", and sets the Truck back to His own', async () => {
@@ -956,11 +979,11 @@ describe('opening an Assignment', () => {
   });
 
   it('moves it to the end of another Driver\'s lane when the Driver changes, still open', async () => {
-    assignments = [planned(), planned({ id: 'a2', driverId: 'drv-b', driverName: 'Sample Driver B', note: 'Topsoil run' })];
+    assignments = [planned(), planned({ id: 'a2', driverId: 'drv-b', driverName: 'Sample Driver B', note: 'Topsoil haul' })];
     open('/?date=2026-11-20');
     const opened = await openBlock('Haul stone');
     pick(opened, 'Driver', 'Sample Driver B');
-    await waitFor(() => expect(blocks('Sample Driver B')).toEqual(['First · Topsoil run · Truck 24 (his own)', 'Then · Haul stone · Truck 24 (his own)']));
+    await waitFor(() => expect(blocks('Sample Driver B')).toEqual(['First · Topsoil haul · Truck 24 (his own)', 'Then · Haul stone · Truck 24 (his own)']));
     expect(sent).toEqual([{ driverId: 'drv-b' }]);
     expect(within(lane('Sample Driver A')).getByText('Nothing planned yet')).toBeTruthy();
     expect(within(lane('Sample Driver B')).getByRole('region', { name: 'Open Assignment' })).toBeTruthy();
@@ -977,7 +1000,7 @@ describe('opening an Assignment', () => {
   describe('Do this first and Do this later', () => {
     const three = () => [
       planned({ id: 'a1', note: 'Haul stone', position: 0 }),
-      planned({ id: 'a2', note: 'Topsoil run', position: 1 }),
+      planned({ id: 'a2', note: 'Topsoil haul', position: 1 }),
       planned({ id: 'a3', note: 'Fill the shop', position: 2 }),
     ];
     const lineup = () => blocks('Sample Driver A').map((block) => block?.replace(/ · Truck 21 \(his own\)$/, ''));
@@ -985,11 +1008,11 @@ describe('opening an Assignment', () => {
     it('moves it one place earlier or later in its lane, and it stays open', async () => {
       assignments = three();
       open('/?date=2026-11-20');
-      const opened = await openBlock('Topsoil run');
+      const opened = await openBlock('Topsoil haul');
       fireEvent.click(within(opened).getByRole('button', { name: 'Do this first' }));
-      await waitFor(() => expect(lineup()).toEqual(['First · Topsoil run', 'Then · Haul stone', 'Then · Fill the shop']));
+      await waitFor(() => expect(lineup()).toEqual(['First · Topsoil haul', 'Then · Haul stone', 'Then · Fill the shop']));
       fireEvent.click(within(screen.getByRole('region', { name: 'Open Assignment' })).getByRole('button', { name: 'Do this later' }));
-      await waitFor(() => expect(lineup()).toEqual(['First · Haul stone', 'Then · Topsoil run', 'Then · Fill the shop']));
+      await waitFor(() => expect(lineup()).toEqual(['First · Haul stone', 'Then · Topsoil haul', 'Then · Fill the shop']));
       expect(sent).toEqual([{ direction: 'earlier' }, { direction: 'later' }]);
     });
 
@@ -998,7 +1021,7 @@ describe('opening an Assignment', () => {
       open('/?date=2026-11-20');
       const moves = (opened: HTMLElement) => within(opened).queryAllByRole('button', { name: /^Do this/ }).map((b) => b.textContent);
       expect(moves(await openBlock('Haul stone'))).toEqual(['Do this later']);
-      expect(moves(await openBlock('Topsoil run'))).toEqual(['Do this first', 'Do this later']);
+      expect(moves(await openBlock('Topsoil haul'))).toEqual(['Do this first', 'Do this later']);
       expect(moves(await openBlock('Fill the shop'))).toEqual(['Do this first']);
       expect(moves(await openBlock('Alone'))).toEqual([]);
     });
@@ -1008,17 +1031,17 @@ describe('opening an Assignment', () => {
       daySends = { '2026-11-20': '2026-11-19T20:30:00.000Z' };
       open('/?date=2026-11-20');
       fireEvent.click(within(await openBlock('Fill the shop')).getByRole('button', { name: 'Do this first' }));
-      await waitFor(() => expect(lineup()).toEqual(['First · Haul stone', 'Then · Changed · Fill the shop', 'Then · Topsoil run']));
+      await waitFor(() => expect(lineup()).toEqual(['First · Haul stone', 'Then · Changed · Fill the shop', 'Then · Topsoil haul']));
     });
 
     it('says so when a move fails, and keeps the order', async () => {
       assignments = three();
       open('/?date=2026-11-20');
-      const opened = await openBlock('Topsoil run');
+      const opened = await openBlock('Topsoil haul');
       failSaves = true;
       fireEvent.click(within(opened).getByRole('button', { name: 'Do this first' }));
       expect(await within(opened).findByText('Could not move the Assignment. Try again.')).toBeTruthy();
-      expect(lineup()).toEqual(['First · Haul stone', 'Then · Topsoil run', 'Then · Fill the shop']);
+      expect(lineup()).toEqual(['First · Haul stone', 'Then · Topsoil haul', 'Then · Fill the shop']);
     });
   });
 
@@ -1038,13 +1061,13 @@ describe('opening an Assignment', () => {
     });
 
     it('cancels it with ✕ on a Sent day: it stays in its place, struck through, greyed and marked Cancelled', async () => {
-      assignments = [planned(), planned({ id: 'a2', note: 'Topsoil run', position: 1 })];
+      assignments = [planned(), planned({ id: 'a2', note: 'Topsoil haul', position: 1 })];
       daySends = SENT;
       open('/?date=2026-11-20');
       fireEvent.click(within(await openBlock('Haul stone')).getByRole('button', { name: 'Cancel' }));
       await waitFor(() => expect(blocks('Sample Driver A')).toEqual([
         'First · Cancelled · Haul stone · Truck 21 (his own)',
-        'Then · Topsoil run · Truck 21 (his own)',
+        'Then · Topsoil haul · Truck 21 (his own)',
       ]));
       expect(sent).toEqual([{ delete: 'a1' }]);
       expect(frameOf('Haul stone · Cancelled').className).toMatch(/line-through/);
@@ -1073,11 +1096,11 @@ describe('opening an Assignment', () => {
     });
 
     it('cancels it for the first Driver and adds it last in the other Driver\'s lane on a Sent day, still open there', async () => {
-      assignments = [planned(), planned({ id: 'a2', driverId: 'drv-b', driverName: 'Sample Driver B', note: 'Topsoil run' })];
+      assignments = [planned(), planned({ id: 'a2', driverId: 'drv-b', driverName: 'Sample Driver B', note: 'Topsoil haul' })];
       daySends = SENT;
       open('/?date=2026-11-20');
       pick(await openBlock('Haul stone'), 'Driver', 'Sample Driver B');
-      await waitFor(() => expect(blocks('Sample Driver B')).toEqual(['First · Topsoil run · Truck 24 (his own)', 'Then · Added · Haul stone · Truck 24 (his own)']));
+      await waitFor(() => expect(blocks('Sample Driver B')).toEqual(['First · Topsoil haul · Truck 24 (his own)', 'Then · Added · Haul stone · Truck 24 (his own)']));
       expect(blocks('Sample Driver A')).toEqual(['First · Cancelled · Haul stone · Truck 21 (his own)']);
       expect(within(lane('Sample Driver B')).getByRole('region', { name: 'Open Assignment' })).toBeTruthy();
     });
@@ -1274,7 +1297,7 @@ describe('sending a day', () => {
   const sendButton = () => screen.queryByRole('button', { name: 'Send' });
 
   it('shows a planned day as a Draft with when it was last saved, and Sends it with one tap', async () => {
-    assignments = [planned(), planned({ id: 'a2', note: 'Topsoil run', updatedAt: '2026-11-19T21:12:00.000Z' })];
+    assignments = [planned(), planned({ id: 'a2', note: 'Topsoil haul', updatedAt: '2026-11-19T21:12:00.000Z' })];
     open('/?date=2026-11-20');
     await screen.findByText('Haul stone');
     await waitFor(() => expect(dayState()).toBe('Draft · not sent yet · saved 4:12 PM'));
@@ -1284,6 +1307,22 @@ describe('sending a day', () => {
     await waitFor(() => expect(dayState()).toBe('Sent Thu, Nov 19 · 4:15 PM'));
     expect(sent).toEqual([{ send: '2026-11-20' }]);
     expect(sendButton()).toBeNull();
+  });
+
+  it('says when the day was last saved after a delete too, never going back to an earlier save', async () => {
+    assignments = [planned(), planned({ id: 'a2', note: 'Topsoil haul', position: 1, updatedAt: '2026-11-19T21:12:00.000Z' })];
+    open('/?date=2026-11-20');
+    await waitFor(() => expect(dayState()).toBe('Draft · not sent yet · saved 4:12 PM'));
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-19T21:30:00.000Z'));
+    try {
+      fireEvent.click(await screen.findByRole('button', { name: 'Edit Topsoil haul' }));
+      fireEvent.click(within(screen.getByRole('region', { name: 'Open Assignment' })).getByRole('button', { name: 'Delete' }));
+      await waitFor(() => expect(screen.queryByText('Topsoil haul')).toBeNull());
+      expect(dayState()).toBe('Draft · not sent yet · saved 4:30 PM');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('offers no Send yet on a day with nothing planned', async () => {
@@ -1305,7 +1344,7 @@ describe('sending a day', () => {
   it('says the day is Changed since Sent and marks the blocks Changed and Added', async () => {
     assignments = [
       planned({ changedAt: '2026-11-19T22:00:00.000Z' }),
-      planned({ id: 'a2', note: 'Topsoil run', position: 1, createdAt: '2026-11-19T22:30:00.000Z' }),
+      planned({ id: 'a2', note: 'Topsoil haul', position: 1, createdAt: '2026-11-19T22:30:00.000Z' }),
       planned({ id: 'a3', note: 'Fill the shop', position: 2 }),
     ];
     daySends = { '2026-11-20': SENT_AT };
@@ -1314,7 +1353,7 @@ describe('sending a day', () => {
     await waitFor(() => expect(dayState()).toBe('Changed since Sent'));
     expect(blocks('Sample Driver A')).toEqual([
       'First · Changed · Haul stone · Truck 21 (his own)',
-      'Then · Added · Topsoil run · Truck 21 (his own)',
+      'Then · Added · Topsoil haul · Truck 21 (his own)',
       'Then · Fill the shop · Truck 21 (his own)',
     ]);
   });
@@ -1448,11 +1487,19 @@ describe('the week strip', () => {
     await waitFor(() => expect(tile('Mon 16').getAttribute('aria-label')).toBe('Mon 16 · Not sent'));
   });
 
-  it('still shows its days, without states, when the week cannot be read', async () => {
+  it('still shows its days, without states, when the week cannot be read, and says so', async () => {
     failWeeks = true;
     open('/?date=2026-11-20');
     await screen.findByText(/^Nothing planned for /);
     await waitFor(() => expect(tiles()).toEqual(['Mon 16', 'Tue 17', 'Wed 18', 'Thu 19 · Today', 'Fri 20 · Tomorrow', 'Sat 21', 'Sun 22']));
+    expect(await screen.findByText('Could not load the state of each day this week. It tries again after a change or when you come back to the page.')).toBeTruthy();
+    // The board stays usable: a tile still shows its day.
+    fireEvent.click(tile('Mon 16'));
+    expect(address()).toBe('/?date=2026-11-16');
+
+    failWeeks = false;
+    regainFocus();
+    await waitFor(() => expect(screen.queryByText(/^Could not load the state of each day/)).toBeNull());
   });
 
   it('replaces Jump to', async () => {

@@ -145,7 +145,7 @@ function marked({ daySentAt, ...assignment }: AssignmentRow): Assignment {
 
 /** A day's Assignments, each marked Changed or Added since the Send, and when the day was first Sent (null for a Draft). */
 async function readDay(env: Env, date: string | null): Promise<Response> {
-  if (!isCalendarDate(date)) return refuse({ date: 'Pick a date.' });
+  if (!isCalendarDate(date)) return refuse({ date: PICK_DATE });
   const [{ results }, { results: sends }] = await env.DB.batch<AssignmentRow & { sentAt: string }>([
     env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.date = ? ${DAY_ORDER}`).bind(date),
     env.DB.prepare('SELECT sent_at AS sentAt FROM day_sends WHERE date = ?').bind(date),
@@ -178,7 +178,7 @@ const WAS_FIELDS = [
  * Eastern until it refreshes.
  */
 async function readDriverDay(env: Env, driverId: string, date: string): Promise<Response> {
-  if (!isCalendarDate(date)) return refuse({ date: 'Pick a date.' });
+  if (!isCalendarDate(date)) return refuse({ date: PICK_DATE });
   if (!(await exists(env, 'drivers', driverId))) return json({ error: 'not_found' }, 404);
   const [{ results: sends }, { results: rows }, { results: kept }] = await env.DB.batch<{ sentAt: string } & AssignmentRow & { id: string; before: string }>([
     env.DB.prepare('SELECT sent_at AS sentAt FROM day_sends WHERE date = ?').bind(date),
@@ -240,8 +240,8 @@ async function readWeek(env: Env, monday: string): Promise<Response> {
  * deleted meanwhile cannot slip between them. No warnings.
  */
 async function sendDay(env: Env, date: string): Promise<Response> {
-  if (!isCalendarDate(date)) return refuse({ date: 'Pick a date.' });
-  if (isPast(env, date)) return refuse({ date: 'Days before today are read-only, so they cannot be Sent.' });
+  if (!isCalendarDate(date)) return refuse({ date: PICK_DATE });
+  if (isPast(env, date)) return refuse({ date: PAST_DAY.send });
   const [, { results }] = await env.DB.batch<{ sentAt: string }>([
     env.DB.prepare(
       'INSERT OR IGNORE INTO day_sends (date, sent_at) SELECT ?, ? WHERE EXISTS (SELECT 1 FROM assignments WHERE date = ?)',
@@ -284,27 +284,28 @@ async function latestEarlierDay(env: Env, date: string): Promise<string | null> 
 
 /** The day Start from on `date` would copy, so the page can name it on the button. */
 async function readStartFrom(env: Env, date: string): Promise<Response> {
-  if (!isCalendarDate(date)) return refuse({ date: 'Pick a date.' });
+  if (!isCalendarDate(date)) return refuse({ date: PICK_DATE });
   return json({ from: await latestEarlierDay(env, date) });
 }
 
 /** Start from: copies the latest earlier day that has Assignments onto an empty day. */
 async function startFrom(env: Env, date: string): Promise<Response> {
   if (!isCalendarDate(date)) return refuse({ date: 'Pick a day to start.' });
-  if (isPast(env, date)) return refuse({ date: PAST_DATE });
+  if (isPast(env, date)) return refuse({ date: PAST_DAY.date });
   const from = await latestEarlierDay(env, date);
   if (!from) return json({ error: 'nothing_to_copy', message: 'No earlier day has Assignments to start from.' }, 409);
   return copyOnto(env, from, date);
 }
 
-/** Copy to: copies a day (a past one, on the Board) onto another day that is still empty, the next Working day on the Board. */
+/** Copy to: copies a day before today onto another day, today or later, that is still empty (the next Working day, on the Board). */
 async function copyTo(request: Request, env: Env, from: string): Promise<Response> {
   const body = await readJson<{ to?: unknown }>(request);
   if (body instanceof Response) return body;
   if (!isCalendarDate(from)) return refuse({ date: 'Pick a day to copy.' });
+  if (!isPast(env, from)) return refuse({ date: 'Copy to copies a day before today. Pick an earlier day.' });
   const to = body.to;
   if (!isCalendarDate(to)) return refuse({ to: 'Pick a day to copy onto.' });
-  if (isPast(env, to)) return refuse({ to: PAST_DATE });
+  if (isPast(env, to)) return refuse({ to: PAST_DAY.date });
   return copyOnto(env, from, to);
 }
 
@@ -403,11 +404,7 @@ async function changeAssignment(request: Request, env: Env, id: string): Promise
     }
     const differs = keys.map((key) => `${COLUMN_OF[key]} IS NOT ?`).join(' OR ');
     // First, on a Sent day, its fields as they were, kept only when the update below really changes it.
-    const keep = env.DB.prepare(
-      `INSERT INTO assignment_changes (id, assignment_id, changed_at, before)
-       SELECT ?, id, ?, (${FIELDS_BEFORE}) FROM assignments
-        WHERE id = ? AND cancelled_at IS NULL AND date IN (SELECT date FROM day_sends) AND (${differs})`,
-    ).bind(crypto.randomUUID(), now, id, ...values);
+    const keep = keepBefore(env, id, now, `cancelled_at IS NULL AND (${differs})`, ...values);
     if (!('driverId' in changes)) {
       const update = env.DB.prepare(
         `UPDATE assignments SET ${set.join(', ')}, updated_at = ?, changed_at = ? WHERE id = ? AND cancelled_at IS NULL AND (${differs})`,
@@ -455,6 +452,20 @@ const FIELDS_BEFORE = `SELECT json_object(
   LEFT JOIN materials m ON m.id = b.material_id LEFT JOIN foremen f ON f.id = b.foreman_id
   WHERE b.id = assignments.id`;
 
+/**
+ * On a Sent day, keeps an Assignment's fields as they were before a change
+ * (FIELDS_BEFORE) in the add-only assignment_changes record, so the Driver
+ * can be shown what it was. Kept only when its day is Sent and `when` (SQL on
+ * its row, with `binds` for its ?s) holds; put it in the same batch, before
+ * the write that changes it, so it reads the row as it was.
+ */
+function keepBefore(env: Env, id: string, now: string, when = 'TRUE', ...binds: unknown[]): D1PreparedStatement {
+  return env.DB.prepare(
+    `INSERT INTO assignment_changes (id, assignment_id, changed_at, before)
+     SELECT ?, id, ?, (${FIELDS_BEFORE}) FROM assignments WHERE id = ? AND date IN (SELECT date FROM day_sends) AND (${when})`,
+  ).bind(crypto.randomUUID(), now, id, ...binds);
+}
+
 /** Which way "Do this first" ("earlier") and "Do this later" ("later") move an Assignment in its lane. */
 const DIRECTIONS = { earlier: -1, later: 1 } as const;
 
@@ -464,7 +475,9 @@ const DIRECTIONS = { earlier: -1, later: 1 } as const;
  * in its new order, so Assignments that shared a position (saved before they
  * had one) each get their own. Only the one moved is recorded as changed: the
  * neighbour that shifted is not, so a Driver is not told it changed. Answers
- * the lane in its new order. The first cannot move earlier nor the last later.
+ * the lane in its new order. Cancelled ones keep their place and are stepped
+ * over: it swaps with the nearest one that is not cancelled, and the first (or
+ * last) not cancelled cannot move earlier (or later).
  */
 async function moveAssignment(request: Request, env: Env, id: string): Promise<Response> {
   const body = await readJson<{ direction?: unknown }>(request);
@@ -478,7 +491,9 @@ async function moveAssignment(request: Request, env: Env, id: string): Promise<R
 
   const lane = await readLane(env, existing.date, existing.driverId);
   const from = lane.findIndex((a) => a.id === id);
-  const to = from + DIRECTIONS[direction];
+  // Cancelled ones keep their place but are stepped over: it swaps with the nearest one still on.
+  let to = from + DIRECTIONS[direction];
+  while (lane[to]?.cancelledAt) to += DIRECTIONS[direction];
   if (to < 0 || to >= lane.length) {
     const end = direction === 'earlier' ? 'first' : 'last';
     return json({ error: 'lane_end', message: `This Assignment is already ${end} in its lane.` }, 409);
@@ -489,10 +504,7 @@ async function moveAssignment(request: Request, env: Env, id: string): Promise<R
   const now = clock(env).now.toISOString();
   // On a Sent day, the moved one's fields as they were (its place among them),
   // kept as any change is; the neighbour that shifted keeps nothing.
-  const keep = env.DB.prepare(
-    `INSERT INTO assignment_changes (id, assignment_id, changed_at, before)
-     SELECT ?, id, ?, (${FIELDS_BEFORE}) FROM assignments WHERE id = ? AND date IN (SELECT date FROM day_sends)`,
-  ).bind(crypto.randomUUID(), now, id);
+  const keep = keepBefore(env, id, now);
   // One statement renumbers the lane, so it is never left half renumbered.
   const renumber = env.DB.prepare(
     `UPDATE assignments SET position = (SELECT key FROM json_each(?1) WHERE value = assignments.id),
@@ -535,10 +547,7 @@ async function takeOff(env: Env, id: string): Promise<Response> {
   const now = clock(env).now.toISOString();
   const sent = 'date IN (SELECT date FROM day_sends)';
   await env.DB.batch([
-    env.DB.prepare(
-      `INSERT INTO assignment_changes (id, assignment_id, changed_at, before)
-       SELECT ?, id, ?, (${FIELDS_BEFORE}) FROM assignments WHERE id = ? AND cancelled_at IS NULL AND ${sent}`,
-    ).bind(crypto.randomUUID(), now, id),
+    keepBefore(env, id, now, 'cancelled_at IS NULL'),
     env.DB.prepare(`DELETE FROM assignments WHERE id = ? AND NOT ${sent}`).bind(id),
     env.DB.prepare(
       `UPDATE assignments SET cancelled_at = ?1, changed_at = ?1, updated_at = ?1 WHERE id = ?2 AND cancelled_at IS NULL AND ${sent}`,
@@ -560,10 +569,7 @@ async function putBack(env: Env, id: string): Promise<Response> {
   if (isPast(env, existing.date)) return onPastDay();
   const now = clock(env).now.toISOString();
   await env.DB.batch([
-    env.DB.prepare(
-      `INSERT INTO assignment_changes (id, assignment_id, changed_at, before)
-       SELECT ?, id, ?, (${FIELDS_BEFORE}) FROM assignments WHERE id = ? AND cancelled_at IS NOT NULL AND date IN (SELECT date FROM day_sends)`,
-    ).bind(crypto.randomUUID(), now, id),
+    keepBefore(env, id, now, 'cancelled_at IS NOT NULL'),
     env.DB.prepare(
       'UPDATE assignments SET cancelled_at = NULL, changed_at = ?1, updated_at = ?1 WHERE id = ?2 AND cancelled_at IS NOT NULL',
     ).bind(now, id),
@@ -571,13 +577,23 @@ async function putBack(env: Env, id: string): Promise<Response> {
   return json({ assignment: await findAssignment(env, id) });
 }
 
+/** What the Worker says when a day sent is not a calendar date. */
+const PICK_DATE = 'Pick a date.';
+
+/** Every refusal of a day before today, in one place so they read alike: a date given for new work, a Send, and an Assignment already on one. */
+const PAST_DAY = {
+  date: 'Days before today are read-only. Pick today or a later day.',
+  send: 'Days before today are read-only, so they cannot be Sent.',
+  assignment: 'This Assignment is on a day before today, which is read-only.',
+} as const;
+
 /** Days before today (US Eastern) are read-only: nothing on them is added, changed, moved, deleted, cancelled or put back. */
 function isPast(env: Env, date: string): boolean {
   return date < clock(env).today;
 }
 
 function onPastDay(): Response {
-  return json({ error: 'past_day', message: 'This Assignment is on a day before today, which is read-only.' }, 409);
+  return json({ error: 'past_day', message: PAST_DAY.assignment }, 409);
 }
 
 async function findAssignment(env: Env, id: string): Promise<Assignment | null> {
@@ -638,8 +654,8 @@ async function readAssignment(request: Request, env: Env): Promise<ReadAssignmen
   if (body instanceof Response) return body;
 
   const errors = await checkFields(env, body);
-  if (!isCalendarDate(body.date)) errors.date = 'Pick a date.';
-  else if (isPast(env, body.date)) errors.date = PAST_DATE;
+  if (!isCalendarDate(body.date)) errors.date = PICK_DATE;
+  else if (isPast(env, body.date)) errors.date = PAST_DAY.date;
   if (Object.keys(errors).length > 0) return refuse(errors);
   const ids = Object.fromEntries(REFERENCES.map((r) => [r.key, text(body[r.key]) || null])) as Record<ReferenceKey, string | null>;
   return { date: body.date as string, ...ids, note: text(body.note) || null, typed: typedIn(body) };
@@ -677,8 +693,6 @@ async function checkFields(env: Env, body: Partial<NewAssignment & TypedNames>):
   });
   return errors;
 }
-
-const PAST_DATE = 'Days before today are read-only. Pick today or a later day.';
 
 const NOTE_LIMIT = 1000;
 
