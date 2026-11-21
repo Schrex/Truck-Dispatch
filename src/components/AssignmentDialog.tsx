@@ -10,7 +10,7 @@ import { ListPicker } from '@/components/ListPicker';
 import { toast } from '@/components/ui/sonner';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { addAssignment, changeAssignment, deleteAssignment, fieldsOf, FieldErrors, Refused } from '@/lib/api';
+import { addAssignment, changeAssignment, changesOf, deleteAssignment, fieldsOf, FieldErrors, Refused } from '@/lib/api';
 import { choicesOf } from '@/lib/lists';
 
 interface Form {
@@ -29,7 +29,8 @@ const EMPTY = { driverId: null, truckId: null, fromPlaceId: null, toPlaceId: nul
 /**
  * "Add Assignment" (with its own button), or, given `editing`, the same dialog
  * for an existing Assignment: every field can be changed or cleared, and it
- * can be deleted or duplicated to another Driver. Only the date is required. In edit mode the Board opens it by
+ * can be deleted or duplicated to another Driver, but its day is fixed. Only
+ * the date is required, and saving an edit sends only the fields that changed. In edit mode the Board opens it by
  * setting `editing` and closes it through onClose.
  */
 export function AssignmentDialog({
@@ -147,7 +148,18 @@ export function AssignmentDialog({
     setSaving(true);
     setFailed(null);
     try {
-      const assignment = editing ? await changeAssignment(editing.id, form) : await addAssignment(form);
+      let assignment: Assignment;
+      if (editing) {
+        const { date: _day, ...edited } = form;
+        const changes = changesOf(editing, edited);
+        if (Object.keys(changes).length === 0) {
+          setOpen(false);
+          return;
+        }
+        assignment = await changeAssignment(editing.id, changes);
+      } else {
+        assignment = await addAssignment(form);
+      }
       toast.success('Assignment saved');
       onSaved(assignment);
       setOpen(false);
@@ -172,14 +184,14 @@ export function AssignmentDialog({
           <DialogTitle className="font-display text-xl uppercase tracking-wide">{editing ? 'Edit Assignment' : 'Add Assignment'}</DialogTitle>
           <DialogDescription>
             {editing
-              ? 'Change any field, clear one, move it to another Driver or day, or delete it.'
+              ? 'Change any field, clear one, move it to another Driver, or delete it. It stays on its day.'
               : 'Only the date is needed. Fill in what you know now and the rest later.'}
           </DialogDescription>
         </DialogHeader>
 
         <form id="assignment" onSubmit={submit} className="grid gap-4 sm:grid-cols-2" noValidate>
           <Field id="date" label="Date" error={errors.date}>
-            <Input id="date" type="date" required value={form.date} onChange={(e) => set('date', e.target.value)} />
+            <Input id="date" type="date" required disabled={editMode} value={form.date} onChange={(e) => set('date', e.target.value)} />
           </Field>
           <Field id="driverId" label="Driver" optional error={errors.driverId}>
             <ListPicker id="driverId" label="Driver" empty="No Driver" choices={choicesOf('drivers', drivers)} value={form.driverId} onChange={pickDriver} />

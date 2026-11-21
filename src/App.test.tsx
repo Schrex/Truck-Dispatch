@@ -113,21 +113,24 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       position: lastInLane(fields.date, fields.driverId),
       createdAt: '2026-11-19T20:00:00.000Z',
       updatedAt: '2026-11-19T20:00:00.000Z',
+      changedAt: null,
     };
     assignments.push(assignment);
     return answer({ assignment }, 201);
   }
   const one = /\/api\/assignments\/([^/]+)$/.exec(url.pathname);
-  if (one && init?.method === 'PUT') {
+  if (one && init?.method === 'PATCH') {
+    // Only the fields sent change; a real change of Driver goes last in his lane.
     const index = assignments.findIndex((a) => a.id === one[1]);
-    const fields = resolve(JSON.parse(String(init.body)));
     const before = assignments[index];
-    const sameLane = before.date === fields.date && (before.driverId ?? null) === fields.driverId;
+    const fields = resolve({ ...before, ...JSON.parse(String(init.body)) } as Parameters<typeof resolve>[0]);
+    const sameLane = (before.driverId ?? null) === fields.driverId;
     assignments[index] = {
       ...before,
       ...fields,
       position: sameLane ? before.position : lastInLane(fields.date, fields.driverId),
       updatedAt: '2026-11-19T21:00:00.000Z',
+      changedAt: '2026-11-19T21:00:00.000Z',
     };
     return answer({ assignment: assignments[index] });
   }
@@ -525,17 +528,37 @@ describe('changing the plan', () => {
     expect(within(lane('Sample Driver A')).getByText('Nothing planned yet')).toBeTruthy();
   });
 
-  it('moves it to the other day when the date changes, and shows that day', async () => {
+  it('sends only the fields that changed, so a change made elsewhere to another field stays', async () => {
+    assignments = [planned({ truckId: 'trk-21', truckNumber: '21' })];
+    open('/?date=2026-11-20');
+    const dialog = await edit('Haul stone · Truck 21');
+    // Meanwhile, on another device, the Truck is changed.
+    assignments[0] = { ...assignments[0], truckId: 'trk-24', truckNumber: '24' };
+    fireEvent.change(within(dialog).getByLabelText(/Note/), { target: { value: 'Haul topsoil' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
+
+    expect(await within(await findLane('Sample Driver A')).findByText('Haul topsoil')).toBeTruthy();
+    expect(sent).toEqual([{ note: 'Haul topsoil' }]);
+    expect(blocks('Sample Driver A')).toEqual(['First · Haul topsoil · Truck 24']);
+  });
+
+  it('sends nothing when nothing changed, and closes', async () => {
     assignments = [planned()];
     open('/?date=2026-11-20');
     const dialog = await edit('Haul stone');
-    fireEvent.change(within(dialog).getByLabelText('Date'), { target: { value: '2026-11-23' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
 
-    await waitFor(() => expect(address()).toBe('/?date=2026-11-23'));
-    expect(await within(await findLane('Sample Driver A')).findByText('Haul stone')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Previous Working day, Fri 20' }));
-    expect(await screen.findByText('No Assignments for this day')).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(api.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(false);
+  });
+
+  it('keeps the Assignment on its day: the date cannot be changed', async () => {
+    assignments = [planned()];
+    open('/?date=2026-11-20');
+    const dialog = await edit('Haul stone');
+    const date = within(dialog).getByLabelText('Date') as HTMLInputElement;
+    expect(date.value).toBe('2026-11-20');
+    expect(date.disabled).toBe(true);
   });
 
   it('deletes an Assignment after a second click to confirm, and it leaves the Board', async () => {
@@ -559,6 +582,7 @@ describe('changing the plan', () => {
     api.mockImplementationOnce(async () =>
       new Response(JSON.stringify({ error: 'past_day', message: 'This Assignment is on a day before today, which is read-only.' }), { status: 409 }),
     );
+    fireEvent.change(within(dialog).getByLabelText(/Note/), { target: { value: 'Haul topsoil' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
     expect(await within(dialog).findByText('This Assignment is on a day before today, which is read-only.')).toBeTruthy();
     expect(screen.getByRole('dialog')).toBeTruthy();
@@ -654,7 +678,7 @@ describe('the Truck', () => {
     fireEvent.change(within(dialog).getByLabelText(/Note/), { target: { value: 'Haul topsoil' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
     expect(await screen.findByText('Assignment saved')).toBeTruthy();
-    expect(sent).toEqual([expect.objectContaining({ driverId: 'drv-x', truckId: 'trk-99', note: 'Haul topsoil' })]);
+    expect(sent).toEqual([{ note: 'Haul topsoil' }]);
     expect(within(lane('Sample Driver X')).getByRole('listitem').textContent).toBe('First · Haul topsoil · Truck 99');
   });
 });
@@ -743,7 +767,7 @@ describe('From and To Places', () => {
     fireEvent.change(within(dialog).getByLabelText(/Note/), { target: { value: 'Haul topsoil' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
     expect(await screen.findByText('Assignment saved')).toBeTruthy();
-    expect(sent).toEqual([expect.objectContaining({ fromPlaceId: 'plc-x', toPlaceId: 'plc-north', note: 'Haul topsoil' })]);
+    expect(sent).toEqual([{ note: 'Haul topsoil' }]);
     expect(within(lane('Sample Driver A')).getByRole('listitem').textContent).toBe('First · Sample Old Pit → Sample Site North · Haul topsoil');
   });
 
@@ -810,7 +834,7 @@ describe('the Material and Foreman', () => {
     fireEvent.change(within(dialog).getByLabelText(/Note/), { target: { value: 'Two loads' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
     expect(await screen.findByText('Assignment saved')).toBeTruthy();
-    expect(sent).toEqual([expect.objectContaining({ materialId: 'mat-old', foremanId: 'frm-x', note: 'Two loads' })]);
+    expect(sent).toEqual([{ note: 'Two loads' }]);
   });
 });
 
