@@ -51,20 +51,23 @@ const MARKS: Record<Exclude<SinceSent, null>, { word: string; className: string 
  * his own, so his usual Truck shows in grey, read aloud as "(his own)", or
  * nothing when he has none. Once its day is Sent, a block Changed or Added
  * since is marked so beside First or Then, so Dave sees what the Drivers
- * have had changed. With onEdit (today and later days) the block opens the
- * Assignment; without it (past days) it is plain.
+ * have had changed. With onEdit (today and later days) tapping the block
+ * opens or closes the Assignment in its lane; without it (past days) it is plain.
  */
 export function AssignmentBlock({
   assignment,
   first,
   usualTruck = null,
   onEdit,
+  open = false,
 }: {
   assignment: Assignment;
   first: boolean;
   /** The number of the Driver's usual Truck, shown when the Assignment names no Truck. */
   usualTruck?: string | null;
   onEdit?: (assignment: Assignment) => void;
+  /** Whether it is open in its lane; tapping it again closes it. */
+  open?: boolean;
 }) {
   const places = [assignment.fromPlaceName, assignment.toPlaceName].filter(Boolean).join(' → ');
   const parts: Detail[] = [
@@ -122,7 +125,8 @@ export function AssignmentBlock({
       <button
         type="button"
         aria-label={`Edit ${words}${mark ? ` · ${mark.word}` : ''}`}
-        className={cn(frame, 'hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring')}
+        aria-expanded={open}
+        className={cn(frame, 'hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring', open && 'border-primary ring-1 ring-primary')}
         onClick={() => onEdit(assignment)}
       >
         {body}

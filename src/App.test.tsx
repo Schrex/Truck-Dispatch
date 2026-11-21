@@ -91,6 +91,11 @@ const resolve = (body: {
 /** Where the Worker puts an Assignment that joins a lane: after the last one already in it. */
 const lastInLane = (date: unknown, driverId: unknown) =>
   Math.max(-1, ...assignments.filter((a) => a.date === date && (a.driverId ?? null) === (driverId ?? null)).map((a) => Number(a.position ?? 0))) + 1;
+/** An Assignment as the Worker answers it: marked Changed or Added since its day was Sent, by the shared day rules. */
+const marked = (a: Record<string, unknown>) => ({
+  ...a,
+  sinceSent: sinceSent({ createdAt: String(a.createdAt), changedAt: (a.changedAt as string | null) ?? null }, daySends[String(a.date)] ?? null),
+});
 const sent: unknown[] = [];
 const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = new URL(String(input), 'https://td.example');
@@ -122,6 +127,21 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     return answer({ assignments: copies }, 201);
   }
   if (init?.body) sent.push(JSON.parse(String(init.body)));
+  const moving = /\/api\/assignments\/([^/]+)\/move$/.exec(url.pathname);
+  if (moving && init?.method === 'POST') {
+    if (failSaves) return answer({ error: 'oops' }, 500);
+    // Swaps it with its neighbour and numbers the lane again; only the one moved is changed.
+    const moved = assignments.find((a) => a.id === moving[1])!;
+    const inLane = assignments
+      .filter((a) => a.date === moved.date && (a.driverId ?? null) === (moved.driverId ?? null))
+      .sort((a, b) => Number(a.position ?? 0) - Number(b.position ?? 0));
+    const from = inLane.indexOf(moved);
+    const to = from + (JSON.parse(String(init.body)).direction === 'earlier' ? -1 : 1);
+    [inLane[from], inLane[to]] = [inLane[to], inLane[from]];
+    inLane.forEach((a, position) => (a.position = position));
+    Object.assign(moved, { updatedAt: '2026-11-19T21:00:00.000Z', changedAt: '2026-11-19T21:00:00.000Z' });
+    return answer({ assignments: inLane.map(marked) });
+  }
   if (init?.method === 'POST') {
     if (failSaves) return answer({ error: 'oops' }, 500);
     if (refuse) return answer({ error: 'invalid', fields: refuse }, 400);
@@ -139,10 +159,13 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   }
   const one = /\/api\/assignments\/([^/]+)$/.exec(url.pathname);
   if (one && init?.method === 'PATCH') {
+    if (failSaves) return answer({ error: 'oops' }, 500);
     // Only the fields sent change; a real change of Driver goes last in his lane.
     const index = assignments.findIndex((a) => a.id === one[1]);
     const before = assignments[index];
-    const fields = resolve({ ...before, ...JSON.parse(String(init.body)) } as Parameters<typeof resolve>[0]);
+    // The names it had are answers, not typed names: only a name the change sends is typed.
+    const { fromPlaceName: _from, toPlaceName: _to, materialName: _material, ...ids } = before;
+    const fields = resolve({ ...ids, ...JSON.parse(String(init.body)) } as Parameters<typeof resolve>[0]);
     const sameLane = (before.driverId ?? null) === fields.driverId;
     assignments[index] = {
       ...before,
@@ -151,7 +174,7 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       updatedAt: '2026-11-19T21:00:00.000Z',
       changedAt: '2026-11-19T21:00:00.000Z',
     };
-    return answer({ assignment: assignments[index] });
+    return answer({ assignment: marked(assignments[index]) });
   }
   if (one && init?.method === 'DELETE') {
     assignments = assignments.filter((a) => a.id !== one[1]);
@@ -160,12 +183,11 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   if (failLoads) return answer({ error: 'oops' }, 500);
   // In each lane's order (the page groups the lanes itself), marked Changed or Added by the shared day rules, as the Worker does.
   const date = url.searchParams.get('date') ?? '';
-  const sentAt = daySends[date] ?? null;
   const day = assignments
     .filter((a) => a.date === date)
     .sort((a, b) => Number(a.position ?? 0) - Number(b.position ?? 0))
-    .map((a) => ({ ...a, sinceSent: sinceSent({ createdAt: String(a.createdAt), changedAt: (a.changedAt as string | null) ?? null }, sentAt) }));
-  return answer({ assignments: day, sentAt });
+    .map(marked);
+  return answer({ assignments: day, sentAt: daySends[date] ?? null });
 });
 
 const open = (address: string) => {
@@ -634,124 +656,213 @@ describe('the composer', () => {
   });
 });
 
-describe('changing the plan', () => {
+describe('opening an Assignment', () => {
   const planned = (fields: Record<string, unknown> = {}) => ({
-    id: 'a1', date: '2026-11-20', driverId: 'drv-a', driverName: 'Sample Driver A', note: 'Haul stone',
-    createdAt: '2026-11-19T20:00:00.000Z', updatedAt: '2026-11-19T20:00:00.000Z', ...fields,
+    id: 'a1', date: '2026-11-20', driverId: 'drv-a', driverName: 'Sample Driver A', note: 'Haul stone', position: 0,
+    createdAt: '2026-11-19T20:00:00.000Z', updatedAt: '2026-11-19T20:00:00.000Z', changedAt: null, ...fields,
   });
-  const edit = async (line: string) => {
-    fireEvent.click(await screen.findByRole('button', { name: `Edit ${line}` }));
-    return screen.getByRole('dialog', { name: 'Edit Assignment' });
+  /** Taps a block by what it says, and answers its open sentence of chips, once the lists it offers have loaded. */
+  const openBlock = async (words: string) => {
+    fireEvent.click(await screen.findByRole('button', { name: `Edit ${words}` }));
+    const opened = screen.getByRole('region', { name: 'Open Assignment' });
+    await waitFor(() => expect(within(opened).getByRole('button', { name: /^Driver:/ }).hasAttribute('disabled')).toBe(false));
+    return opened;
   };
-  const pickDriver = async (dialog: HTMLElement, id: string) => {
-    // The Driver picker's own form control: jsdom cannot open the listbox.
-    await waitFor(() => expect(dialog.querySelector(`select option[value="${id}"]`)).toBeTruthy());
-    fireEvent.change(dialog.querySelector('select')!, { target: { value: id } });
+  /** The sentence's chips as they read: each part and its value. */
+  const sentenceOf = (opened: HTMLElement) =>
+    within(opened).getAllByRole('button', { name: /^(Driver|Material|From|To|Truck|Foreman):/ }).map((chip) => chip.getAttribute('aria-label'));
+  /** Taps a part of the sentence, and answers the row of choices it offers. */
+  const tapPart = (opened: HTMLElement, part: string) => {
+    fireEvent.click(within(opened).getByRole('button', { name: new RegExp(`^${part}:`) }));
+    return within(opened).getByRole('group', { name: part });
   };
-
+  const choicesIn = (row: HTMLElement) => within(row).getAllByRole('button').map((choice) => choice.textContent);
+  const pick = (opened: HTMLElement, part: string, choice: string) => fireEvent.click(within(tapPart(opened, part)).getByRole('button', { name: choice }));
   const findLane = (driver: string) => screen.findByRole('article', { name: driver });
 
-  it('opens an Assignment in the same dialog, filled in, and saves an edit onto the Board', async () => {
+  it('opens a tapped block in its lane as a sentence of chips with its note, and closes it when tapped again', async () => {
+    assignments = [planned({ fromPlaceId: 'plc-plant', fromPlaceName: 'Sample Plant', materialId: 'mat-minus', materialName: '2" minus' })];
+    open('/?date=2026-11-20');
+    const opened = await openBlock('Sample Plant · 2" minus · Haul stone');
+    expect(within(lane('Sample Driver A')).getByRole('region', { name: 'Open Assignment' })).toBe(opened);
+    expect(sentenceOf(opened)).toEqual([
+      'Driver: Sample Driver A', 'Material: 2" minus', 'From: Sample Plant', 'To: no Place', 'Truck: His own', 'Foreman: no Foreman',
+    ]);
+    expect((within(opened).getByRole('textbox', { name: 'Note' }) as HTMLTextAreaElement).value).toBe('Haul stone');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Sample Plant · 2" minus · Haul stone' }));
+    expect(screen.queryByRole('region', { name: 'Open Assignment' })).toBeNull();
+  });
+
+  it('keeps one Assignment open at a time', async () => {
+    assignments = [planned(), planned({ id: 'a2', driverId: 'drv-b', driverName: 'Sample Driver B', note: 'Topsoil run' })];
+    open('/?date=2026-11-20');
+    await openBlock('Haul stone');
+    await openBlock('Topsoil run');
+    expect(screen.getAllByRole('region', { name: 'Open Assignment' })).toHaveLength(1);
+    expect(within(lane('Sample Driver B')).getByRole('region', { name: 'Open Assignment' })).toBeTruthy();
+  });
+
+  it('offers each part\'s list, active entries only, with "Leave blank", Unassigned for the Driver and His own for the Truck', async () => {
     assignments = [planned()];
     open('/?date=2026-11-20');
-    const dialog = await edit('Haul stone');
-    expect((within(dialog).getByLabelText('Date') as HTMLInputElement).value).toBe('2026-11-20');
-    expect((within(dialog).getByLabelText(/Note/) as HTMLTextAreaElement).value).toBe('Haul stone');
-    expect((dialog.querySelector('select') as HTMLSelectElement).value).toBe('drv-a');
-
-    fireEvent.change(within(dialog).getByLabelText(/Note/), { target: { value: 'Haul topsoil' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
-
-    expect(await within(await findLane('Sample Driver A')).findByText('Haul topsoil')).toBeTruthy();
-    expect(screen.queryByText('Haul stone')).toBeNull();
-    expect(screen.queryByRole('dialog')).toBeNull();
+    const opened = await openBlock('Haul stone');
+    expect(choicesIn(tapPart(opened, 'Driver'))).toEqual(['Sample Driver A', 'Sample Driver B', 'Unassigned']);
+    expect(choicesIn(tapPart(opened, 'Material'))).toEqual(['2" minus', 'Sample Dirt', 'Leave blank']);
+    expect(choicesIn(tapPart(opened, 'From'))).toEqual(['Sample Plant', 'Sample Site North', 'Leave blank']);
+    expect(choicesIn(tapPart(opened, 'To'))).toEqual(['Sample Plant', 'Sample Site North', 'Leave blank']);
+    expect(choicesIn(tapPart(opened, 'Truck'))).toEqual(['His own', '21', '24']);
+    expect(choicesIn(tapPart(opened, 'Foreman'))).toEqual(['Sample Foreman A', 'Leave blank']);
+    // One row of choices at a time.
+    expect(within(opened).getAllByRole('group')).toHaveLength(1);
   });
 
-  it('clears a field that was set', async () => {
+  it('still offers, and shows, an entry made inactive since that the Assignment uses', async () => {
+    assignments = [planned({ driverId: 'drv-x', driverName: 'Sample Driver X', truckId: 'trk-99', truckNumber: '99', fromPlaceId: 'plc-x', fromPlaceName: 'Sample Old Pit' })];
+    open('/?date=2026-11-20');
+    const opened = await openBlock('Sample Old Pit · Haul stone · Truck 99');
+    expect(sentenceOf(opened).slice(0, 5)).toEqual(['Driver: Sample Driver X', 'Material: no Material', 'From: Sample Old Pit', 'To: no Place', 'Truck: 99']);
+    expect(choicesIn(tapPart(opened, 'From'))).toEqual(['Sample Plant', 'Sample Site North', 'Sample Old Pit (removed)', 'Leave blank']);
+    expect(choicesIn(tapPart(opened, 'To'))).toEqual(['Sample Plant', 'Sample Site North', 'Leave blank']);
+  });
+
+  it('saves a chip on its own, sending only that field, and the block shows it', async () => {
     assignments = [planned()];
     open('/?date=2026-11-20');
-    const dialog = await edit('Haul stone');
-    fireEvent.change(within(dialog).getByLabelText(/Note/), { target: { value: '' } });
-    await pickDriver(dialog, 'none');
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
-
-    expect(await within(await findLane('Unassigned')).findByText('No details yet')).toBeTruthy();
+    const opened = await openBlock('Haul stone');
+    pick(opened, 'Material', 'Sample Dirt');
+    await waitFor(() => expect(sentenceOf(opened)[1]).toBe('Material: Sample Dirt'));
+    expect(sent).toEqual([{ materialId: 'mat-dirt' }]);
+    expect(blocks('Sample Driver A')).toEqual(['First · Haul stone · Sample Dirt · Truck 21 (his own)']);
+    expect(within(opened).queryByRole('group')).toBeNull();
   });
 
-  it('moves the block to the end of the other Driver\'s lane when the Driver changes', async () => {
-    assignments = [planned({ position: 0 }), planned({ id: 'a2', driverId: 'drv-b', driverName: 'Sample Driver B', note: 'Topsoil run', position: 0 })];
+  it('clears a part with "Leave blank", and sets the Truck back to His own', async () => {
+    assignments = [planned({ materialId: 'mat-minus', materialName: '2" minus', truckId: 'trk-24', truckNumber: '24' })];
     open('/?date=2026-11-20');
-    const dialog = await edit('Haul stone');
-    await pickDriver(dialog, 'drv-b');
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
-
-    expect(await within(await findLane('Sample Driver B')).findByText('Haul stone')).toBeTruthy();
-    // The Assignment names no Truck, so it shows his own.
-    expect(blocks('Sample Driver B')).toEqual(['First · Topsoil run · Truck 24 (his own)', 'Then · Haul stone · Truck 24 (his own)']);
-    expect(within(lane('Sample Driver A')).getByText('Nothing planned yet')).toBeTruthy();
+    const opened = await openBlock('Haul stone · 2" minus · Truck 24');
+    pick(opened, 'Material', 'Leave blank');
+    await waitFor(() => expect(sentenceOf(opened)[1]).toBe('Material: no Material'));
+    pick(opened, 'Truck', 'His own');
+    await waitFor(() => expect(sentenceOf(opened)[4]).toBe('Truck: His own'));
+    expect(sent).toEqual([{ materialId: null }, { truckId: null }]);
+    expect(blocks('Sample Driver A')).toEqual(['First · Haul stone · Truck 21 (his own)']);
   });
 
-  it('sends only the fields that changed, so a change made elsewhere to another field stays', async () => {
-    assignments = [planned({ truckId: 'trk-21', truckNumber: '21' })];
+  it('saves the note on its own when Dave leaves it', async () => {
+    assignments = [planned({ materialId: 'mat-minus', materialName: '2" minus' })];
     open('/?date=2026-11-20');
-    const dialog = await edit('Haul stone · Truck 21');
-    // Meanwhile, on another device, the Truck is changed.
-    assignments[0] = { ...assignments[0], truckId: 'trk-24', truckNumber: '24' };
-    fireEvent.change(within(dialog).getByLabelText(/Note/), { target: { value: 'Haul topsoil' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
-
-    expect(await within(await findLane('Sample Driver A')).findByText('Haul topsoil')).toBeTruthy();
+    const opened = await openBlock('Haul stone · 2" minus');
+    const note = within(opened).getByRole('textbox', { name: 'Note' });
+    fireEvent.change(note, { target: { value: 'Haul topsoil' } });
+    fireEvent.blur(note);
+    expect(await within(lane('Sample Driver A')).findByText('Haul topsoil')).toBeTruthy();
     expect(sent).toEqual([{ note: 'Haul topsoil' }]);
-    expect(blocks('Sample Driver A')).toEqual(['First · Haul topsoil · Truck 24']);
+    // Leaving it again unchanged sends nothing more.
+    fireEvent.blur(note);
+    expect(sent).toHaveLength(1);
   });
 
-  it('sends nothing when nothing changed, and closes', async () => {
+  it('says so when a chip cannot be saved, and keeps showing the value it had', async () => {
     assignments = [planned()];
     open('/?date=2026-11-20');
-    const dialog = await edit('Haul stone');
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
-
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(api.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(false);
+    const opened = await openBlock('Haul stone');
+    failSaves = true;
+    pick(opened, 'Material', 'Sample Dirt');
+    expect(await within(opened).findByText('Could not save the Material. Try again.')).toBeTruthy();
+    expect(sentenceOf(opened)[1]).toBe('Material: no Material');
+    expect(blocks('Sample Driver A')).toEqual(['First · Haul stone · Truck 21 (his own)']);
   });
 
-  it('keeps the Assignment on its day: the date cannot be changed', async () => {
+  it('shows the Worker\'s message when a change is refused, e.g. for a day that is now past', async () => {
     assignments = [planned()];
     open('/?date=2026-11-20');
-    const dialog = await edit('Haul stone');
-    const date = within(dialog).getByLabelText('Date') as HTMLInputElement;
-    expect(date.value).toBe('2026-11-20');
-    expect(date.disabled).toBe(true);
-  });
-
-  it('deletes an Assignment after a second click to confirm, and it leaves the Board', async () => {
-    assignments = [planned(), planned({ id: 'a2', note: 'Topsoil run' })];
-    open('/?date=2026-11-20');
-    const dialog = await edit('Haul stone');
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
-    expect(assignments).toHaveLength(2);
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete for good' }));
-
-    expect(await screen.findByText('Assignment deleted')).toBeTruthy();
-    await waitFor(() => expect(screen.queryByText('Haul stone')).toBeNull());
-    expect(within(lane('Sample Driver A')).getByText('Topsoil run')).toBeTruthy();
-    expect(screen.queryByRole('dialog')).toBeNull();
-  });
-
-  it('shows a message when a change is refused for a past day, and keeps the dialog open', async () => {
-    assignments = [planned({ date: '2026-11-19' })];
-    open('/?date=2026-11-19');
-    const dialog = await edit('Haul stone');
+    const opened = await openBlock('Haul stone');
     api.mockImplementationOnce(async () =>
       new Response(JSON.stringify({ error: 'past_day', message: 'This Assignment is on a day before today, which is read-only.' }), { status: 409 }),
     );
-    fireEvent.change(within(dialog).getByLabelText(/Note/), { target: { value: 'Haul topsoil' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
-    expect(await within(dialog).findByText('This Assignment is on a day before today, which is read-only.')).toBeTruthy();
-    expect(screen.getByRole('dialog')).toBeTruthy();
+    pick(opened, 'Foreman', 'Sample Foreman A');
+    expect(await within(opened).findByText('This Assignment is on a day before today, which is read-only.')).toBeTruthy();
+    expect(sentenceOf(opened)[5]).toBe('Foreman: no Foreman');
   });
 
-  it('shows a past day read-only: no add, edit or delete controls', async () => {
+  it('moves it to the end of another Driver\'s lane when the Driver changes, still open', async () => {
+    assignments = [planned(), planned({ id: 'a2', driverId: 'drv-b', driverName: 'Sample Driver B', note: 'Topsoil run' })];
+    open('/?date=2026-11-20');
+    const opened = await openBlock('Haul stone');
+    pick(opened, 'Driver', 'Sample Driver B');
+    await waitFor(() => expect(blocks('Sample Driver B')).toEqual(['First · Topsoil run · Truck 24 (his own)', 'Then · Haul stone · Truck 24 (his own)']));
+    expect(sent).toEqual([{ driverId: 'drv-b' }]);
+    expect(within(lane('Sample Driver A')).getByText('Nothing planned yet')).toBeTruthy();
+    expect(within(lane('Sample Driver B')).getByRole('region', { name: 'Open Assignment' })).toBeTruthy();
+  });
+
+  it('moves it to the end of the Unassigned lane when it is taken off its Driver', async () => {
+    assignments = [planned(), planned({ id: 'a2', driverId: null, driverName: null, note: 'Who takes this?' })];
+    open('/?date=2026-11-20');
+    pick(await openBlock('Haul stone'), 'Driver', 'Unassigned');
+    await waitFor(() => expect(blocks('Unassigned')).toEqual(['First · Who takes this?', 'Then · Haul stone']));
+    expect(sent).toEqual([{ driverId: null }]);
+  });
+
+  describe('Do this first and Do this later', () => {
+    const three = () => [
+      planned({ id: 'a1', note: 'Haul stone', position: 0 }),
+      planned({ id: 'a2', note: 'Topsoil run', position: 1 }),
+      planned({ id: 'a3', note: 'Fill the shop', position: 2 }),
+    ];
+    const lineup = () => blocks('Sample Driver A').map((block) => block?.replace(/ · Truck 21 \(his own\)$/, ''));
+
+    it('moves it one place earlier or later in its lane, and it stays open', async () => {
+      assignments = three();
+      open('/?date=2026-11-20');
+      const opened = await openBlock('Topsoil run');
+      fireEvent.click(within(opened).getByRole('button', { name: 'Do this first' }));
+      await waitFor(() => expect(lineup()).toEqual(['First · Topsoil run', 'Then · Haul stone', 'Then · Fill the shop']));
+      fireEvent.click(within(screen.getByRole('region', { name: 'Open Assignment' })).getByRole('button', { name: 'Do this later' }));
+      await waitFor(() => expect(lineup()).toEqual(['First · Haul stone', 'Then · Topsoil run', 'Then · Fill the shop']));
+      expect(sent).toEqual([{ direction: 'earlier' }, { direction: 'later' }]);
+    });
+
+    it('hides "Do this first" on the first in the lane and "Do this later" on the last, and both when it is alone', async () => {
+      assignments = [...three(), planned({ id: 'a4', driverId: 'drv-b', driverName: 'Sample Driver B', note: 'Alone' })];
+      open('/?date=2026-11-20');
+      const moves = (opened: HTMLElement) => within(opened).queryAllByRole('button', { name: /^Do this/ }).map((b) => b.textContent);
+      expect(moves(await openBlock('Haul stone'))).toEqual(['Do this later']);
+      expect(moves(await openBlock('Topsoil run'))).toEqual(['Do this first', 'Do this later']);
+      expect(moves(await openBlock('Fill the shop'))).toEqual(['Do this first']);
+      expect(moves(await openBlock('Alone'))).toEqual([]);
+    });
+
+    it('marks only the one moved Changed on a Sent day', async () => {
+      assignments = three();
+      daySends = { '2026-11-20': '2026-11-19T20:30:00.000Z' };
+      open('/?date=2026-11-20');
+      fireEvent.click(within(await openBlock('Fill the shop')).getByRole('button', { name: 'Do this first' }));
+      await waitFor(() => expect(lineup()).toEqual(['First · Haul stone', 'Then · Changed · Fill the shop', 'Then · Topsoil run']));
+    });
+
+    it('says so when a move fails, and keeps the order', async () => {
+      assignments = three();
+      open('/?date=2026-11-20');
+      const opened = await openBlock('Topsoil run');
+      failSaves = true;
+      fireEvent.click(within(opened).getByRole('button', { name: 'Do this first' }));
+      expect(await within(opened).findByText('Could not move the Assignment. Try again.')).toBeTruthy();
+      expect(lineup()).toEqual(['First · Haul stone', 'Then · Topsoil run', 'Then · Fill the shop']);
+    });
+  });
+
+  it('has no dialog and no Duplicate: the Assignment is changed where it sits', async () => {
+    assignments = [planned()];
+    open('/?date=2026-11-20');
+    const opened = await openBlock('Haul stone');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(within(opened).queryByText(/Duplicate/)).toBeNull();
+    expect(within(opened).queryByRole('textbox', { name: 'Date' })).toBeNull();
+  });
+
+  it('shows a past day read-only: no add or edit controls', async () => {
     assignments = [planned({ date: '2026-11-18' }), planned({ id: 'a2', date: '2026-11-18', driverId: null, driverName: null, note: 'Unplanned' })];
     open('/?date=2026-11-18');
     expect(await within(await findLane('Sample Driver A')).findByText('Haul stone')).toBeTruthy();
@@ -759,7 +870,7 @@ describe('changing the plan', () => {
     // Wait for the Worker's today, so the read-only view is not just the moment before it arrives.
     await waitFor(() => expect(api.mock.calls.some(([url]) => String(url).endsWith('/api/today'))).toBe(true));
     await act(async () => {});
-    expect(screen.queryByRole('button', { name: /Add Assignment|^Add an Assignment|^Edit |Delete/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Add an Assignment|^Edit / })).toBeNull();
     expect(screen.getByText(/read-only/i)).toBeTruthy();
   });
 
@@ -769,144 +880,12 @@ describe('changing the plan', () => {
     expect(await screen.findByRole('button', { name: 'Edit Haul stone' })).toBeTruthy();
     expect(await screen.findByRole('button', { name: 'Add an Assignment for Sample Driver A' })).toBeTruthy();
   });
-});
-
-describe('the Truck', () => {
-  /** A picker's own form control (jsdom cannot open the listbox), once its list has loaded. */
-  const picker = async (dialog: HTMLElement, name: 'driverId' | 'truckId') => {
-    await waitFor(() => expect(dialog.querySelectorAll(`select[name="${name}"] option`).length).toBeGreaterThan(1));
-    return dialog.querySelector(`select[name="${name}"]`) as HTMLSelectElement;
-  };
-  const choices = (select: HTMLSelectElement) => [...select.options].map((o) => o.textContent);
-
-  it('leaves inactive Drivers out of the Driver picker', async () => {
-    assignments = [{ id: 'a0', date: '2026-11-20', driverId: 'drv-a', driverName: 'Sample Driver A', note: 'Haul stone', createdAt: '', updatedAt: '' }];
-    open('/?date=2026-11-20');
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit Haul stone' }));
-    const dialog = screen.getByRole('dialog', { name: 'Edit Assignment' });
-    expect(choices(await picker(dialog, 'driverId'))).toEqual(['No Driver', 'Sample Driver A', 'Sample Driver B']);
-  });
 
   it('shows no Truck on the board for His own when the Driver has no usual Truck', async () => {
-    assignments = [{ id: 'a0', date: '2026-11-20', driverId: 'drv-x', driverName: 'Sample Driver X', note: 'Haul stone', createdAt: '', updatedAt: '' }];
+    assignments = [planned({ driverId: 'drv-x', driverName: 'Sample Driver X' })];
     open('/?date=2026-11-20');
-    expect(await within(await screen.findByRole('article', { name: 'Sample Driver X' })).findByText('Haul stone')).toBeTruthy();
+    expect(await within(await findLane('Sample Driver X')).findByText('Haul stone')).toBeTruthy();
     expect(within(lane('Sample Driver X')).getByRole('listitem').textContent).toBe('First · Haul stone');
-  });
-
-  it('keeps the Truck an existing Assignment names, and can set it back to His own', async () => {
-    assignments = [{ id: 'a0', date: '2026-11-20', driverId: 'drv-a', driverName: 'Sample Driver A', truckId: 'trk-24', truckNumber: '24', note: 'Haul stone', createdAt: '', updatedAt: '' }];
-    open('/?date=2026-11-20');
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit Haul stone · Truck 24' }));
-    const dialog = screen.getByRole('dialog', { name: 'Edit Assignment' });
-    const truck = await picker(dialog, 'truckId');
-    expect(truck.value).toBe('trk-24');
-    fireEvent.change(truck, { target: { value: 'none' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
-
-    expect(await screen.findByText('Assignment saved')).toBeTruthy();
-    expect(sent).toEqual([{ truckId: null }]);
-    expect(within(lane('Sample Driver A')).getByRole('listitem').textContent).toBe('First · Haul stone · Truck 21 (his own)');
-  });
-
-  it('keeps a Driver and Truck made inactive since, by name, when something else is edited', async () => {
-    assignments = [{
-      id: 'a0', date: '2026-11-20', driverId: 'drv-x', driverName: 'Sample Driver X', truckId: 'trk-99', truckNumber: '99',
-      note: 'Haul stone', createdAt: '', updatedAt: '',
-    }];
-    open('/?date=2026-11-20');
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit Haul stone · Truck 99' }));
-    const dialog = screen.getByRole('dialog', { name: 'Edit Assignment' });
-    const driver = await picker(dialog, 'driverId');
-    const truck = await picker(dialog, 'truckId');
-    expect(driver.value).toBe('drv-x');
-    expect(choices(driver)).toContain('Sample Driver X (inactive)');
-    expect(truck.value).toBe('trk-99');
-    expect(choices(truck)).toContain('99 (inactive)');
-
-    fireEvent.change(within(dialog).getByLabelText(/Note/), { target: { value: 'Haul topsoil' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
-    expect(await screen.findByText('Assignment saved')).toBeTruthy();
-    expect(sent).toEqual([{ note: 'Haul topsoil' }]);
-    expect(within(lane('Sample Driver X')).getByRole('listitem').textContent).toBe('First · Haul topsoil · Truck 99');
-  });
-});
-
-describe('From and To Places', () => {
-  type Picker = 'fromPlaceId' | 'toPlaceId';
-  /** A picker's own form control (jsdom cannot open the listbox), once its list has loaded. */
-  const picker = async (dialog: HTMLElement, name: Picker) => {
-    await waitFor(() => expect(dialog.querySelectorAll(`select[name="${name}"] option`).length).toBeGreaterThan(1));
-    return dialog.querySelector(`select[name="${name}"]`) as HTMLSelectElement;
-  };
-  const choices = (select: HTMLSelectElement) => [...select.options].map((o) => o.textContent);
-
-  it('keeps a Place made inactive since, by name, when something else is edited', async () => {
-    assignments = [{
-      id: 'a0', date: '2026-11-20', driverId: 'drv-a', driverName: 'Sample Driver A', truckId: null, truckNumber: null,
-      fromPlaceId: 'plc-x', fromPlaceName: 'Sample Old Pit', toPlaceId: 'plc-north', toPlaceName: 'Sample Site North',
-      note: 'Haul stone', createdAt: '', updatedAt: '',
-    }];
-    open('/?date=2026-11-20');
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit Sample Old Pit → Sample Site North · Haul stone' }));
-    const dialog = screen.getByRole('dialog', { name: 'Edit Assignment' });
-    const from = await picker(dialog, 'fromPlaceId');
-    expect(from.value).toBe('plc-x');
-    expect(choices(from)).toContain('Sample Old Pit (inactive)');
-    expect(choices(await picker(dialog, 'toPlaceId'))).not.toContain('Sample Old Pit (inactive)');
-
-    fireEvent.change(within(dialog).getByLabelText(/Note/), { target: { value: 'Haul topsoil' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
-    expect(await screen.findByText('Assignment saved')).toBeTruthy();
-    expect(sent).toEqual([{ note: 'Haul topsoil' }]);
-    expect(within(lane('Sample Driver A')).getByRole('listitem').textContent).toBe('First · Sample Old Pit → Sample Site North · Haul topsoil · Truck 21 (his own)');
-  });
-
-  it('are carried by Duplicate to', async () => {
-    assignments = [{
-      id: 'a0', date: '2026-11-20', driverId: 'drv-a', driverName: 'Sample Driver A', truckId: null, truckNumber: null,
-      fromPlaceId: 'plc-plant', fromPlaceName: 'Sample Plant', toPlaceId: 'plc-north', toPlaceName: 'Sample Site North',
-      note: null, createdAt: '', updatedAt: '',
-    }];
-    open('/?date=2026-11-20');
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit Sample Plant → Sample Site North' }));
-    const dialog = screen.getByRole('dialog', { name: 'Edit Assignment' });
-    const duplicateTo = within(dialog).getByLabelText('Duplicate to').closest('div')!.querySelector('select')!;
-    await waitFor(() => expect(duplicateTo.querySelector('option[value="drv-b"]')).toBeTruthy());
-    fireEvent.change(duplicateTo, { target: { value: 'drv-b' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Duplicate' }));
-    expect(await screen.findByText('Duplicated to Sample Driver B')).toBeTruthy();
-    expect(sent).toEqual([expect.objectContaining({ driverId: 'drv-b', fromPlaceId: 'plc-plant', toPlaceId: 'plc-north' })]);
-  });
-});
-
-describe('the Material and Foreman', () => {
-  const picker = async (dialog: HTMLElement, name: 'materialId' | 'foremanId') => {
-    await waitFor(() => expect(dialog.querySelectorAll(`select[name="${name}"] option`).length).toBeGreaterThan(1));
-    return dialog.querySelector(`select[name="${name}"]`) as HTMLSelectElement;
-  };
-  const choices = (select: HTMLSelectElement) => [...select.options].map((o) => o.textContent);
-
-  it('keep a Material and Foreman made inactive since, by name, when something else is edited', async () => {
-    assignments = [{
-      id: 'a0', date: '2026-11-20', driverId: 'drv-a', driverName: 'Sample Driver A', truckId: null, truckNumber: null,
-      materialId: 'mat-old', materialName: 'Sample Old Fill', foremanId: 'frm-x', foremanName: 'Sample Foreman X',
-      note: null, createdAt: '', updatedAt: '',
-    }];
-    open('/?date=2026-11-20');
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit Sample Old Fill · Foreman Sample Foreman X' }));
-    const dialog = screen.getByRole('dialog', { name: 'Edit Assignment' });
-    const material = await picker(dialog, 'materialId');
-    const foreman = await picker(dialog, 'foremanId');
-    expect(material.value).toBe('mat-old');
-    expect(choices(material)).toContain('Sample Old Fill (inactive)');
-    expect(foreman.value).toBe('frm-x');
-    expect(choices(foreman)).toContain('Sample Foreman X (inactive)');
-
-    fireEvent.change(within(dialog).getByLabelText(/Note/), { target: { value: 'Two loads' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
-    expect(await screen.findByText('Assignment saved')).toBeTruthy();
-    expect(sent).toEqual([{ note: 'Two loads' }]);
   });
 });
 
@@ -965,43 +944,6 @@ describe('Copy today', () => {
     await screen.findByText('No Assignments for this day');
     fireEvent.click(await screen.findByRole('button', { name: 'Copy today' }));
     expect(await screen.findByText(message)).toBeTruthy();
-  });
-});
-
-describe('Duplicate to…', () => {
-  const planned = (fields: Record<string, unknown> = {}) => ({
-    id: 'a1', date: '2026-11-20', driverId: 'drv-a', driverName: 'Sample Driver A', note: 'Haul stone',
-    createdAt: '2026-11-19T20:00:00.000Z', updatedAt: '2026-11-19T20:00:00.000Z', ...fields,
-  });
-
-  it('adds a second Assignment with the same fields, note included, for the chosen Driver on the same day', async () => {
-    assignments = [planned()];
-    open('/?date=2026-11-20');
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit Haul stone' }));
-    const dialog = screen.getByRole('dialog', { name: 'Edit Assignment' });
-    // The picker's own form control: jsdom cannot open the listbox.
-    const picker = within(dialog).getByLabelText('Duplicate to').closest('div')!.querySelector('select')!;
-    await waitFor(() => expect(picker.querySelector('option[value="drv-b"]')).toBeTruthy());
-    expect(picker.querySelector('option[value="drv-a"]')).toBeNull();
-    fireEvent.change(picker, { target: { value: 'drv-b' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Duplicate' }));
-
-    expect(await screen.findByText('Duplicated to Sample Driver B')).toBeTruthy();
-    expect(await within(await screen.findByRole('article', { name: 'Sample Driver B' })).findByText('Haul stone')).toBeTruthy();
-    expect(within(lane('Sample Driver A')).getByText('Haul stone')).toBeTruthy();
-    expect(assignments).toHaveLength(2);
-    expect(assignments[1]).toMatchObject({ date: '2026-11-20', driverId: 'drv-b', note: 'Haul stone' });
-    expect(screen.queryByRole('dialog')).toBeNull();
-  });
-
-  it('is not offered on a past day', async () => {
-    assignments = [planned({ date: '2026-11-18' })];
-    open('/?date=2026-11-18');
-    await screen.findByText('Haul stone');
-    await waitFor(() => expect(api.mock.calls.some(([url]) => String(url).endsWith('/api/today'))).toBe(true));
-    await act(async () => {});
-    expect(screen.queryByRole('button', { name: /Edit |Duplicate/ })).toBeNull();
-    expect(screen.queryByText(/Duplicate to/)).toBeNull();
   });
 });
 
@@ -1065,9 +1007,9 @@ describe('sending a day', () => {
     daySends = { '2026-11-20': '2026-11-19T20:30:00.000Z' };
     open('/?date=2026-11-20');
     fireEvent.click(await screen.findByRole('button', { name: 'Edit Haul stone' }));
-    const dialog = await screen.findByRole('dialog');
-    fireEvent.change(within(dialog).getByLabelText(/Note/), { target: { value: 'Haul dirt' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
+    const note = within(screen.getByRole('region', { name: 'Open Assignment' })).getByRole('textbox', { name: 'Note' });
+    fireEvent.change(note, { target: { value: 'Haul dirt' } });
+    fireEvent.blur(note);
     expect(await screen.findByRole('button', { name: 'Edit Haul dirt · Changed' })).toBeTruthy();
     expect(dayState()).toBe('Changed since Sent');
   });

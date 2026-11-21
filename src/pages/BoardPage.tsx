@@ -3,7 +3,7 @@ import { Copy, Loader2, Settings } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import type { Assignment, BusinessDay, Driver, Foreman, Material, Place, Truck } from '../../shared/types';
 import { isCalendarDate } from '../../shared/days';
-import { AssignmentDialog } from '@/components/AssignmentDialog';
+import { AssignmentEditor } from '@/components/AssignmentEditor';
 import { afterSave, Composer, EMPTY_DRAFT, type Draft } from '@/components/Composer';
 import { Lanes } from '@/components/Lanes';
 import { DayNavigation, daySubtitle } from '@/components/DayNavigation';
@@ -43,7 +43,8 @@ export function BoardPage() {
   const [reloads, setReloads] = useState(0);
   const [businessDay, setBusinessDay] = useState<BusinessDay | null>(null);
   const [noBusinessDay, setNoBusinessDay] = useState(false);
-  const [editing, setEditing] = useState<Assignment | null>(null);
+  /** The Assignment open in its lane, by id, so it stays open when a new Driver moves it; null when none is. */
+  const [openId, setOpenId] = useState<string | null>(null);
   /** The lane the composer is open in (a Driver's id, or null for Unassigned); undefined when closed. */
   const [composingFor, setComposingFor] = useState<string | null | undefined>(undefined);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
@@ -81,6 +82,7 @@ export function BoardPage() {
   useEffect(() => {
     setComposingFor(undefined);
     setDraft(EMPTY_DRAFT);
+    setOpenId(null);
   }, [date]);
 
   useEffect(() => {
@@ -107,6 +109,18 @@ export function BoardPage() {
     else show(assignment.date);
   };
   const reload = () => setReloads((n) => n + 1);
+  /**
+   * Shows Assignments as the Worker answered a change or a move, without
+   * reading the day again (which would close the open one): each replaces
+   * itself, then the day is put back in lane order by position, ties kept in
+   * the order they were read.
+   */
+  const changed = (answered: Assignment[]) =>
+    setAssignments((day) => {
+      if (!day) return day;
+      const byId = new Map(answered.map((a) => [a.id, a]));
+      return day.map((a) => byId.get(a.id) ?? a).sort((x, y) => x.position - y.position);
+    });
   const closeComposer = () => {
     setComposingFor(undefined);
     setDraft(EMPTY_DRAFT);
@@ -182,7 +196,19 @@ export function BoardPage() {
             assignments={assignments}
             drivers={drivers}
             trucks={trucks}
-            onEdit={editable ? setEditing : undefined}
+            onEdit={editable ? (assignment) => setOpenId((current) => (current === assignment.id ? null : assignment.id)) : undefined}
+            openId={editable ? openId : null}
+            editor={(assignment, { first, last }) => (
+              <AssignmentEditor
+                assignment={assignment}
+                lists={{ drivers, trucks, places, materials, foremen }}
+                first={first}
+                last={last}
+                onSaved={(saved) => changed([saved])}
+                onMoved={changed}
+                onClose={() => setOpenId(null)}
+              />
+            )}
             onAdd={editable ? setComposingFor : undefined}
             composingFor={editable ? composingFor : undefined}
             composer={
@@ -206,20 +232,6 @@ export function BoardPage() {
           />
         )}
       </main>
-      {date && (
-        <AssignmentDialog
-          date={date}
-          drivers={drivers}
-          trucks={trucks}
-          places={places}
-          materials={materials}
-          foremen={foremen}
-          editing={editing}
-          onClose={() => setEditing(null)}
-          onSaved={saved}
-          onDeleted={reload}
-        />
-      )}
     </div>
   );
 }
