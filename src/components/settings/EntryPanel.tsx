@@ -8,12 +8,12 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { addEntry, changeEntry, FieldErrors } from '@/lib/api';
 import { choicesOf, LIST_TITLES } from '@/lib/lists';
-import type { ListField, Row, SectionSpec } from './spec';
+import type { FormValues, ListField, Row, SectionSpec } from './spec';
 
 /** How long typing has to pause before it is saved, so a word is one save rather than one per letter. */
 const TYPING_PAUSE_MS = 400;
 
-type Form = Record<string, string | null>;
+type Form = FormValues;
 type Status = 'idle' | 'saving' | 'saved' | 'failed';
 
 /** What a field's control shows for a saved value: a choice's value may be shown as another one. */
@@ -66,6 +66,14 @@ export function EntryPanel({
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   const keep = (row: Row) => {
+    // A field the panel is not asking for can still change with another one
+    // (a Place that stops being a job site loses its usual Foreman): take the
+    // saved value, so it is right if the field is asked for again.
+    const hidden = spec.fields.filter((f) => f.shownWhen && !f.shownWhen(formRef.current));
+    if (hidden.some((f) => formRef.current[f.key] !== shown(f, row[f.key]))) {
+      formRef.current = { ...formRef.current, ...Object.fromEntries(hidden.map((f) => [f.key, shown(f, row[f.key])])) };
+      setForm(formRef.current);
+    }
     savedRef.current = row;
     setSaved(row);
     onSaved(row);
@@ -162,7 +170,7 @@ export function EntryPanel({
           <Field id={nameKey} label={spec.name.label} error={errors[nameKey]}>
             <Input id={nameKey} required value={form[nameKey] ?? ''} onChange={(e) => set(nameKey, e.target.value, { typing: true })} />
           </Field>
-          {spec.fields.map((field) => {
+          {spec.fields.filter((field) => !field.shownWhen || field.shownWhen(form)).map((field) => {
             const failed = field.kind === 'pick' && unloaded.includes(field.list) ? LIST_TITLES[field.list] : null;
             return (
               <Field key={field.key} id={field.key} label={field.label} optional error={errors[field.key] ?? (failed ? `Could not load the ${failed}.` : undefined)}>

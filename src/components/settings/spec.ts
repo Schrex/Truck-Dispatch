@@ -9,8 +9,15 @@ export type Row = Record<string, unknown> & { id: string; active: boolean };
 /** Looks up an entry's display name in another list, or null if it is not loaded or not there. */
 export type NameOf = (list: ListName, id: unknown) => string | null;
 
-/** An optional field of a list: free text, an entry picked from another list, or one of a fixed set of values. */
-export type ListField<L extends ListName> =
+/** What the panel's fields hold now, by key: the saved value, or the one Dave just set. */
+export type FormValues = Record<string, string | null>;
+
+/**
+ * An optional field of a list: free text, an entry picked from another list,
+ * or one of a fixed set of values. With shownWhen, the panel asks for it only
+ * while the other fields allow it, e.g. a usual Foreman only on a job site.
+ */
+export type ListField<L extends ListName> = (
   | { key: Key<L>; label: string; kind: 'text' }
   | { key: Key<L>; label: string; kind: 'pick'; list: ListName; empty: string }
   | {
@@ -21,7 +28,8 @@ export type ListField<L extends ListName> =
       empty: string;
       /** Saved values offered as another choice, e.g. a yard shown as Shop or yard (saved as shop only when changed). */
       shownAs?: Record<string, string>;
-    };
+    }
+) & { shownWhen?: (form: FormValues) => boolean };
 
 /**
  * One Settings section, declared by its fields. Adding a list or a field to
