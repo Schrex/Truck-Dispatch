@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Copy, Loader2, Settings } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import type { Assignment, BusinessDay, Driver, Foreman, Material, Place, Truck } from '../../shared/types';
@@ -9,6 +9,7 @@ import { Lanes } from '@/components/Lanes';
 import { DayNavigation, daySubtitle } from '@/components/DayNavigation';
 import { DaySend } from '@/components/DaySend';
 import { PageHeader } from '@/components/PageHeader';
+import { WeekStrip } from '@/components/WeekStrip';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/sonner';
 import { copyTodayOnto, fetchBusinessDay, fetchDay, fetchList, FieldErrors, Refused } from '@/lib/api';
@@ -24,7 +25,8 @@ import { copyTodayOnto, fetchBusinessDay, fetchDay, fetchList, FieldErrors, Refu
  * is open at a time, and its draft is kept here, so the Places and Material
  * carry from one lane to the next until Close.
  * The header says whether the day is a Draft, Sent or Changed since Sent,
- * with Send while it is a Draft.
+ * with Send while it is a Draft, and below it the week strip shows the
+ * state of every day of the week.
  */
 export function BoardPage() {
   const [search, setSearch] = useSearchParams();
@@ -107,6 +109,8 @@ export function BoardPage() {
     else show(assignment.date);
   };
   const reload = () => setReloads((n) => n + 1);
+  // The day on screen as last read or Sent: each time it changes (an add, a Send, any change), the week strip reads its states again.
+  const dayShown = useMemo(() => (assignments ? { assignments, sentAt } : null), [assignments, sentAt]);
   const closeComposer = () => {
     setComposingFor(undefined);
     setDraft(EMPTY_DRAFT);
@@ -135,7 +139,11 @@ export function BoardPage() {
 
   return (
     <div className="min-h-screen bg-surface">
-      <PageHeader title="Dispatch" subtitle={date ? daySubtitle(date, businessDay?.today ?? null) : 'Loading…'}>
+      <PageHeader
+        title="Dispatch"
+        subtitle={date ? daySubtitle(date, businessDay?.today ?? null) : 'Loading…'}
+        below={date && <WeekStrip date={date} today={businessDay?.today ?? null} refresh={dayShown} onShow={show} />}
+      >
         <DayNavigation date={date} nextWorkingDay={businessDay?.nextWorkingDay ?? null} onShow={show} />
         {date && <DaySend date={date} assignments={assignments} sentAt={sentAt} editable={editable} onSent={setSentAt} />}
         {canCopyToday && (

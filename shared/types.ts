@@ -162,6 +162,23 @@ export interface Day {
   sentAt: string | null;
 }
 
+/**
+ * One day on the week strip: its state by the shared day rules (none, Draft,
+ * Sent or Changed), how many of its Assignments are Unassigned, and the
+ * Holiday on it, if any.
+ */
+export interface WeekDay {
+  date: string;
+  state: 'none' | 'draft' | 'sent' | 'changed';
+  unassigned: number;
+  holiday: string | null;
+}
+
+/** A week's seven days, Monday to Sunday (GET api/weeks/:monday). */
+export interface Week {
+  days: WeekDay[];
+}
+
 /** A refusal: each field that is wrong, with a plain message. */
 export interface FieldErrorsBody {
   error: 'invalid';
