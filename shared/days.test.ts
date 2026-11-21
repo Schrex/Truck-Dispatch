@@ -11,6 +11,7 @@ import {
   nextWorkingDay,
   previousWorkingDay,
   shortDate,
+  weekdayName,
   dayState,
   unassignedOn,
   sinceSent,
@@ -160,6 +161,14 @@ describe('short dates', () => {
   ])('writes %s as "%s" in the header and "%s" on an arrow', (date, header, arrow) => {
     expect(shortDate(date)).toBe(header);
     expect(dayLabel(date)).toBe(arrow);
+  });
+
+  it.each([
+    ['2026-11-23', 'Monday'],
+    ['2026-11-21', 'Saturday'],
+    ['2027-01-01', 'Friday'],
+  ])('names %s as %s for the Driver view', (date, name) => {
+    expect(weekdayName(date)).toBe(name);
   });
 });
 

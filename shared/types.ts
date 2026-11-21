@@ -197,6 +197,27 @@ export interface Day {
 }
 
 /**
+ * What a Changed Assignment's fields the Driver reads were when its day was
+ * Sent ("was Cobblestone"): only those that differ now, each with the name it
+ * had then; null when it was empty (for the Truck, his own).
+ */
+export type Was = Partial<Pick<Assignment, 'truckNumber' | 'fromPlaceName' | 'toPlaceName' | 'materialName' | 'note'>>;
+
+/** An Assignment as a Driver sees it: with what it was when Sent, empty unless it is Changed. */
+export interface DriverAssignment extends Assignment {
+  was: Was;
+}
+
+/**
+ * One Driver's day (GET api/drivers/:id/days/:date): nothing but that it is a
+ * Draft until Dave Sends it; then his Assignments in Dave's order, cancelled
+ * ones included.
+ */
+export type DriverDay =
+  | { date: string; state: 'draft' }
+  | { date: string; state: 'sent'; sentAt: string; assignments: DriverAssignment[] };
+
+/**
  * One day on the week strip: its state by the shared day rules (none, Draft,
  * Sent or Changed), how many of its Assignments are Unassigned, and the
  * Holiday on it, if any.
