@@ -965,7 +965,7 @@ describe('typed Place and Material names', () => {
   it('add a new entry, a Place with no kind, and link to it, on add and on change', async () => {
     const added = await add({ date: '2026-11-20', fromPlaceName: ' Sample Pit ', materialName: 'Sample Fill' });
     expect(added).toMatchObject({ fromPlaceName: 'Sample Pit', materialName: 'Sample Fill' });
-    expect(await list('/api/places')).toContainEqual({ id: added.fromPlaceId, shortName: 'Sample Pit', fullName: null, kind: null, jobId: null, active: true });
+    expect(await list('/api/places')).toContainEqual({ id: added.fromPlaceId, shortName: 'Sample Pit', fullName: null, kind: null, jobId: null, onTruckMap: false, active: true });
     expect(await list('/api/materials')).toContainEqual({ id: added.materialId, name: 'Sample Fill', active: true });
 
     const changed = await change(added.id, { date: '2026-11-20', fromPlaceId: added.fromPlaceId, toPlaceName: 'Sample Dump' });
