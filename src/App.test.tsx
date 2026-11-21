@@ -5,11 +5,14 @@ import { App } from './App';
 import { toast } from './components/ui/sonner';
 
 /**
- * The API as the page sees it: tomorrow in US Eastern is 2026-11-20, two
+ * The API as the page sees it: today in US Eastern is Thursday 2026-11-19,
+ * so tomorrow and the next Working day are 2026-11-20 (a test can move today), two
  * seeded Drivers with usual Trucks, an inactive Driver and Truck, and
  * Assignments that stay once added.
  */
 let assignments: Record<string, unknown>[] = [];
+const THURSDAY = { today: '2026-11-19', tomorrow: '2026-11-20', nextWorkingDay: '2026-11-20' };
+let businessDay = THURSDAY;
 let failLoads = false;
 let failSaves = false;
 let refuse: Record<string, string> | null = null;
@@ -77,7 +80,7 @@ const sent: unknown[] = [];
 const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = new URL(String(input), 'https://td.example');
   const answer = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
-  if (url.pathname.endsWith('/api/today')) return answer({ today: '2026-11-19', tomorrow: '2026-11-20' });
+  if (url.pathname.endsWith('/api/today')) return answer(businessDay);
   if (failLists && /\/api\/(drivers|trucks|places|materials|foremen)$/.test(url.pathname)) return answer({ error: 'oops' }, 500);
   if (url.pathname.endsWith('/api/drivers')) return answer({ drivers });
   if (url.pathname.endsWith('/api/trucks')) return answer({ trucks });
@@ -137,6 +140,7 @@ const card = (driver: string) => screen.getByRole('article', { name: driver });
 
 beforeEach(() => {
   assignments = [];
+  businessDay = THURSDAY;
   sent.length = 0;
   failLoads = false;
   failSaves = false;
@@ -201,42 +205,97 @@ describe.each([
     expect(await screen.findByText('Saved the Assignment')).toBeTruthy();
   });
 
-  it('opens the Board on tomorrow in US Eastern time when the address names no day, and puts that day in the address', async () => {
+  it('opens the Board on the next Working day in US Eastern time when the address names no day, and puts that day in the address', async () => {
     open(`${prefix}/`);
-    await waitFor(() => expect(subtitle()).toBe('Friday, November 20, 2026'));
+    await waitFor(() => expect(subtitle()).toBe('Fri, Nov 20 · Tomorrow'));
     expect(address()).toBe(`${prefix}/?date=2026-11-20`);
     expect(await screen.findByText('No Assignments for this day')).toBeTruthy();
   });
 
-  it('opens the Board on the day the address names, with that date as the subtitle', async () => {
+  it('opens on the Monday when today is a Friday', async () => {
+    businessDay = { today: '2026-11-20', tomorrow: '2026-11-21', nextWorkingDay: '2026-11-23' };
+    open(`${prefix}/`);
+    await waitFor(() => expect(subtitle()).toBe('Mon, Nov 23 · Next Monday'));
+    expect(address()).toBe(`${prefix}/?date=2026-11-23`);
+  });
+
+  it('opens the Board on the day the address names, with its short date and word as the subtitle', async () => {
     assignments = [{ id: 'a0', date: '2026-11-18', driverId: 'drv-a', driverName: 'Sample Driver A', note: 'Haul stone', createdAt: '', updatedAt: '' }];
     open(`${prefix}/?date=2026-11-18`);
     expect(await screen.findByText('Haul stone')).toBeTruthy();
-    expect(subtitle()).toBe('Wednesday, November 18, 2026');
+    expect(subtitle()).toBe('Wed, Nov 18 · Yesterday');
     expect(address()).toBe(`${prefix}/?date=2026-11-18`);
   });
 
-  it('moves one day with ‹ and ›, jumps to any day, and the address follows the day on screen', async () => {
+  it('names a Holiday in the subtitle', async () => {
+    open(`${prefix}/?date=2026-11-26`);
+    await waitFor(() => expect(subtitle()).toBe('Thu, Nov 26 · Next Thursday · Thanksgiving'));
+  });
+
+  it('steps by Working day with arrows that name their day, jumps to any day, and the address follows the day on screen', async () => {
     assignments = [
-      { id: 'a0', date: '2026-11-21', driverId: 'drv-a', driverName: 'Sample Driver A', note: 'Saturday work', createdAt: '', updatedAt: '' },
+      { id: 'a0', date: '2026-11-23', driverId: 'drv-a', driverName: 'Sample Driver A', note: 'Monday work', createdAt: '', updatedAt: '' },
       { id: 'a1', date: '2027-01-04', driverId: null, driverName: null, note: 'New year work', createdAt: '', updatedAt: '' },
     ];
     open(`${prefix}/?date=2026-11-20`);
     await screen.findByText('No Assignments for this day');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Next day' }));
-    expect(await screen.findByText('Saturday work')).toBeTruthy();
-    expect(subtitle()).toBe('Saturday, November 21, 2026');
-    expect(address()).toBe(`${prefix}/?date=2026-11-21`);
+    fireEvent.click(screen.getByRole('button', { name: 'Next Working day, Mon 23' }));
+    expect(await screen.findByText('Monday work')).toBeTruthy();
+    expect(subtitle()).toBe('Mon, Nov 23 · Next Monday');
+    expect(address()).toBe(`${prefix}/?date=2026-11-23`);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Previous day' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Previous day' }));
-    await waitFor(() => expect(subtitle()).toBe('Thursday, November 19, 2026'));
+    fireEvent.click(screen.getByRole('button', { name: 'Previous Working day, Fri 20' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Previous Working day, Thu 19' }));
+    await waitFor(() => expect(subtitle()).toBe('Thu, Nov 19 · Today'));
     expect(address()).toBe(`${prefix}/?date=2026-11-19`);
 
     fireEvent.change(screen.getByLabelText('Jump to'), { target: { value: '2027-01-04' } });
     expect(await screen.findByText('New year work')).toBeTruthy();
     expect(address()).toBe(`${prefix}/?date=2027-01-04`);
+  });
+
+  it('skips a Holiday with the arrows', async () => {
+    open(`${prefix}/?date=2026-11-25`);
+    fireEvent.click(await screen.findByRole('button', { name: 'Next Working day, Fri 27' }));
+    await waitFor(() => expect(address()).toBe(`${prefix}/?date=2026-11-27`));
+    fireEvent.click(screen.getByRole('button', { name: 'Previous Working day, Wed 25' }));
+    await waitFor(() => expect(address()).toBe(`${prefix}/?date=2026-11-25`));
+  });
+
+  it('steps by Working day with the left and right arrow keys when no field has the focus', async () => {
+    open(`${prefix}/?date=2026-11-20`);
+    await screen.findByText('No Assignments for this day');
+
+    fireEvent.keyDown(document.body, { key: 'ArrowRight' });
+    await waitFor(() => expect(address()).toBe(`${prefix}/?date=2026-11-23`));
+    fireEvent.keyDown(document.body, { key: 'ArrowLeft' });
+    await waitFor(() => expect(address()).toBe(`${prefix}/?date=2026-11-20`));
+    fireEvent.keyDown(document.body, { key: 'ArrowLeft' });
+    await waitFor(() => expect(address()).toBe(`${prefix}/?date=2026-11-19`));
+  });
+
+  it('leaves the arrow keys to a field that has the focus', async () => {
+    open(`${prefix}/?date=2026-11-20`);
+    await screen.findByText('No Assignments for this day');
+
+    const jumpTo = screen.getByLabelText('Jump to');
+    jumpTo.focus();
+    fireEvent.keyDown(jumpTo, { key: 'ArrowRight' });
+    fireEvent.keyDown(document.body, { key: 'ArrowRight', shiftKey: true });
+    expect(address()).toBe(`${prefix}/?date=2026-11-20`);
+  });
+
+  it('offers Back to the next Working day only when the board is on another day', async () => {
+    open(`${prefix}/?date=2026-11-20`);
+    await screen.findByText('No Assignments for this day');
+    expect(screen.queryByRole('button', { name: /^Back to/ })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next Working day, Mon 23' }));
+    await waitFor(() => expect(address()).toBe(`${prefix}/?date=2026-11-23`));
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Fri, Nov 20' }));
+    await waitFor(() => expect(address()).toBe(`${prefix}/?date=2026-11-20`));
+    expect(screen.queryByRole('button', { name: /^Back to/ })).toBeNull();
   });
 
   it('adds an Assignment with only a date, confirms it, and shows it on the "Unassigned" card', async () => {
@@ -405,9 +464,7 @@ describe('changing the plan', () => {
 
     await waitFor(() => expect(address()).toBe('/?date=2026-11-23'));
     expect(await within(await findCard('Sample Driver A')).findByText('Haul stone')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Previous day' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Previous day' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Previous day' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Previous Working day, Fri 20' }));
     expect(await screen.findByText('No Assignments for this day')).toBeTruthy();
   });
 

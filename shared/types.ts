@@ -71,10 +71,11 @@ export type ListName = keyof Lists;
  */
 export type EntryFields<L extends ListName> = Partial<Omit<Lists[L], 'id'>>;
 
-/** Today and tomorrow in US Eastern time (GET api/today). */
+/** Today and tomorrow in US Eastern time, and the next Working day after today, which the board opens on (GET api/today). */
 export interface BusinessDay {
   today: string;
   tomorrow: string;
+  nextWorkingDay: string;
 }
 
 /** What the page sends to add an Assignment. Only the date is required. */

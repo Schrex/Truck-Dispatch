@@ -3,7 +3,8 @@ import { clock } from './clock';
 import { json, readJson, refuse, text } from './http';
 import { exists, handleList, isList } from './lists';
 import { checkTyped, saveLinked, typedIn, type Typed } from './typedNames';
-import type { Assignment, ListName, NewAssignment, TypedNames } from '../../shared/types';
+import { isCalendarDate } from '../../shared/days';
+import type { Assignment, BusinessDay, ListName, NewAssignment, TypedNames } from '../../shared/types';
 
 /** The JSON API under /api/ (or /truck-dispatch/api/). */
 export async function handleApi(request: Request, env: Env, route: string, query: URLSearchParams): Promise<Response> {
@@ -15,8 +16,8 @@ export async function handleApi(request: Request, env: Env, route: string, query
   }
 
   if (route === 'today' && reading) {
-    const { today, tomorrow } = clock(env);
-    return json({ today, tomorrow });
+    const { today, tomorrow, nextWorkingDay } = clock(env);
+    return json({ today, tomorrow, nextWorkingDay } satisfies BusinessDay);
   }
 
   const [list, entryId, ...rest] = route.split('/');
@@ -231,11 +232,4 @@ function validate(body: Partial<NewAssignment>): Record<string, string> {
   if (body.note != null && typeof body.note !== 'string') errors.note = 'Write the note as text.';
   else if (text(body.note).length > NOTE_LIMIT) errors.note = `Keep the note to ${NOTE_LIMIT} characters or fewer.`;
   return errors;
-}
-
-/** YYYY-MM-DD and a real day on the calendar (2026-02-30 is not). */
-function isCalendarDate(value: unknown): value is string {
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const date = new Date(`${value}T00:00:00Z`);
-  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
