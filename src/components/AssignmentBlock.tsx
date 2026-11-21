@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { Assignment } from '../../shared/types';
+import type { Assignment, SinceSent } from '../../shared/types';
 import { cn } from '@/lib/utils';
 
 /**
@@ -36,6 +36,12 @@ function truckOf(named: string | null, usual: string | null): Detail | null {
   };
 }
 
+/** The mark on a block Changed or Added since its day was Sent: the word, and its colour from the Hub's tokens. */
+const MARKS: Record<Exclude<SinceSent, null>, { word: string; className: string }> = {
+  changed: { word: 'Changed', className: 'bg-warning text-warning-foreground' },
+  added: { word: 'Added', className: 'bg-success text-success-foreground' },
+};
+
 /**
  * One Assignment as a block in its lane, marked First (the first in the lane)
  * or Then. It reads "From → To" (or the one Place set), or its note when it
@@ -43,8 +49,10 @@ function truckOf(named: string | null, usual: string | null): Detail | null {
  * not already the title, and the Truck. A Truck the Assignment names (the
  * work needs a certain one) shows plainly; with none named the Driver takes
  * his own, so his usual Truck shows in grey, read aloud as "(his own)", or
- * nothing when he has none. With onEdit (today and later days) the block
- * opens the Assignment; without it (past days) it is plain.
+ * nothing when he has none. Once its day is Sent, a block Changed or Added
+ * since is marked so beside First or Then, so Dave sees what the Drivers
+ * have had changed. With onEdit (today and later days) the block opens the
+ * Assignment; without it (past days) it is plain.
  */
 export function AssignmentBlock({
   assignment,
@@ -77,10 +85,19 @@ export function AssignmentBlock({
       .filter((part) => part && !part.hisOwn)
       .map((part) => part?.words)
       .join(' · ') || 'No details yet';
+  const mark = assignment.sinceSent ? MARKS[assignment.sinceSent] : null;
 
   const body = (
     <>
-      <span className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{first ? 'First' : 'Then'}</span>
+      <span className="flex items-center gap-2">
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{first ? 'First' : 'Then'}</span>
+        {mark && (
+          <>
+            {SEPARATOR}
+            <span className={cn('rounded px-1.5 py-0.5 text-xs font-medium', mark.className)}>{mark.word}</span>
+          </>
+        )}
+      </span>
       {SEPARATOR}
       <span className={cn('block whitespace-pre-line font-medium', !title && 'font-normal text-muted-foreground')}>{title?.shown ?? 'No details yet'}</span>
       {details.length > 0 && (
@@ -104,7 +121,7 @@ export function AssignmentBlock({
     <li>
       <button
         type="button"
-        aria-label={`Edit ${words}`}
+        aria-label={`Edit ${words}${mark ? ` · ${mark.word}` : ''}`}
         className={cn(frame, 'hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring')}
         onClick={() => onEdit(assignment)}
       >

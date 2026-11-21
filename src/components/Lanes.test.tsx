@@ -203,3 +203,29 @@ describe('AssignmentBlock', () => {
     expect(block({ ...a })).toBe('First · No details yet');
   });
 });
+
+describe('Changed and Added marks', () => {
+  const haul = { ...a, fromPlaceId: 'plc-plant', fromPlaceName: 'Sample Plant', note: 'Haul stone' };
+
+  it.each([
+    ['Changed', 'changed'],
+    ['Added', 'added'],
+  ] as const)('mark a block %s since the day was Sent, also in the name of its edit button', (word, sinceSent) => {
+    render(
+      <ul>
+        <AssignmentBlock assignment={assignment({ ...haul, sinceSent })} first onEdit={vi.fn()} />
+      </ul>,
+    );
+    expect(screen.getByRole('listitem').textContent).toBe(`First · ${word} · Sample Plant · Haul stone`);
+    expect(screen.getByRole('button', { name: `Edit Sample Plant · Haul stone · ${word}` })).toBeTruthy();
+  });
+
+  it('mark nothing on a block that is neither', () => {
+    render(
+      <ul>
+        <AssignmentBlock assignment={assignment(haul)} first={false} />
+      </ul>,
+    );
+    expect(screen.getByRole('listitem').textContent).toBe('Then · Sample Plant · Haul stone');
+  });
+});
