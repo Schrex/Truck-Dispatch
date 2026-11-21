@@ -413,7 +413,7 @@ describe('Places', () => {
   it('list the seeded Places by short name, with full name, kind, Job and whether each is on the truck map, and no geofence code', async () => {
     const places = await list('/api/places');
     expect(places.map((p) => p.shortName)).toEqual(['Sample Plant', 'Sample Shop', 'Sample Site North', 'Sample Yard']);
-    expect(places[2]).toEqual({ id: 'plc-north', shortName: 'Sample Site North', fullName: 'Sample Job North site', kind: 'job_site', jobId: 'job-n', onTruckMap: false, active: true });
+    expect(places[2]).toEqual({ id: 'plc-north', shortName: 'Sample Site North', fullName: 'Sample Job North site', kind: 'job_site', jobId: 'job-n', usualForemanId: null, onTruckMap: false, active: true });
     expect(places.map((p) => p.onTruckMap)).toEqual([true, false, false, false]);
     for (const place of places) expect(Object.keys(place)).not.toContain('geofenceCode');
   });
@@ -451,6 +451,55 @@ describe('Places', () => {
     expect(Object.keys(await refusal(await post('/api/places', { shortName: 'Sample Pit', jobId: 'nothing' })))).toEqual(['jobId']);
     await send('PATCH', '/api/jobs/job-s', { active: false });
     expect((await send('PATCH', '/api/places/plc-yard', { jobId: 'job-s' })).status).toBe(200);
+  });
+});
+
+describe('a job site\'s usual Foreman', () => {
+  const place = async (response: Response) => ((await response.json()) as { place: Entry }).place;
+
+  it('is saved on a job site, read back with the Place, and cleared', async () => {
+    const set = await send('PATCH', '/api/places/plc-north', { usualForemanId: 'frm-b' });
+    expect(set.status).toBe(200);
+    expect(await place(set)).toMatchObject({ id: 'plc-north', usualForemanId: 'frm-b' });
+    expect(await list('/api/places')).toContainEqual(expect.objectContaining({ id: 'plc-north', usualForemanId: 'frm-b' }));
+    expect(await place(await send('PATCH', '/api/places/plc-north', { usualForemanId: null }))).toMatchObject({ usualForemanId: null });
+  });
+
+  it('is saved on a new job site with its kind', async () => {
+    const added = await post('/api/places', { shortName: 'Sample Site South', kind: 'job_site', usualForemanId: 'frm-c' });
+    expect(added.status).toBe(201);
+    expect(await place(added)).toMatchObject({ kind: 'job_site', usualForemanId: 'frm-c' });
+  });
+
+  it('is refused on a Place that is not a job site, with a message on the usual Foreman', async () => {
+    expect(await refusal(await send('PATCH', '/api/places/plc-plant', { usualForemanId: 'frm-a' }))).toEqual({ usualForemanId: 'Only a job site can have a usual Foreman.' });
+    expect(Object.keys(await refusal(await post('/api/places', { shortName: 'Sample Pit', usualForemanId: 'frm-a' })))).toEqual(['usualForemanId']);
+    expect(Object.keys(await refusal(await post('/api/places', { shortName: 'Sample Pit', kind: 'plant', usualForemanId: 'frm-a' })))).toEqual(['usualForemanId']);
+  });
+
+  it('is refused when the Foreman does not exist or was removed, with a message on the usual Foreman', async () => {
+    expect(await refusal(await send('PATCH', '/api/places/plc-north', { usualForemanId: 'nobody' }))).toEqual({ usualForemanId: 'Pick a Foreman from the list.' });
+    await send('PATCH', '/api/foremen/frm-c', { active: false });
+    expect(Object.keys(await refusal(await send('PATCH', '/api/places/plc-north', { usualForemanId: 'frm-c' })))).toEqual(['usualForemanId']);
+    expect((await list('/api/places')).find((p) => p.id === 'plc-north')).toMatchObject({ usualForemanId: null });
+  });
+
+  it('is dropped when the Place stops being a job site, and not given back when it is one again', async () => {
+    await send('PATCH', '/api/places/plc-north', { usualForemanId: 'frm-b' });
+    expect(await place(await send('PATCH', '/api/places/plc-north', { kind: 'plant' }))).toMatchObject({ kind: 'plant', usualForemanId: null });
+    expect(await place(await send('PATCH', '/api/places/plc-north', { kind: 'job_site' }))).toMatchObject({ usualForemanId: null });
+  });
+
+  it('stays when its Foreman is removed later, and the Place\'s other fields still save', async () => {
+    await send('PATCH', '/api/places/plc-north', { usualForemanId: 'frm-b' });
+    await send('PATCH', '/api/foremen/frm-b', { active: false });
+    expect(await place(await send('PATCH', '/api/places/plc-north', { fullName: 'Sample North' }))).toMatchObject({ usualForemanId: 'frm-b' });
+  });
+
+  it('never changes the Foreman of an Assignment already planned there', async () => {
+    const planned = await add({ date: '2026-11-20', toPlaceId: 'plc-north', foremanId: 'frm-a' });
+    await send('PATCH', '/api/places/plc-north', { usualForemanId: 'frm-b' });
+    expect((await day('2026-11-20')).find((a) => a.id === planned.id)).toMatchObject({ foremanId: 'frm-a', foremanName: 'Sample Foreman A' });
   });
 });
 
@@ -1092,7 +1141,7 @@ describe('typed Place and Material names', () => {
   it('add a new entry, a Place with no kind, and link to it, on add and on change', async () => {
     const added = await add({ date: '2026-11-20', fromPlaceName: ' Sample Pit ', materialName: 'Sample Fill' });
     expect(added).toMatchObject({ fromPlaceName: 'Sample Pit', materialName: 'Sample Fill' });
-    expect(await list('/api/places')).toContainEqual({ id: added.fromPlaceId, shortName: 'Sample Pit', fullName: null, kind: null, jobId: null, onTruckMap: false, active: true });
+    expect(await list('/api/places')).toContainEqual({ id: added.fromPlaceId, shortName: 'Sample Pit', fullName: null, kind: null, jobId: null, usualForemanId: null, onTruckMap: false, active: true });
     expect(await list('/api/materials')).toContainEqual({ id: added.materialId, name: 'Sample Fill', active: true });
 
     const changed = await change(added.id, { toPlaceName: 'Sample Dump', materialId: null });

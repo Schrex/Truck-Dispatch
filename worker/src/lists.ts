@@ -19,8 +19,21 @@ import { PLACE_KINDS, type ListName } from '../../shared/types';
 type Field =
   /** Optional free text; empty is saved as null. */
   | { key: string; column: string; kind: 'text' }
-  /** Optional id of an entry in another list. */
-  | { key: string; column: string; kind: 'ref'; list: ListName; message: string }
+  /**
+   * Optional id of an entry in another list. With `removed`, the entry must be
+   * active when it is picked (it may be removed later and stay); with
+   * `onlyWhen`, only an entry whose other column has that value may have one,
+   * and it is emptied when that column changes to anything else.
+   */
+  | {
+      key: string;
+      column: string;
+      kind: 'ref';
+      list: ListName;
+      message: string;
+      removed?: string;
+      onlyWhen?: { column: string; value: string; message: string };
+    }
   /** Optional, one of a fixed set of values; empty is saved as null. */
   | { key: string; column: string; kind: 'choice'; choices: readonly string[]; message: string };
 
@@ -67,6 +80,15 @@ export const LISTS: Record<ListName, List> = {
       { key: 'fullName', column: 'full_name', kind: 'text' },
       { key: 'kind', column: 'kind', kind: 'choice', choices: PLACE_KINDS, message: 'Pick plant, job site, shop or yard, or leave it empty.' },
       { key: 'jobId', column: 'job_id', kind: 'ref', list: 'jobs', message: 'Pick a Job from the list.' },
+      {
+        key: 'usualForemanId',
+        column: 'usual_foreman_id',
+        kind: 'ref',
+        list: 'foremen',
+        message: 'Pick a Foreman from the list.',
+        removed: 'This Foreman was removed. Bring him back in Foremen, or pick another.',
+        onlyWhen: { column: 'kind', value: 'job_site', message: 'Only a job site can have a usual Foreman.' },
+      },
     ],
     // The geofence code itself comes from HCSS later; Settings only says whether there is one.
     facts: [{ key: 'onTruckMap', sql: 'geofence_code IS NOT NULL' }],
@@ -90,6 +112,11 @@ export const TEXT_LIMIT = 100;
 
 export function isList(route: string): route is ListName {
   return Object.hasOwn(LISTS, route);
+}
+
+/** Whether an entry with this id is in the list and still in use. */
+async function isActive(env: Env, list: ListName, id: string): Promise<boolean> {
+  return !!(await env.DB.prepare(`SELECT 1 FROM ${LISTS[list].table} WHERE id = ? AND active = 1`).bind(id).first());
 }
 
 /** Whether an entry with this id is in the list, active or not. */
@@ -138,6 +165,12 @@ function entry(list: ListName, row: Record<string, unknown>) {
   return { ...row, ...Object.fromEntries(facts), active: row.active === 1 };
 }
 
+/** One column of a saved entry, read for a rule that depends on it. */
+async function columnOf(env: Env, list: ListName, id: string, column: string): Promise<unknown> {
+  const row = await env.DB.prepare(`SELECT ${column} AS value FROM ${LISTS[list].table} WHERE id = ?`).bind(id).first<{ value: unknown }>();
+  return row?.value ?? null;
+}
+
 async function read(env: Env, list: ListName, includeInactive: boolean): Promise<Response> {
   const { name } = LISTS[list];
   const { results } = await env.DB.prepare(
@@ -176,8 +209,19 @@ async function save(request: Request, env: Env, list: ListName, id: string | nul
     const value = text(raw) || null;
     if (field.kind === 'text' && value && value.length > TEXT_LIMIT) errors[field.key] = `Keep it to ${TEXT_LIMIT} characters or fewer.`;
     else if (field.kind === 'ref' && value && !(await exists(env, field.list, value))) errors[field.key] = field.message;
+    else if (field.kind === 'ref' && value && field.removed && !(await isActive(env, field.list, value))) errors[field.key] = field.removed;
     else if (field.kind === 'choice' && value && !field.choices.includes(value)) errors[field.key] = field.message;
     else values[field.column] = value;
+  }
+
+  for (const field of spec.fields) {
+    if (field.kind !== 'ref' || !field.onlyWhen || errors[field.key]) continue;
+    const { column, value, message } = field.onlyWhen;
+    const changing = column in values;
+    const now = changing ? values[column] : id === null ? null : await columnOf(env, list, id, column);
+    if (now === value) continue;
+    if (values[field.column] != null) errors[field.key] = message;
+    else if (changing) values[field.column] = null;
   }
 
   if ('active' in body) {

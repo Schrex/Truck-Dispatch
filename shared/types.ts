@@ -37,6 +37,12 @@ export interface Place {
   fullName: string | null;
   kind: PlaceKind | null;
   jobId: string | null;
+  /**
+   * A job site's usual Foreman, filled in on a new Assignment there; the
+   * Assignment keeps its own. Only a job site has one; picked from the
+   * Foremen in use.
+   */
+  usualForemanId: string | null;
   onTruckMap: boolean;
   active: boolean;
 }
