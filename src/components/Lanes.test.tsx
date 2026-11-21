@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Assignment, Driver, Truck } from '../../shared/types';
+import type { Assignment, Driver, Place, Truck } from '../../shared/types';
 import { AssignmentBlock } from './AssignmentBlock';
 import { Lanes } from './Lanes';
 
@@ -158,6 +158,15 @@ describe('Lanes', () => {
     expect(lanes().map((lane) => lane.blocks)).toEqual([[], ['First · Fill the shop'], ['First · Who takes this?']]);
   });
 
+  it('names an Assignment\'s Foreman beside the job site among the Places', () => {
+    const haul = assignment({ ...a, toPlaceId: 'plc-north', toPlaceName: 'Sample Site North', foremanId: 'frm-a', foremanName: 'Sample Foreman A' });
+    const places: Place[] = [
+      { id: 'plc-north', shortName: 'Sample Site North', fullName: null, kind: 'job_site', jobId: null, usualForemanId: null, onTruckMap: false, sortOrder: null, active: true },
+    ];
+    render(<Lanes assignments={[haul]} drivers={drivers} trucks={trucks} places={places} />);
+    expect(lanes()[0].blocks).toEqual(['First · Sample Site North (Sample Foreman A) · Truck 21 (his own)']);
+  });
+
   it('opens a block\'s Assignment through onEdit', () => {
     const onEdit = vi.fn();
     const haul = assignment({ ...a, note: 'Haul stone' });
@@ -168,10 +177,10 @@ describe('Lanes', () => {
 });
 
 describe('AssignmentBlock', () => {
-  const block = (fields: Partial<Assignment>, first = true) => {
+  const block = (fields: Partial<Assignment>, first = true, jobSites?: ReadonlySet<string>) => {
     render(
       <ul>
-        <AssignmentBlock assignment={assignment(fields)} first={first} />
+        <AssignmentBlock assignment={assignment(fields)} first={first} jobSites={jobSites} />
       </ul>,
     );
     return screen.getByRole('listitem').textContent;
@@ -225,6 +234,29 @@ describe('AssignmentBlock', () => {
 
   it('still reads sensibly with nothing filled in yet', () => {
     expect(block({ ...a })).toBe('First · No details yet');
+  });
+
+  describe('for a job site', () => {
+    const north = new Set(['plc-north']);
+
+    it('names the Assignment\'s Foreman beside the drop-off, as in "TIUNY (Brody)"', () => {
+      expect(block({ ...a, ...from, ...to, ...minus, ...foreman }, true, north)).toBe('First · Sample Plant → Sample Site North (Sample Foreman A) · 2" minus');
+    });
+
+    it('names him beside the pick-up when the drop-off is not a job site', () => {
+      const out = { fromPlaceId: 'plc-north', fromPlaceName: 'Sample Site North', toPlaceId: 'plc-plant', toPlaceName: 'Sample Plant' };
+      expect(block({ ...a, ...out, ...foreman }, true, north)).toBe('First · Sample Site North (Sample Foreman A) → Sample Plant');
+    });
+
+    it('names him beside the drop-off when both are job sites', () => {
+      const both = new Set(['plc-north', 'plc-south']);
+      const across = { fromPlaceId: 'plc-south', fromPlaceName: 'Sample Site South', ...to };
+      expect(block({ ...a, ...across, ...foreman }, true, both)).toBe('First · Sample Site South → Sample Site North (Sample Foreman A)');
+    });
+
+    it('shows the job site alone when the Assignment has no Foreman', () => {
+      expect(block({ ...a, ...from, ...to }, true, north)).toBe('First · Sample Plant → Sample Site North');
+    });
   });
 });
 

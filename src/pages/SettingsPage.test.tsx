@@ -43,6 +43,8 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   }
   const name = NAME[list];
   const one = list.slice(0, -1);
+  // Like the Worker, a Place that stops being a job site loses its usual Foreman.
+  const dropped = list === 'places' && 'kind' in body && body.kind !== 'job_site' ? { usualForemanId: null } : {};
   if (name in body && entries.some((e) => e.id !== id && String(e[name]).toLowerCase() === String(body[name]).toLowerCase())) {
     return answer({ error: 'invalid', fields: { [name]: 'That one is already in the list.' } }, 400);
   }
@@ -53,7 +55,7 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   }
   if (method === 'PATCH') {
     const entry = entries.find((e) => e.id === id)!;
-    Object.assign(entry, body);
+    Object.assign(entry, body, dropped);
     return answer({ [one]: entry });
   }
   return answer({ error: 'method_not_allowed' }, 405);
@@ -73,7 +75,7 @@ beforeEach(() => {
     ],
     places: [
       { id: 'plc-plant', shortName: 'Sample Plant', fullName: null, kind: 'plant', jobId: null, onTruckMap: true, active: true },
-      { id: 'plc-north', shortName: 'Sample Site North', fullName: 'Sample Job North site', kind: 'job_site', jobId: 'job-n', onTruckMap: false, active: true },
+      { id: 'plc-north', shortName: 'Sample Site North', fullName: 'Sample Job North site', kind: 'job_site', jobId: 'job-n', usualForemanId: null, onTruckMap: false, active: true },
       { id: 'plc-yard', shortName: 'Sample Yard', fullName: null, kind: 'yard', jobId: null, onTruckMap: false, active: true },
       { id: 'plc-x', shortName: 'Sample Old Pit', fullName: null, kind: null, jobId: null, onTruckMap: false, active: false },
     ],
@@ -281,6 +283,39 @@ describe('Settings', () => {
       const north = open('Places', 'Sample Site North');
       expect(within(north).getByText('Not on the truck map yet')).toBeTruthy();
       expect(north.textContent).not.toMatch(/geofence/i);
+    });
+
+    it('as a job site, picks its usual Foreman from the Foremen in use, saves it at once, and the chip shows him', async () => {
+      await settings();
+      const panel = open('Places', 'Sample Site North');
+      expect(options(pick(panel, 'usualForemanId'))).toEqual(['No usual Foreman', 'Sample Foreman A']);
+      fireEvent.change(pick(panel, 'usualForemanId'), { target: { value: 'frm-a' } });
+      await waitFor(() => expect(sent).toEqual([{ method: 'PATCH', path: '/api/places/plc-north', body: { usualForemanId: 'frm-a' } }]));
+      done(panel);
+      expect(chip('Places', 'Sample Site North').textContent).toBe('Sample Site NorthSample Foreman A');
+    });
+
+    it('asks for a usual Foreman only once it is a job site', async () => {
+      await settings();
+      const panel = open('Places', 'Sample Plant');
+      expect(pick(panel, 'usualForemanId')).toBeNull();
+      expect(within(panel).queryByText('Usual Foreman')).toBeNull();
+      fireEvent.change(pick(panel, 'kind'), { target: { value: 'job_site' } });
+      expect(pick(panel, 'usualForemanId').value).toBe('none');
+    });
+
+    it('loses its usual Foreman when it stops being a job site', async () => {
+      lists.places[1].usualForemanId = 'frm-a';
+      await settings();
+      const panel = open('Places', 'Sample Site North');
+      expect(pick(panel, 'usualForemanId').value).toBe('frm-a');
+      fireEvent.change(pick(panel, 'kind'), { target: { value: 'plant' } });
+      await waitFor(() => expect(within(panel).getByText('Saved')).toBeTruthy());
+      expect(pick(panel, 'usualForemanId')).toBeNull();
+      fireEvent.change(pick(panel, 'kind'), { target: { value: 'job_site' } });
+      expect(pick(panel, 'usualForemanId').value).toBe('none');
+      done(panel);
+      expect(chip('Places', 'Sample Site North').textContent).not.toContain('Sample Foreman A');
     });
 
     it('picks its Job from the active Jobs', async () => {

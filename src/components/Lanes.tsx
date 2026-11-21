@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Plus, User, UserX } from 'lucide-react';
-import type { Assignment, Driver, Truck } from '../../shared/types';
+import type { Assignment, Driver, Place, Truck } from '../../shared/types';
 import { AssignmentBlock } from '@/components/AssignmentBlock';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -64,6 +64,7 @@ export function Lanes({
   assignments,
   drivers,
   trucks,
+  places = null,
   onEdit,
   onAdd,
   composingFor,
@@ -72,12 +73,15 @@ export function Lanes({
   assignments: Assignment[];
   drivers: Driver[] | null;
   trucks: Truck[] | null;
+  /** The Places, so each block names its Foreman beside the job site; null while they load. */
+  places?: Place[] | null;
   onEdit?: (assignment: Assignment) => void;
   onAdd?: (driverId: string | null) => void;
   /** Which lane the composer is open in; undefined when it is closed. */
   composingFor?: string | null;
   composer?: ReactNode;
 }) {
+  const jobSites = new Set((places ?? []).filter((p) => p.kind === 'job_site').map((p) => p.id));
   return (
     <div className="space-y-3">
       {lanesOf(assignments, drivers, trucks).map((lane) => {
@@ -116,7 +120,7 @@ export function Lanes({
               ) : (
                 <ol className="grid gap-2 sm:grid-cols-2 md:flex-1 lg:grid-cols-3">
                   {lane.assignments.map((assignment, i) => (
-                    <AssignmentBlock key={assignment.id} assignment={assignment} first={i === 0} usualTruck={lane.usualTruck} onEdit={onEdit} />
+                    <AssignmentBlock key={assignment.id} assignment={assignment} first={i === 0} usualTruck={lane.usualTruck} jobSites={jobSites} onEdit={onEdit} />
                   ))}
                 </ol>
               )}

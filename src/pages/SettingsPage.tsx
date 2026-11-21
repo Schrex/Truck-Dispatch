@@ -57,8 +57,18 @@ const SECTIONS: SectionSpec<ListName>[] = [
         shownAs: { yard: 'shop' },
       },
       { key: 'jobId', label: 'Job', kind: 'pick', list: 'jobs', empty: 'No Job' },
+      {
+        key: 'usualForemanId',
+        label: 'Usual Foreman',
+        kind: 'pick',
+        list: 'foremen',
+        empty: 'No usual Foreman',
+        // Only a job site has one; the Worker empties it when the Place stops being one.
+        shownWhen: (form) => form.kind === 'job_site',
+      },
     ],
-    detail: (place) => place.kind && PLACE_KIND_LABELS[place.kind],
+    // A job site with a usual Foreman shows him, as in "TIUNY · Brody"; any other Place its kind.
+    detail: (place, nameOf) => nameOf('foremen', place.usualForemanId) ?? (place.kind && PLACE_KIND_LABELS[place.kind]),
     status: (place) => (place.onTruckMap ? 'On the truck map' : 'Not on the truck map yet'),
   }),
   section({ list: 'materials', title: 'Materials', noun: 'Material', name: { key: 'name', label: 'Name' }, fields: [] }),

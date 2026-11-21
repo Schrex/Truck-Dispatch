@@ -190,6 +190,7 @@ export function BoardPage() {
             assignments={assignments}
             drivers={drivers}
             trucks={trucks}
+            places={places}
             onEdit={editable ? setEditing : undefined}
             onAdd={editable ? setComposingFor : undefined}
             composingFor={editable ? composingFor : undefined}

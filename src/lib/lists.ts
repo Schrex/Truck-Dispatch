@@ -46,3 +46,13 @@ export interface Choice {
 export function choicesOf<L extends ListName>(list: L, entries: Lists[L][] | null): Choice[] | null {
   return entries && entries.map((entry) => ({ id: entry.id, label: displayName(list, entry), active: entry.active }));
 }
+
+/**
+ * Which of an Assignment's Places its Foreman is named beside, as in
+ * "TIUNY (Brody)": the drop-off if it is a job site, otherwise the pick-up if
+ * that is one, the same rule that fills in the usual Foreman; null when
+ * neither is a job site.
+ */
+export function foremanSite(fromIsJobSite: boolean, toIsJobSite: boolean): 'from' | 'to' | null {
+  return toIsJobSite ? 'to' : fromIsJobSite ? 'from' : null;
+}
