@@ -27,8 +27,9 @@ export function tileParts(date: string, today: string | null, day: WeekDay | und
  * shows that day. The pager above moves a week at a time, keeping the
  * weekday. The states are read again whenever `refresh` changes (the Board
  * passes its day, so a Send, an add or any other change shows at once) and
- * when the page regains the focus, for changes made elsewhere. On a phone the
- * tiles scroll sideways.
+ * when the page regains the focus, for changes made elsewhere. A week that
+ * cannot be read says so under the tiles, which still show their days. On a
+ * phone the tiles scroll sideways.
  */
 export function WeekStrip({
   date,
@@ -45,14 +46,23 @@ export function WeekStrip({
 }) {
   const monday = mondayOf(date);
   const [week, setWeek] = useState<{ monday: string; days: WeekDay[] } | null>(null);
+  const [failed, setFailed] = useState(false);
   const asked = useRef(0);
 
   const load = useCallback(() => {
     const ask = ++asked.current;
-    // A failed read leaves the tiles without states; the next change or focus tries again.
+    // A failed read leaves the tiles without states, and says so; the next change or focus tries again.
     fetchWeek(monday).then(
-      (days) => ask === asked.current && setWeek({ monday, days }),
-      () => ask === asked.current && setWeek(null),
+      (days) => {
+        if (ask !== asked.current) return;
+        setWeek({ monday, days });
+        setFailed(false);
+      },
+      () => {
+        if (ask !== asked.current) return;
+        setWeek(null);
+        setFailed(true);
+      },
     );
   }, [monday]);
 
@@ -115,6 +125,11 @@ export function WeekStrip({
           );
         })}
       </ol>
+      {failed && (
+        <p role="alert" className="text-xs text-destructive">
+          Could not load the state of each day this week. It tries again after a change or when you come back to the page.
+        </p>
+      )}
     </nav>
   );
 }

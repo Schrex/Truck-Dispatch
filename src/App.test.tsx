@@ -1487,11 +1487,19 @@ describe('the week strip', () => {
     await waitFor(() => expect(tile('Mon 16').getAttribute('aria-label')).toBe('Mon 16 · Not sent'));
   });
 
-  it('still shows its days, without states, when the week cannot be read', async () => {
+  it('still shows its days, without states, when the week cannot be read, and says so', async () => {
     failWeeks = true;
     open('/?date=2026-11-20');
     await screen.findByText(/^Nothing planned for /);
     await waitFor(() => expect(tiles()).toEqual(['Mon 16', 'Tue 17', 'Wed 18', 'Thu 19 · Today', 'Fri 20 · Tomorrow', 'Sat 21', 'Sun 22']));
+    expect(await screen.findByText('Could not load the state of each day this week. It tries again after a change or when you come back to the page.')).toBeTruthy();
+    // The board stays usable: a tile still shows its day.
+    fireEvent.click(tile('Mon 16'));
+    expect(address()).toBe('/?date=2026-11-16');
+
+    failWeeks = false;
+    regainFocus();
+    await waitFor(() => expect(screen.queryByText(/^Could not load the state of each day/)).toBeNull());
   });
 
   it('replaces Jump to', async () => {
