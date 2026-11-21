@@ -30,6 +30,11 @@ interface List {
   one: string;
   name: { key: string; column: string; missing: string; taken: string };
   fields: Field[];
+  /**
+   * Yes-or-no facts read from columns Settings does not edit, e.g. whether a
+   * Place has a geofence code. Answered on every read; ignored when sent.
+   */
+  facts?: { key: string; sql: string }[];
 }
 
 export const LISTS: Record<ListName, List> = {
@@ -63,6 +68,8 @@ export const LISTS: Record<ListName, List> = {
       { key: 'kind', column: 'kind', kind: 'choice', choices: PLACE_KINDS, message: 'Pick plant, job site, shop or yard, or leave it empty.' },
       { key: 'jobId', column: 'job_id', kind: 'ref', list: 'jobs', message: 'Pick a Job from the list.' },
     ],
+    // The geofence code itself comes from HCSS later; Settings only says whether there is one.
+    facts: [{ key: 'onTruckMap', sql: 'geofence_code IS NOT NULL' }],
   },
   materials: {
     table: 'materials',
@@ -101,20 +108,29 @@ export async function handleList(request: Request, env: Env, list: ListName, id:
 }
 
 function select(list: ListName): string {
-  const { table, name, fields } = LISTS[list];
-  const columns = [`id`, `${name.column} AS ${name.key}`, ...fields.map((f) => `${f.column} AS ${f.key}`), 'active'];
+  const { table, name, fields, facts = [] } = LISTS[list];
+  const columns = [
+    `id`,
+    `${name.column} AS ${name.key}`,
+    ...fields.map((f) => `${f.column} AS ${f.key}`),
+    ...facts.map((f) => `(${f.sql}) AS ${f.key}`),
+    'active',
+  ];
   return `SELECT ${columns.join(', ')} FROM ${table}`;
 }
 
-/** SQLite has no booleans: active comes back as 1 or 0. */
-const entry = (row: Record<string, unknown>) => ({ ...row, active: row.active === 1 });
+/** SQLite has no booleans: active and each fact come back as 1 or 0. */
+function entry(list: ListName, row: Record<string, unknown>) {
+  const facts = (LISTS[list].facts ?? []).map((f) => [f.key, row[f.key] === 1]);
+  return { ...row, ...Object.fromEntries(facts), active: row.active === 1 };
+}
 
 async function read(env: Env, list: ListName, includeInactive: boolean): Promise<Response> {
   const { name } = LISTS[list];
   const { results } = await env.DB.prepare(
     `${select(list)} ${includeInactive ? '' : 'WHERE active = 1'} ORDER BY ${name.column} COLLATE NOCASE, id`,
   ).all<Record<string, unknown>>();
-  return json({ [list]: results.map(entry) });
+  return json({ [list]: results.map((row) => entry(list, row)) });
 }
 
 /** Adds an entry (id null) or changes the given fields of one. */
@@ -179,5 +195,5 @@ async function save(request: Request, env: Env, list: ListName, id: string | nul
     throw error;
   }
   const saved = await env.DB.prepare(`${select(list)} WHERE id = ?`).bind(savedId).first<Record<string, unknown>>();
-  return json({ [spec.one]: saved && entry(saved) }, adding ? 201 : 200);
+  return json({ [spec.one]: saved && entry(list, saved) }, adding ? 201 : 200);
 }

@@ -27,13 +27,17 @@ export interface Job {
 export const PLACE_KINDS = ['plant', 'job_site', 'shop', 'yard'] as const;
 export type PlaceKind = (typeof PLACE_KINDS)[number];
 
-/** Anywhere a Truck loads, dumps or parks. Its geofence code (for GPS later) is not part of the API. */
+/**
+ * Anywhere a Truck loads, dumps or parks. Its geofence code (for GPS later) is
+ * not part of the API; onTruckMap says whether it has one, and is never saved.
+ */
 export interface Place {
   id: string;
   shortName: string;
   fullName: string | null;
   kind: PlaceKind | null;
   jobId: string | null;
+  onTruckMap: boolean;
   active: boolean;
 }
 
@@ -69,7 +73,7 @@ export type ListName = keyof Lists;
  * What the page sends to add an entry (the display name is required; active
  * defaults to true) or to change one (only the fields to change).
  */
-export type EntryFields<L extends ListName> = Partial<Omit<Lists[L], 'id'>>;
+export type EntryFields<L extends ListName> = Partial<Omit<Lists[L], 'id' | 'onTruckMap'>>;
 
 /** Today and tomorrow in US Eastern time (GET api/today). */
 export interface BusinessDay {
