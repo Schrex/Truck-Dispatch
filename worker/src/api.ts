@@ -145,7 +145,7 @@ function marked({ daySentAt, ...assignment }: AssignmentRow): Assignment {
 
 /** A day's Assignments, each marked Changed or Added since the Send, and when the day was first Sent (null for a Draft). */
 async function readDay(env: Env, date: string | null): Promise<Response> {
-  if (!isCalendarDate(date)) return refuse({ date: 'Pick a date.' });
+  if (!isCalendarDate(date)) return refuse({ date: PICK_DATE });
   const [{ results }, { results: sends }] = await env.DB.batch<AssignmentRow & { sentAt: string }>([
     env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.date = ? ${DAY_ORDER}`).bind(date),
     env.DB.prepare('SELECT sent_at AS sentAt FROM day_sends WHERE date = ?').bind(date),
@@ -178,7 +178,7 @@ const WAS_FIELDS = [
  * Eastern until it refreshes.
  */
 async function readDriverDay(env: Env, driverId: string, date: string): Promise<Response> {
-  if (!isCalendarDate(date)) return refuse({ date: 'Pick a date.' });
+  if (!isCalendarDate(date)) return refuse({ date: PICK_DATE });
   if (!(await exists(env, 'drivers', driverId))) return json({ error: 'not_found' }, 404);
   const [{ results: sends }, { results: rows }, { results: kept }] = await env.DB.batch<{ sentAt: string } & AssignmentRow & { id: string; before: string }>([
     env.DB.prepare('SELECT sent_at AS sentAt FROM day_sends WHERE date = ?').bind(date),
@@ -240,8 +240,8 @@ async function readWeek(env: Env, monday: string): Promise<Response> {
  * deleted meanwhile cannot slip between them. No warnings.
  */
 async function sendDay(env: Env, date: string): Promise<Response> {
-  if (!isCalendarDate(date)) return refuse({ date: 'Pick a date.' });
-  if (isPast(env, date)) return refuse({ date: 'Days before today are read-only, so they cannot be Sent.' });
+  if (!isCalendarDate(date)) return refuse({ date: PICK_DATE });
+  if (isPast(env, date)) return refuse({ date: PAST_DAY.send });
   const [, { results }] = await env.DB.batch<{ sentAt: string }>([
     env.DB.prepare(
       'INSERT OR IGNORE INTO day_sends (date, sent_at) SELECT ?, ? WHERE EXISTS (SELECT 1 FROM assignments WHERE date = ?)',
@@ -284,14 +284,14 @@ async function latestEarlierDay(env: Env, date: string): Promise<string | null> 
 
 /** The day Start from on `date` would copy, so the page can name it on the button. */
 async function readStartFrom(env: Env, date: string): Promise<Response> {
-  if (!isCalendarDate(date)) return refuse({ date: 'Pick a date.' });
+  if (!isCalendarDate(date)) return refuse({ date: PICK_DATE });
   return json({ from: await latestEarlierDay(env, date) });
 }
 
 /** Start from: copies the latest earlier day that has Assignments onto an empty day. */
 async function startFrom(env: Env, date: string): Promise<Response> {
   if (!isCalendarDate(date)) return refuse({ date: 'Pick a day to start.' });
-  if (isPast(env, date)) return refuse({ date: PAST_DATE });
+  if (isPast(env, date)) return refuse({ date: PAST_DAY.date });
   const from = await latestEarlierDay(env, date);
   if (!from) return json({ error: 'nothing_to_copy', message: 'No earlier day has Assignments to start from.' }, 409);
   return copyOnto(env, from, date);
@@ -305,7 +305,7 @@ async function copyTo(request: Request, env: Env, from: string): Promise<Respons
   if (!isPast(env, from)) return refuse({ date: 'Copy to copies a day before today. Pick an earlier day.' });
   const to = body.to;
   if (!isCalendarDate(to)) return refuse({ to: 'Pick a day to copy onto.' });
-  if (isPast(env, to)) return refuse({ to: PAST_DATE });
+  if (isPast(env, to)) return refuse({ to: PAST_DAY.date });
   return copyOnto(env, from, to);
 }
 
@@ -577,13 +577,23 @@ async function putBack(env: Env, id: string): Promise<Response> {
   return json({ assignment: await findAssignment(env, id) });
 }
 
+/** What the Worker says when a day sent is not a calendar date. */
+const PICK_DATE = 'Pick a date.';
+
+/** Every refusal of a day before today, in one place so they read alike: a date given for new work, a Send, and an Assignment already on one. */
+const PAST_DAY = {
+  date: 'Days before today are read-only. Pick today or a later day.',
+  send: 'Days before today are read-only, so they cannot be Sent.',
+  assignment: 'This Assignment is on a day before today, which is read-only.',
+} as const;
+
 /** Days before today (US Eastern) are read-only: nothing on them is added, changed, moved, deleted, cancelled or put back. */
 function isPast(env: Env, date: string): boolean {
   return date < clock(env).today;
 }
 
 function onPastDay(): Response {
-  return json({ error: 'past_day', message: 'This Assignment is on a day before today, which is read-only.' }, 409);
+  return json({ error: 'past_day', message: PAST_DAY.assignment }, 409);
 }
 
 async function findAssignment(env: Env, id: string): Promise<Assignment | null> {
@@ -644,8 +654,8 @@ async function readAssignment(request: Request, env: Env): Promise<ReadAssignmen
   if (body instanceof Response) return body;
 
   const errors = await checkFields(env, body);
-  if (!isCalendarDate(body.date)) errors.date = 'Pick a date.';
-  else if (isPast(env, body.date)) errors.date = PAST_DATE;
+  if (!isCalendarDate(body.date)) errors.date = PICK_DATE;
+  else if (isPast(env, body.date)) errors.date = PAST_DAY.date;
   if (Object.keys(errors).length > 0) return refuse(errors);
   const ids = Object.fromEntries(REFERENCES.map((r) => [r.key, text(body[r.key]) || null])) as Record<ReferenceKey, string | null>;
   return { date: body.date as string, ...ids, note: text(body.note) || null, typed: typedIn(body) };
@@ -683,8 +693,6 @@ async function checkFields(env: Env, body: Partial<NewAssignment & TypedNames>):
   });
   return errors;
 }
-
-const PAST_DATE = 'Days before today are read-only. Pick today or a later day.';
 
 const NOTE_LIMIT = 1000;
 
