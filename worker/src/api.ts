@@ -3,8 +3,8 @@ import { clock } from './clock';
 import { json, readJson, refuse, text } from './http';
 import { exists, handleList, isList } from './lists';
 import { checkTyped, saveLinked, typedIn, type Typed } from './typedNames';
-import { isCalendarDate } from '../../shared/days';
-import type { Assignment, BusinessDay, ListName, NewAssignment, TypedNames } from '../../shared/types';
+import { isCalendarDate, sinceSent } from '../../shared/days';
+import type { Assignment, BusinessDay, Day, ListName, NewAssignment, TypedNames } from '../../shared/types';
 
 /** The JSON API under /api/ (or /truck-dispatch/api/). */
 export async function handleApi(request: Request, env: Env, route: string, query: URLSearchParams): Promise<Response> {
@@ -24,6 +24,12 @@ export async function handleApi(request: Request, env: Env, route: string, query
   if (laterOf) {
     if (reading) return laterDays(env, decodeURIComponent(laterOf[1]));
     return json({ error: 'method_not_allowed' }, 405, { Allow: 'GET, HEAD' });
+  }
+
+  const sending = /^days\/([^/]+)\/send$/.exec(route);
+  if (sending) {
+    if (method === 'POST') return sendDay(env, decodeURIComponent(sending[1]));
+    return json({ error: 'method_not_allowed' }, 405, { Allow: 'POST' });
   }
 
   const [list, entryId, ...rest] = route.split('/');
@@ -64,15 +70,20 @@ async function laterDays(env: Env, driverId: string): Promise<Response> {
   return json({ laterDays: row?.days ?? 0 });
 }
 
-/** Each Assignment with the names of its Driver, Truck, Places, Material and Foreman, so the page never has to look them up. */
+/**
+ * Each Assignment with the names of its Driver, Truck, Places, Material and
+ * Foreman, so the page never has to look them up, and when its day was Sent,
+ * from which marked() works out whether it is Changed or Added.
+ */
 const SELECT_ASSIGNMENT = `SELECT a.id, a.date, a.driver_id AS driverId, d.name AS driverName,
        a.truck_id AS truckId, t.number AS truckNumber,
        a.from_place_id AS fromPlaceId, pf.short_name AS fromPlaceName,
        a.to_place_id AS toPlaceId, pt.short_name AS toPlaceName,
        a.material_id AS materialId, m.name AS materialName,
        a.foreman_id AS foremanId, f.name AS foremanName, a.note,
-       a.position, a.created_at AS createdAt, a.updated_at AS updatedAt, a.changed_at AS changedAt
-  FROM assignments a LEFT JOIN drivers d ON d.id = a.driver_id LEFT JOIN trucks t ON t.id = a.truck_id
+       a.position, a.created_at AS createdAt, a.updated_at AS updatedAt, a.changed_at AS changedAt,
+       s.sent_at AS daySentAt
+  FROM assignments a LEFT JOIN day_sends s ON s.date = a.date LEFT JOIN drivers d ON d.id = a.driver_id LEFT JOIN trucks t ON t.id = a.truck_id
   LEFT JOIN places pf ON pf.id = a.from_place_id LEFT JOIN places pt ON pt.id = a.to_place_id
   LEFT JOIN materials m ON m.id = a.material_id LEFT JOIN foremen f ON f.id = a.foreman_id`;
 
@@ -90,10 +101,44 @@ const DAY_ORDER = 'ORDER BY a.driver_id IS NULL, d.name COLLATE NOCASE, a.driver
  */
 const LAST_IN_LANE = '(SELECT COALESCE(MAX(position) + 1, 0) FROM assignments WHERE date = ? AND driver_id IS ? AND id IS NOT ?)';
 
+/** An Assignment as SELECT_ASSIGNMENT reads it: with its day's sent time in place of whether it is Changed or Added. */
+type AssignmentRow = Omit<Assignment, 'sinceSent'> & { daySentAt: string | null };
+
+/** An Assignment as the API answers it: Changed, Added or neither since its day was Sent, by the shared day rules. */
+function marked({ daySentAt, ...assignment }: AssignmentRow): Assignment {
+  return { ...assignment, sinceSent: sinceSent(assignment, daySentAt) };
+}
+
+/** A day's Assignments, each marked Changed or Added since the Send, and when the day was first Sent (null for a Draft). */
 async function readDay(env: Env, date: string | null): Promise<Response> {
   if (!isCalendarDate(date)) return refuse({ date: 'Pick a date.' });
-  const { results } = await env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.date = ? ${DAY_ORDER}`).bind(date).all<Assignment>();
-  return json({ assignments: results });
+  const [{ results }, { results: sends }] = await env.DB.batch<AssignmentRow & { sentAt: string }>([
+    env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.date = ? ${DAY_ORDER}`).bind(date),
+    env.DB.prepare('SELECT sent_at AS sentAt FROM day_sends WHERE date = ?').bind(date),
+  ]);
+  return json({ assignments: results.map(marked), sentAt: sends[0]?.sentAt ?? null } satisfies Day);
+}
+
+/**
+ * Sends a day to the Drivers: records its first Send. There is no lock and no
+ * Send again (ADR 0003), so Sending a Sent day keeps its first time and does
+ * nothing else. A day with no Assignments is refused, so the Drivers are never
+ * sent nothing; the check and the record are one statement, so an Assignment
+ * deleted meanwhile cannot slip between them. No warnings.
+ */
+async function sendDay(env: Env, date: string): Promise<Response> {
+  if (!isCalendarDate(date)) return refuse({ date: 'Pick a date.' });
+  if (isPast(env, date)) return refuse({ date: 'Days before today are read-only, so they cannot be Sent.' });
+  const [, { results }] = await env.DB.batch<{ sentAt: string }>([
+    env.DB.prepare(
+      'INSERT OR IGNORE INTO day_sends (date, sent_at) SELECT ?, ? WHERE EXISTS (SELECT 1 FROM assignments WHERE date = ?)',
+    ).bind(date, clock(env).now.toISOString(), date),
+    env.DB.prepare('SELECT sent_at AS sentAt FROM day_sends WHERE date = ?').bind(date),
+  ]);
+  if (results.length === 0) {
+    return json({ error: 'nothing_to_send', message: 'This day has no Assignments to Send. Plan the day first.' }, 409);
+  }
+  return json({ date, sentAt: results[0].sentAt });
 }
 
 /**
@@ -141,8 +186,8 @@ async function copyDay(request: Request, env: Env): Promise<Response> {
     `${SELECT_ASSIGNMENT} WHERE a.id IN (SELECT value FROM json_each(?)) ${DAY_ORDER}`,
   )
     .bind(JSON.stringify(ids))
-    .all<Assignment>();
-  return json({ assignments: results }, 201);
+    .all<AssignmentRow>();
+  return json({ assignments: results.map(marked) }, 201);
 }
 
 async function addAssignment(request: Request, env: Env): Promise<Response> {
@@ -165,7 +210,8 @@ async function addAssignment(request: Request, env: Env): Promise<Response> {
  * never wipes one made on another; an empty value clears a field. The day is
  * fixed. A new Driver puts it last in his lane, so his day keeps its order.
  * Only a real change is saved and recorded as changed: sending a field as it
- * already is (the same Driver again, say) changes nothing at all.
+ * already is (the same Driver again, say) changes nothing at all. A real
+ * change after the day is Sent also keeps its fields as they were before.
  */
 async function changeAssignment(request: Request, env: Env, id: string): Promise<Response> {
   const existing = await findAssignment(env, id);
@@ -191,12 +237,35 @@ async function changeAssignment(request: Request, env: Env, id: string): Promise
       binds.push(changes.driverId, existing.date, changes.driverId, id);
     }
     const differs = keys.map((key) => `${COLUMN_OF[key]} IS NOT ?`).join(' OR ');
-    return env.DB.prepare(
+    // First, on a Sent day, its fields as they were, kept only when the update below really changes it.
+    const keep = env.DB.prepare(
+      `INSERT INTO assignment_changes (id, assignment_id, changed_at, before)
+       SELECT ?, id, ?, (${FIELDS_BEFORE}) FROM assignments
+        WHERE id = ? AND date IN (SELECT date FROM day_sends) AND (${differs})`,
+    ).bind(crypto.randomUUID(), now, id, ...values);
+    const update = env.DB.prepare(
       `UPDATE assignments SET ${set.join(', ')}, updated_at = ?, changed_at = ? WHERE id = ? AND (${differs})`,
     ).bind(...binds, now, now, id, ...values);
+    return [keep, update];
   });
   return json({ assignment: await findAssignment(env, id) });
 }
+
+/**
+ * An Assignment's fields as the Driver reads them, as JSON, with the names its
+ * entries had then (so "was Cobblestone" survives a later rename) and the ids
+ * (so later Trips can be matched to where it sent him). Read inside a
+ * statement on the assignments table, for its current row.
+ */
+const FIELDS_BEFORE = `SELECT json_object(
+    'driverId', b.driver_id, 'driverName', d.name, 'truckId', b.truck_id, 'truckNumber', t.number,
+    'fromPlaceId', b.from_place_id, 'fromPlaceName', pf.short_name, 'toPlaceId', b.to_place_id, 'toPlaceName', pt.short_name,
+    'materialId', b.material_id, 'materialName', m.name, 'foremanId', b.foreman_id, 'foremanName', f.name,
+    'note', b.note, 'position', b.position)
+  FROM assignments b LEFT JOIN drivers d ON d.id = b.driver_id LEFT JOIN trucks t ON t.id = b.truck_id
+  LEFT JOIN places pf ON pf.id = b.from_place_id LEFT JOIN places pt ON pt.id = b.to_place_id
+  LEFT JOIN materials m ON m.id = b.material_id LEFT JOIN foremen f ON f.id = b.foreman_id
+  WHERE b.id = assignments.id`;
 
 function dayFixed(): Response {
   return json({ error: 'day_fixed', message: 'An Assignment stays on its day. Add a new one on the other day instead.' }, 409);
@@ -220,8 +289,9 @@ function onPastDay(): Response {
   return json({ error: 'past_day', message: 'This Assignment is on a day before today, which is read-only.' }, 409);
 }
 
-function findAssignment(env: Env, id: string): Promise<Assignment | null> {
-  return env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.id = ?`).bind(id).first<Assignment>();
+async function findAssignment(env: Env, id: string): Promise<Assignment | null> {
+  const row = await env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.id = ?`).bind(id).first<AssignmentRow>();
+  return row && marked(row);
 }
 
 const PICK_PLACE = 'Pick a Place from the list.';
