@@ -1286,6 +1286,22 @@ describe('sending a day', () => {
     expect(sendButton()).toBeNull();
   });
 
+  it('says when the day was last saved after a delete too, never going back to an earlier save', async () => {
+    assignments = [planned(), planned({ id: 'a2', note: 'Topsoil haul', position: 1, updatedAt: '2026-11-19T21:12:00.000Z' })];
+    open('/?date=2026-11-20');
+    await waitFor(() => expect(dayState()).toBe('Draft · not sent yet · saved 4:12 PM'));
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-19T21:30:00.000Z'));
+    try {
+      fireEvent.click(await screen.findByRole('button', { name: 'Edit Topsoil haul' }));
+      fireEvent.click(within(screen.getByRole('region', { name: 'Open Assignment' })).getByRole('button', { name: 'Delete' }));
+      await waitFor(() => expect(screen.queryByText('Topsoil haul')).toBeNull());
+      expect(dayState()).toBe('Draft · not sent yet · saved 4:30 PM');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('offers no Send yet on a day with nothing planned', async () => {
     open('/?date=2026-11-20');
     await screen.findByText(/^Nothing planned for /);

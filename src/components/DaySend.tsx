@@ -26,13 +26,15 @@ function dayAndTime(moment: string): string {
  * The header's state line for a day, by the shared day rules: a Draft says
  * it is not sent yet and when it was last saved, so Dave knows his work is
  * kept; a Sent day says when it was first Sent; and once anything on it is
- * Changed or Added since, that it has changed since it was Sent.
+ * Changed or Added since, that it has changed since it was Sent. The last
+ * save is the latest of its Assignments' and `savedAt`, the page's own last
+ * save on the day, which covers a delete that leaves no Assignment to read.
  */
-export function stateLine(assignments: Assignment[], sentAt: string | null): string {
+export function stateLine(assignments: Assignment[], sentAt: string | null, savedAt: string | null = null): string {
   const { state } = dayState(assignments, sentAt);
   if (state === 'changed') return 'Changed since Sent';
   if (state === 'sent') return `Sent ${dayAndTime(sentAt!)}`;
-  const saved = assignments.map((a) => a.updatedAt).sort().at(-1);
+  const saved = [...assignments.map((a) => a.updatedAt), ...(savedAt ? [savedAt] : [])].sort().at(-1);
   return ['Draft', 'not sent yet', saved && `saved ${clockTime(saved)}`].filter(Boolean).join(' · ');
 }
 
@@ -47,6 +49,7 @@ export function DaySend({
   date,
   assignments,
   sentAt,
+  savedAt = null,
   editable,
   onSent,
 }: {
@@ -54,6 +57,8 @@ export function DaySend({
   /** The day's Assignments, once loaded. */
   assignments: Assignment[] | null;
   sentAt: string | null;
+  /** When the page last saved something on the day, such as a delete; null when it has not. */
+  savedAt?: string | null;
   /** Today or a later day; days before today are read-only. */
   editable: boolean;
   onSent: (sentAt: string) => void;
@@ -78,7 +83,7 @@ export function DaySend({
   return (
     <div className="space-y-1.5">
       <p role="status" aria-label="Day state" className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-        {stateLine(assignments, sentAt)}
+        {stateLine(assignments, sentAt, savedAt)}
       </p>
       {editable && sentAt === null && (
         <Button size="lg" className="px-5" disabled={sending || assignments.length === 0} onClick={send}>

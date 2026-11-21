@@ -43,6 +43,8 @@ export function BoardPage() {
   const [assignments, setAssignments] = useState<Assignment[] | null>(null);
   // When the day on screen was first Sent; null while it is a Draft.
   const [sentAt, setSentAt] = useState<string | null>(null);
+  // When the page last deleted something on the day on screen, so "saved" never goes back to an earlier save.
+  const [savedAt, setSavedAt] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   const [reloads, setReloads] = useState(0);
   const [businessDay, setBusinessDay] = useState<BusinessDay | null>(null);
@@ -84,6 +86,7 @@ export function BoardPage() {
     setComposingFor(undefined);
     setDraft(EMPTY_DRAFT);
     setOpenId(null);
+    setSavedAt(null);
   }, [date]);
 
   useEffect(() => {
@@ -124,9 +127,10 @@ export function BoardPage() {
       const added = answered.filter((a) => !day.some((d) => d.id === a.id));
       return [...day.map((a) => byId.get(a.id) ?? a), ...added].sort((x, y) => x.position - y.position);
     });
-  /** An Assignment ✕ deleted (on a Draft day) leaves the day, and its editor closes. */
+  /** An Assignment ✕ deleted (on a Draft day) leaves the day, and its editor closes; the day was saved now. */
   const deleted = (id: string) => {
     setOpenId(null);
+    setSavedAt(new Date().toISOString());
     setAssignments((day) => day && day.filter((a) => a.id !== id));
   };
   // The day on screen as last read or Sent: each time it changes (an add, a Send, any change), the week strip reads its states again.
@@ -146,7 +150,7 @@ export function BoardPage() {
       >
         <ViewToggle current="scheduler" />
         <DayNavigation date={date} nextWorkingDay={businessDay?.nextWorkingDay ?? null} onShow={show} />
-        {date && <DaySend date={date} assignments={assignments} sentAt={sentAt} editable={editable} onSent={setSentAt} />}
+        {date && <DaySend date={date} assignments={assignments} sentAt={sentAt} savedAt={savedAt} editable={editable} onSent={setSentAt} />}
         <Button asChild variant="outline" size="lg" className="px-5">
           <Link to="/settings">
             <Settings className="h-4 w-4" /> Settings
