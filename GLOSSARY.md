@@ -29,7 +29,7 @@ An Assignment that Dave added to a day after it was Sent, including one given to
 A weekday that is not one of the six Holidays (New Year's Day, Memorial Day, Independence Day, Labor Day, Thanksgiving, Christmas), the same as the Daily Schedule's. The board opens on the next one. Weekends and Holidays can still be planned.
 
 **Driver**:
-A person who drives a company Truck and receives Assignments. Each has a usual Truck; an Assignment names a Truck only when the work needs a certain one, otherwise the Driver takes his own.
+A person who drives a company Truck and receives Assignments. Each has a usual Truck; an Assignment names a Truck only when the work needs a certain one, otherwise it names none ("His own") and the Driver takes his usual Truck.
 
 **Foreman**:
 The person running a Job on a given day. Changes from day to day, so an Assignment names one, not a Place. A job-site Place can have a usual Foreman, who is suggested for new Assignments that drop off there, or pick up there when the drop-off is not a job site.

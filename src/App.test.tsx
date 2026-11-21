@@ -450,7 +450,7 @@ describe('the lanes', () => {
     ];
     open('/?date=2026-11-20');
     expect(await screen.findByText('Move the excavator')).toBeTruthy();
-    expect(blocks('Sample Driver A')).toEqual(['First · Sample Plant → Sample Site North', 'Then · Move the excavator']);
+    expect(blocks('Sample Driver A')).toEqual(['First · Sample Plant → Sample Site North · Truck 21 (his own)', 'Then · Move the excavator · Truck 21 (his own)']);
     expect(blocks('Unassigned')).toEqual(['First · Who takes this?']);
     expect(within(lane('Sample Driver B')).getByText('Nothing planned yet')).toBeTruthy();
   });
@@ -467,7 +467,7 @@ describe('the lanes', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
 
     expect(await within(await screen.findByRole('article', { name: 'Sample Driver A' })).findByText('Topsoil run')).toBeTruthy();
-    expect(blocks('Sample Driver A')).toEqual(['First · Haul stone', 'Then · Topsoil run · Truck 21']);
+    expect(blocks('Sample Driver A')).toEqual(['First · Haul stone · Truck 21 (his own)', 'Then · Topsoil run · Truck 21 (his own)']);
   });
 });
 
@@ -523,8 +523,8 @@ describe('changing the plan', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
 
     expect(await within(await findLane('Sample Driver B')).findByText('Haul stone')).toBeTruthy();
-    // Picking a Driver still fills in his usual Truck.
-    expect(blocks('Sample Driver B')).toEqual(['First · Topsoil run', 'Then · Haul stone · Truck 24']);
+    // The Assignment names no Truck, so it shows his own.
+    expect(blocks('Sample Driver B')).toEqual(['First · Topsoil run · Truck 24 (his own)', 'Then · Haul stone · Truck 24 (his own)']);
     expect(within(lane('Sample Driver A')).getByText('Nothing planned yet')).toBeTruthy();
   });
 
@@ -622,11 +622,11 @@ describe('the Truck', () => {
     return screen.getByRole('dialog');
   };
 
-  it('has a picker with an empty choice, listing active Trucks only', async () => {
+  it('has a picker starting on "His own", listing active Trucks only', async () => {
     const dialog = await addDialog();
     const truck = await picker(dialog, 'truckId');
     expect(truck.value).toBe('none');
-    expect(choices(truck)).toEqual(['No Truck', '21', '24']);
+    expect(choices(truck)).toEqual(['His own', '21', '24']);
   });
 
   it('leaves inactive Drivers out of the Driver picker', async () => {
@@ -634,30 +634,51 @@ describe('the Truck', () => {
     expect(choices(await picker(dialog, 'driverId'))).toEqual(['No Driver', 'Sample Driver A', 'Sample Driver B']);
   });
 
-  it("is filled with the Driver's usual Truck when a Driver is picked and the Truck is empty, and shows on the line", async () => {
+  it("stays on His own when a Driver is picked: the Assignment names no Truck, and the board shows his usual Truck in grey", async () => {
     const dialog = await addDialog();
     fireEvent.change(await picker(dialog, 'driverId'), { target: { value: 'drv-b' } });
-    expect((await picker(dialog, 'truckId')).value).toBe('trk-24');
+    expect((await picker(dialog, 'truckId')).value).toBe('none');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
 
     expect(await screen.findByText('Assignment saved')).toBeTruthy();
-    expect(within(lane('Sample Driver B')).getByRole('listitem').textContent).toBe('First · Truck 24');
+    expect(sent).toEqual([expect.objectContaining({ driverId: 'drv-b', truckId: null })]);
+    expect(within(lane('Sample Driver B')).getByRole('listitem').textContent).toBe('First · No details yet · Truck 24 (his own)');
+    expect(within(lane('Sample Driver B')).getByText('Truck 24', { selector: 'li span' }).className).toContain('text-muted-foreground');
   });
 
-  it('is left alone when already chosen and a Driver is picked', async () => {
+  it('names a certain Truck when one is picked, shown plainly on the board', async () => {
     const dialog = await addDialog();
     fireEvent.change(await picker(dialog, 'truckId'), { target: { value: 'trk-21' } });
     fireEvent.change(await picker(dialog, 'driverId'), { target: { value: 'drv-b' } });
     expect((await picker(dialog, 'truckId')).value).toBe('trk-21');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
+
+    expect(await screen.findByText('Assignment saved')).toBeTruthy();
+    expect(sent).toEqual([expect.objectContaining({ driverId: 'drv-b', truckId: 'trk-21' })]);
+    expect(within(lane('Sample Driver B')).getByRole('listitem').textContent).toBe('First · Truck 21');
+    expect(within(lane('Sample Driver B')).getByText('Truck 21', { selector: 'li span' }).className).not.toContain('text-muted-foreground');
   });
 
-  it('can be changed from the usual Truck, or cleared', async () => {
-    const dialog = await addDialog();
-    fireEvent.change(await picker(dialog, 'driverId'), { target: { value: 'drv-a' } });
-    fireEvent.change(await picker(dialog, 'truckId'), { target: { value: 'none' } });
+  it('shows no Truck on the board for His own when the Driver has no usual Truck', async () => {
+    assignments = [{ id: 'a0', date: '2026-11-20', driverId: 'drv-x', driverName: 'Sample Driver X', note: 'Haul stone', createdAt: '', updatedAt: '' }];
+    open('/?date=2026-11-20');
+    expect(await within(await screen.findByRole('article', { name: 'Sample Driver X' })).findByText('Haul stone')).toBeTruthy();
+    expect(within(lane('Sample Driver X')).getByRole('listitem').textContent).toBe('First · Haul stone');
+  });
+
+  it('keeps the Truck an existing Assignment names, and can set it back to His own', async () => {
+    assignments = [{ id: 'a0', date: '2026-11-20', driverId: 'drv-a', driverName: 'Sample Driver A', truckId: 'trk-24', truckNumber: '24', note: 'Haul stone', createdAt: '', updatedAt: '' }];
+    open('/?date=2026-11-20');
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit Haul stone · Truck 24' }));
+    const dialog = screen.getByRole('dialog', { name: 'Edit Assignment' });
+    const truck = await picker(dialog, 'truckId');
+    expect(truck.value).toBe('trk-24');
+    fireEvent.change(truck, { target: { value: 'none' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
+
     expect(await screen.findByText('Assignment saved')).toBeTruthy();
-    expect(sent).toEqual([expect.objectContaining({ driverId: 'drv-a', truckId: null })]);
+    expect(sent).toEqual([{ truckId: null }]);
+    expect(within(lane('Sample Driver A')).getByRole('listitem').textContent).toBe('First · Haul stone · Truck 21 (his own)');
   });
 
   it('keeps a Driver and Truck made inactive since, by name, when something else is edited', async () => {
@@ -722,7 +743,7 @@ describe('From and To Places', () => {
 
     expect(await screen.findByText('Assignment saved')).toBeTruthy();
     expect(sent).toEqual([expect.objectContaining({ fromPlaceId: 'plc-plant', toPlaceId: 'plc-north' })]);
-    expect(within(lane('Sample Driver A')).getByRole('listitem').textContent).toBe('First · Sample Plant → Sample Site North · Truck 21');
+    expect(within(lane('Sample Driver A')).getByRole('listitem').textContent).toBe('First · Sample Plant → Sample Site North · Truck 21 (his own)');
   });
 
   it('saves only a To Place, and the line shows it with no arrow', async () => {
@@ -768,7 +789,7 @@ describe('From and To Places', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save Assignment' }));
     expect(await screen.findByText('Assignment saved')).toBeTruthy();
     expect(sent).toEqual([{ note: 'Haul topsoil' }]);
-    expect(within(lane('Sample Driver A')).getByRole('listitem').textContent).toBe('First · Sample Old Pit → Sample Site North · Haul topsoil');
+    expect(within(lane('Sample Driver A')).getByRole('listitem').textContent).toBe('First · Sample Old Pit → Sample Site North · Haul topsoil · Truck 21 (his own)');
   });
 
   it('are carried by Duplicate to', async () => {

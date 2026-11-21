@@ -79,7 +79,7 @@ describe('Lanes', () => {
       />,
     );
     expect(lanes()).toEqual([
-      { driver: 'Sample Driver A', about: 'Truck 21', blocks: ['First · Haul stone to the job', 'Then · Move the excavator', 'Then · Topsoil run'] },
+      { driver: 'Sample Driver A', about: 'Truck 21', blocks: ['First · Haul stone to the job · Truck 21 (his own)', 'Then · Move the excavator · Truck 21 (his own)', 'Then · Topsoil run · Truck 21 (his own)'] },
       { driver: 'Sample Driver B', about: '', blocks: ['First · Fill the shop'] },
       { driver: 'Unassigned', about: '', blocks: ['First · Who takes this?'] },
     ]);
@@ -104,6 +104,33 @@ describe('Lanes', () => {
       { driver: 'Sample Driver B', about: '', blocks: ['First · Fill the shop'] },
       { driver: 'Unassigned', about: '', blocks: [] },
     ]);
+  });
+
+  it('shows a named Truck plainly and, when the Assignment names none, the Driver\'s usual Truck in grey as his own', () => {
+    render(
+      <Lanes
+        assignments={[
+          assignment({ ...a, note: 'Haul stone', truckId: 'trk-24', truckNumber: '24' }),
+          assignment({ ...a, note: 'Topsoil run' }),
+        ]}
+        drivers={drivers}
+        trucks={trucks}
+      />,
+    );
+    expect(lanes()[0].blocks).toEqual(['First · Haul stone · Truck 24', 'Then · Topsoil run · Truck 21 (his own)']);
+    expect(screen.getByText('Truck 24').className).not.toContain('text-muted-foreground');
+    expect(screen.getByText('Truck 21', { selector: 'li span' }).className).toContain('text-muted-foreground');
+  });
+
+  it('still reads "No details yet" when his own Truck is all there is to show', () => {
+    render(<Lanes assignments={[assignment({ ...a })]} drivers={drivers} trucks={trucks} onEdit={vi.fn()} />);
+    expect(lanes()[0].blocks).toEqual(['First · No details yet · Truck 21 (his own)']);
+    expect(screen.getByRole('button', { name: 'Edit No details yet' })).toBeTruthy();
+  });
+
+  it('shows no Truck for his own when the Driver has no usual Truck, nor in the Unassigned lane', () => {
+    render(<Lanes assignments={[assignment({ ...b, note: 'Fill the shop' }), assignment({ note: 'Who takes this?' })]} drivers={drivers} trucks={trucks} />);
+    expect(lanes().map((lane) => lane.blocks)).toEqual([[], ['First · Fill the shop'], ['First · Who takes this?']]);
   });
 
   it('opens a block\'s Assignment through onEdit', () => {
