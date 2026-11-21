@@ -1,4 +1,4 @@
-import type { Assignment, AssignmentChange, BusinessDay, Day, EntryFields, ListName, Lists, NewAssignment } from '../../shared/types';
+import type { Assignment, AssignmentChange, BusinessDay, Day, EntryFields, ListName, Lists, NewAssignment, TypedNames } from '../../shared/types';
 import { basePath } from './basePath';
 
 // Every call starts at the base path the page was reached under: /api/...
@@ -69,7 +69,11 @@ export async function sendDay(date: string): Promise<string> {
   return (await request<{ sentAt: string }>(`api/days/${encodeURIComponent(date)}/send`, { method: 'POST' })).sentAt;
 }
 
-export async function addAssignment(assignment: NewAssignment): Promise<Assignment> {
+/**
+ * Adds an Assignment, last in its lane. A Place or Material may be given by
+ * name instead of by id (typed in the composer); the Worker links or adds it.
+ */
+export async function addAssignment(assignment: NewAssignment & TypedNames): Promise<Assignment> {
   return (
     await request<{ assignment: Assignment }>('api/assignments', {
       method: 'POST',
