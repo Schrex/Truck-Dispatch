@@ -40,13 +40,13 @@ export async function handle(request: Request, env: Env, options: Options = {}):
   const path = underBase ? url.pathname.slice(BASE.length) : url.pathname;
 
   if (path.startsWith('/api/')) {
-    return withHeaders(await handleApi(request, env, path.slice('/api/'.length), url.searchParams));
+    return withHeaders(await handleApi(request, env, path.slice('/api/'.length), url.searchParams), env);
   }
 
   if (options.devServer || !underBase) return env.ASSETS.fetch(request);
 
   url.pathname = path;
-  return withHeaders(underPrefix(await env.ASSETS.fetch(new Request(url, request)), url.origin));
+  return withHeaders(underPrefix(await env.ASSETS.fetch(new Request(url, request)), url.origin), env);
 }
 
 /** Asset redirects (e.g. /index.html to /) go back under the prefix, never to a Hub page. */
@@ -60,9 +60,14 @@ function underPrefix(response: Response, origin: string): Response {
   return moved;
 }
 
-function withHeaders(response: Response): Response {
+/**
+ * X-Commit names the version that answered, so the smoke test can tell a reply
+ * from the previous version while a deploy spreads (scripts/smoke.mjs).
+ */
+function withHeaders(response: Response, env: Env): Response {
   const out = new Response(response.body, response);
   out.headers.set('X-Content-Type-Options', 'nosniff');
   out.headers.set('Referrer-Policy', 'same-origin');
+  if (env.COMMIT_SHA) out.headers.set('X-Commit', env.COMMIT_SHA);
   return out;
 }

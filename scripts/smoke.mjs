@@ -1,13 +1,20 @@
 // Checks a deployed Truck Dispatch end to end, standalone and under the
 // /truck-dispatch/ prefix: the page loads, its script loads, the seeded
-// Drivers, Trucks, Jobs, Places, Materials and Foremen (seed/fixture.sql) come back, and a day's Assignments, this week's day states and a Driver's today in the Driver view can be read.
-// Read-only: it never adds Assignments.
+// Drivers, Trucks, Jobs, Places, Materials and Foremen (seed/fixture.sql) come
+// back, and a day's Assignments, this week's day states and a Driver's today in
+// the Driver view can be read. Read-only: it never adds Assignments.
 //
 //   node scripts/smoke.mjs <base url>
 //
 // EXPECT_COMMIT: fail unless /api/health reports this commit (retries while the
-//   new version spreads). CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET: a
-//   Cloudflare Access service token, when Access protects the address.
+//   new version spreads). Health passing does not mean every request reaches
+//   the new version yet, so each API answer's X-Commit header (set by the
+//   Worker) is checked too: a step that reaches the old version (another commit,
+//   or no header) is retried for up to ~30 s, then fails with its last error.
+//   Any other failure fails the step at once. Without EXPECT_COMMIT (e.g. a
+//   local run) nothing is retried.
+// CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET: a Cloudflare Access service
+//   token, when Access protects the address.
 const base = (process.argv[2] ?? '').replace(/\/$/, '');
 if (!base) {
   console.error('usage: node scripts/smoke.mjs <base url>');
@@ -21,11 +28,26 @@ if (process.env.CF_ACCESS_CLIENT_ID && process.env.CF_ACCESS_CLIENT_SECRET) {
   headers['CF-Access-Client-Secret'] = process.env.CF_ACCESS_CLIENT_SECRET;
 }
 
-/** @param {string} path */
-async function get(path) {
+const expected = process.env.EXPECT_COMMIT;
+
+/** An answer from the previous version, while the new one is still spreading. */
+class OldVersion extends Error {}
+
+/**
+ * @param {string} path
+ * @param {{ anyVersion?: boolean }} [options] anyVersion: don't check X-Commit
+ */
+async function get(path, { anyVersion = false } = {}) {
   const response = await fetch(base + path, { headers, redirect: 'manual' });
   if (response.status >= 300 && response.status < 400 && /cloudflareaccess\.com/.test(response.headers.get('location') ?? '')) {
     throw new Error(`${path}: redirected to Cloudflare Access sign-in; set CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET`);
+  }
+  // Only the API is checked: page files are served without the header.
+  if (expected && !anyVersion && /(^|\/)api\//.test(path)) {
+    const commit = response.headers.get('x-commit');
+    if (commit !== expected) {
+      throw new OldVersion(`${path}: answered by ${commit ? `commit ${commit.slice(0, 7)}` : 'a version without X-Commit'} (${response.status}), expected ${expected.slice(0, 7)}`);
+    }
   }
   return response;
 }
@@ -47,30 +69,48 @@ function fail(message) {
   throw new Error(message);
 }
 
+/** How long a step keeps retrying while it reaches the old version. */
+const oldVersionWindow = 30_000;
+
 /** @type {{ name: string, ok: boolean }[]} */
 const results = [];
-/** @param {string} name @param {() => Promise<void>} check */
+/**
+ * Runs a check, again from the start while it reaches the old version (up to
+ * oldVersionWindow); any other failure fails it at once.
+ * @param {string} name @param {() => Promise<void>} check
+ */
 async function step(name, check) {
-  try {
-    await check();
-    results.push({ name, ok: true });
-    console.log(`ok    ${name}`);
-  } catch (error) {
-    results.push({ name, ok: false });
-    console.error(`FAIL  ${name}: ${error instanceof Error ? error.message : error}`);
+  const deadline = Date.now() + oldVersionWindow;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await check();
+      results.push({ name, ok: true });
+      console.log(`ok    ${name}`);
+      return;
+    } catch (error) {
+      if (error instanceof OldVersion && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        continue;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      const tries = error instanceof OldVersion ? ` (still the old version after ${attempt} tries)` : '';
+      results.push({ name, ok: false });
+      console.error(`FAIL  ${name}: ${message}${tries}`);
+      return;
+    }
   }
 }
 
 // Waits up to ~30 s for the new version: a brand-new Worker's address can
 // answer 404 for a few seconds, and a new version takes a moment to spread.
 // Access refusals (401/403) are not waited out: retrying won't fix them.
-const expected = process.env.EXPECT_COMMIT;
+// The body's commit decides here, not X-Commit (older versions don't send it).
 await step(`health${expected ? ` reports commit ${expected.slice(0, 7)}` : ''}`, async () => {
   const attempts = 10;
   for (let attempt = 1; ; attempt++) {
     let problem;
     try {
-      const response = await get('/api/health');
+      const response = await get('/api/health', { anyVersion: true });
       if (response.status === 401 || response.status === 403) {
         fail(`/api/health: ${response.status} from Cloudflare Access; check the service token and its Service Auth policy`);
       }
