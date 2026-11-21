@@ -1,16 +1,27 @@
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Toaster } from '@/components/ui/sonner';
 import { basePath } from '@/lib/basePath';
+import { storedView } from '@/lib/deviceView';
 import { BoardPage } from '@/pages/BoardPage';
+import { DriverPage } from '@/pages/DriverPage';
 import { SettingsPage } from '@/pages/SettingsPage';
 
-/** The two pages, Board and Settings, at the root or under the Hub prefix. */
+/**
+ * The Board, or the Driver view on a device that chose it (Scheduler |
+ * Driver), so a Driver's phone opens on his day every morning.
+ */
+function Home() {
+  return storedView() === 'driver' ? <Navigate to="/driver" replace /> : <BoardPage />;
+}
+
+/** The pages, Board, Driver view and Settings, at the root or under the Hub prefix. */
 export function App() {
   // The trailing slash keeps the Board's own link at /truck-dispatch/, not /truck-dispatch.
   return (
     <BrowserRouter basename={`${basePath()}/`}>
       <Routes>
-        <Route path="/" element={<BoardPage />} />
+        <Route path="/" element={<Home />} />
+        <Route path="/driver" element={<DriverPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Routes>
       {/* Save and failure messages, raised from any page with toast(). */}
