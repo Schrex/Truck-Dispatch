@@ -51,13 +51,24 @@ const SELECT_ASSIGNMENT = `SELECT a.id, a.date, a.driver_id AS driverId, d.name 
        a.to_place_id AS toPlaceId, pt.short_name AS toPlaceName,
        a.material_id AS materialId, m.name AS materialName,
        a.foreman_id AS foremanId, f.name AS foremanName, a.note,
-       a.created_at AS createdAt, a.updated_at AS updatedAt
+       a.position, a.created_at AS createdAt, a.updated_at AS updatedAt
   FROM assignments a LEFT JOIN drivers d ON d.id = a.driver_id LEFT JOIN trucks t ON t.id = a.truck_id
   LEFT JOIN places pf ON pf.id = a.from_place_id LEFT JOIN places pt ON pt.id = a.to_place_id
   LEFT JOIN materials m ON m.id = a.material_id LEFT JOIN foremen f ON f.id = a.foreman_id`;
 
-/** How a day's Assignments are listed: by Driver name, then in the order they were added; those with no Driver last. */
-const DAY_ORDER = 'ORDER BY a.driver_id IS NULL, d.name COLLATE NOCASE, a.created_at, a.rowid';
+/**
+ * How a day's Assignments are listed: lane by lane (by Driver name, the
+ * Unassigned lane last), then in each lane's order, ties (such as Assignments
+ * saved before they had a position) in the order they were added.
+ */
+const DAY_ORDER = 'ORDER BY a.driver_id IS NULL, d.name COLLATE NOCASE, a.driver_id, a.position, a.created_at, a.rowid';
+
+/**
+ * The position just after the last Assignment in a lane: bind the date and the
+ * Driver (null for Unassigned), then an Assignment to leave out (the one moving).
+ * Worked out in the same statement that saves, so nothing slips in between.
+ */
+const LAST_IN_LANE = '(SELECT COALESCE(MAX(position) + 1, 0) FROM assignments WHERE date = ? AND driver_id IS ? AND id IS NOT ?)';
 
 async function readDay(env: Env, date: string | null): Promise<Response> {
   if (!isCalendarDate(date)) return refuse({ date: 'Pick a date.' });
@@ -120,13 +131,20 @@ async function addAssignment(request: Request, env: Env): Promise<Response> {
   const id = crypto.randomUUID();
   const now = clock(env).now.toISOString();
   const columns = ['id', ...SAVED_COLUMNS, 'created_at', 'updated_at'];
-  await env.DB.prepare(`INSERT INTO assignments (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`)
-    .bind(id, ...savedValues(read), now, now)
+  // Last in its lane, so adding work never reshuffles the day.
+  await env.DB.prepare(
+    `INSERT INTO assignments (${columns.join(', ')}, position) VALUES (${columns.map(() => '?').join(', ')}, ${LAST_IN_LANE})`,
+  )
+    .bind(id, ...savedValues(read), now, now, read.date, read.driverId, id)
     .run();
   return json({ assignment: await findAssignment(env, id) }, 201);
 }
 
-/** Replaces every field: one left out or empty is cleared. The Assignment may move to another Driver or day. */
+/**
+ * Replaces every field: one left out or empty is cleared. The Assignment may
+ * move to another Driver or day, and then goes last in its new lane, so the
+ * other Driver's day keeps its order; otherwise it keeps its place.
+ */
 async function changeAssignment(request: Request, env: Env, id: string): Promise<Response> {
   const existing = await findAssignment(env, id);
   if (!existing) return json({ error: 'not_found' }, 404);
@@ -134,8 +152,12 @@ async function changeAssignment(request: Request, env: Env, id: string): Promise
   const read = await readAssignment(request, env);
   if (read instanceof Response) return read;
 
-  await env.DB.prepare(`UPDATE assignments SET ${SAVED_COLUMNS.map((c) => `${c} = ?`).join(', ')}, updated_at = ? WHERE id = ?`)
-    .bind(...savedValues(read), clock(env).now.toISOString(), id)
+  // SET reads the row as it was, so the CASE compares the old lane with the new one.
+  await env.DB.prepare(
+    `UPDATE assignments SET position = CASE WHEN date = ? AND driver_id IS ? THEN position ELSE ${LAST_IN_LANE} END,
+       ${SAVED_COLUMNS.map((c) => `${c} = ?`).join(', ')}, updated_at = ? WHERE id = ?`,
+  )
+    .bind(read.date, read.driverId, read.date, read.driverId, id, ...savedValues(read), clock(env).now.toISOString(), id)
     .run();
   return json({ assignment: await findAssignment(env, id) });
 }

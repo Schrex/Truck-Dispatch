@@ -108,7 +108,7 @@ describe('Assignments', () => {
     const response = await post('/api/assignments', { date: '2026-11-20', startTime: '07:30', job: 'Sample Job' });
     expect(response.status).toBe(201);
     expect(Object.keys(((await response.json()) as { assignment: object }).assignment).sort()).toEqual(
-      ['createdAt', 'date', 'driverId', 'driverName', 'foremanId', 'foremanName', 'fromPlaceId', 'fromPlaceName', 'id', 'materialId', 'materialName', 'note', 'toPlaceId', 'toPlaceName', 'truckId', 'truckNumber', 'updatedAt'],
+      ['createdAt', 'date', 'driverId', 'driverName', 'foremanId', 'foremanName', 'fromPlaceId', 'fromPlaceName', 'id', 'materialId', 'materialName', 'note', 'position', 'toPlaceId', 'toPlaceName', 'truckId', 'truckNumber', 'updatedAt'],
     );
   });
 
@@ -644,6 +644,72 @@ describe('changing an Assignment', () => {
 
   it('answers not found for an Assignment that does not exist', async () => {
     expect((await change('nothing', { date: '2026-11-20' })).status).toBe(404);
+  });
+});
+
+describe('the order of Assignments in a lane', () => {
+  const lanes = async (date: string) => (await day(date)).map((a) => `${a.driverName ?? 'Unassigned'}: ${a.note}`);
+
+  it('puts a new Assignment last in its lane and answers its position', async () => {
+    const first = await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone' });
+    const second = await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Topsoil run' });
+    const other = await add({ date: '2026-11-20', driverId: 'drv-b', note: 'Move the excavator' });
+    expect([first.position, second.position, other.position]).toEqual([0, 1, 0]);
+  });
+
+  it('counts the Unassigned Assignments as one lane, and each day on its own', async () => {
+    const unassigned = [await add({ date: '2026-11-20', note: 'Who takes this?' }), await add({ date: '2026-11-20', note: 'And this?' })];
+    const nextDay = await add({ date: '2026-11-23', note: 'Monday' });
+    expect(unassigned.map((a) => a.position)).toEqual([0, 1]);
+    expect(nextDay.position).toBe(0);
+  });
+
+  it('reads a day by lane (Drivers, Unassigned last), then position, with the position in each', async () => {
+    await add({ date: '2026-11-20', note: 'Who takes this?' });
+    await add({ date: '2026-11-20', driverId: 'drv-b', note: 'Topsoil run' });
+    await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone' });
+    await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Two loads' });
+    expect(await lanes('2026-11-20')).toEqual(['Sample Driver A: Haul stone', 'Sample Driver A: Two loads', 'Sample Driver B: Topsoil run', 'Unassigned: Who takes this?']);
+    expect((await day('2026-11-20')).map((a) => a.position)).toEqual([0, 1, 0, 0]);
+  });
+
+  it('orders Assignments saved before they had a position (all at 0) by when they were added, and puts a new one after them', async () => {
+    for (const note of ['one', 'two', 'three']) await add({ date: '2026-11-20', driverId: 'drv-a', note });
+    // As the migration left every existing Assignment.
+    await d1.database().prepare('UPDATE assignments SET position = 0').run();
+    const added = await add({ date: '2026-11-20', driverId: 'drv-a', note: 'four' });
+    expect(added.position).toBe(1);
+    expect(await lanes('2026-11-20')).toEqual(['one', 'two', 'three', 'four'].map((n) => `Sample Driver A: ${n}`));
+  });
+
+  it('puts an Assignment given to another Driver last in his lane', async () => {
+    await add({ date: '2026-11-20', driverId: 'drv-b', note: 'Topsoil run' });
+    await add({ date: '2026-11-20', driverId: 'drv-b', note: 'Fill the shop' });
+    const moved = await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone' });
+    const response = await change(moved.id, { date: '2026-11-20', driverId: 'drv-b', note: 'Haul stone' });
+    expect(((await response.json()) as { assignment: Assignment }).assignment.position).toBe(2);
+    expect(await lanes('2026-11-20')).toEqual(['Sample Driver B: Topsoil run', 'Sample Driver B: Fill the shop', 'Sample Driver B: Haul stone']);
+  });
+
+  it('puts an Assignment taken off its Driver last in the Unassigned lane', async () => {
+    await add({ date: '2026-11-20', note: 'Who takes this?' });
+    const moved = await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone' });
+    await change(moved.id, { date: '2026-11-20', driverId: null, note: 'Haul stone' });
+    expect(await lanes('2026-11-20')).toEqual(['Unassigned: Who takes this?', 'Unassigned: Haul stone']);
+  });
+
+  it('keeps an Assignment in its place when a change leaves its Driver as it was', async () => {
+    const first = await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone' });
+    await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Topsoil run' });
+    await change(first.id, { date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone, two loads' });
+    expect(await lanes('2026-11-20')).toEqual(['Sample Driver A: Haul stone, two loads', 'Sample Driver A: Topsoil run']);
+  });
+
+  it('puts an Assignment moved to another day last in its lane there', async () => {
+    await add({ date: '2026-11-23', driverId: 'drv-a', note: 'Monday run' });
+    const moved = await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone' });
+    await change(moved.id, { date: '2026-11-23', driverId: 'drv-a', note: 'Haul stone' });
+    expect(await lanes('2026-11-23')).toEqual(['Sample Driver A: Monday run', 'Sample Driver A: Haul stone']);
   });
 });
 
