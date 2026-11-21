@@ -197,6 +197,17 @@ export interface Day {
 }
 
 /**
+ * What Start from or Copy to answers: the day copied, the day it was copied
+ * onto, and that day's Assignments as they now are (all of them copies, as a
+ * copy is made only onto an empty day).
+ */
+export interface CopiedDay {
+  from: string;
+  to: string;
+  assignments: Assignment[];
+}
+
+/**
  * One day on the week strip: its state by the shared day rules (none, Draft,
  * Sent or Changed), how many of its Assignments are Unassigned, and the
  * Holiday on it, if any.

@@ -99,6 +99,13 @@ const marked = (a: Record<string, unknown>) => ({
   ...a,
   sinceSent: sinceSent({ createdAt: String(a.createdAt), changedAt: (a.changedAt as string | null) ?? null }, daySends[String(a.date)] ?? null),
 });
+/** The latest day before `date` with an Assignment that is not cancelled: the one Start from copies. */
+const latestBefore = (date: string) =>
+  assignments
+    .filter((a) => String(a.date) < date && !a.cancelledAt)
+    .map((a) => String(a.date))
+    .sort()
+    .at(-1) ?? null;
 const sent: unknown[] = [];
 const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = new URL(String(input), 'https://td.example');
@@ -135,17 +142,21 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     daySends[sending[1]] ??= SENT_AT;
     return answer({ date: sending[1], sentAt: daySends[sending[1]] });
   }
-  if (url.pathname.endsWith('/api/assignments/copy')) {
-    const body = JSON.parse(String(init?.body));
-    sent.push(body);
+  const startingFrom = /\/api\/days\/([^/]+)\/start-from$/.exec(url.pathname);
+  const copyingTo = /\/api\/days\/([^/]+)\/copy-to$/.exec(url.pathname);
+  if (startingFrom && !init?.method) return answer({ from: latestBefore(startingFrom[1]) });
+  if ((startingFrom || copyingTo) && init?.method === 'POST') {
+    // Copies a day that is not cancelled onto an empty one, notes dropped, as the Worker does.
+    const to = startingFrom ? startingFrom[1] : JSON.parse(String(init.body)).to;
+    const from = startingFrom ? latestBefore(to) : copyingTo![1];
+    sent.push(startingFrom ? { startFrom: to } : { copy: from, to });
     if (copyRefusal) return answer(copyRefusal.body, copyRefusal.status);
-    // The Worker copies from its own today, whatever the page sends.
-    const { to } = body;
+    if (assignments.some((a) => a.date === to)) return answer({ error: 'day_planned', message: 'That day already has Assignments, so nothing was copied onto it.' }, 409);
     const copies = assignments
-      .filter((a) => a.date === '2026-11-19' && !a.cancelledAt)
-      .map((a, i) => ({ ...a, id: `c${assignments.length + i + 1}`, date: to, note: null }));
+      .filter((a) => a.date === from && !a.cancelledAt)
+      .map((a, i) => ({ ...a, id: `c${assignments.length + i + 1}`, date: to, note: null, createdAt: '2026-11-19T22:00:00.000Z', updatedAt: '2026-11-19T22:00:00.000Z', changedAt: null }));
     assignments.push(...copies);
-    return answer({ assignments: copies }, 201);
+    return answer({ from, to, assignments: copies.map(marked) }, 201);
   }
   if (init?.body) sent.push(JSON.parse(String(init.body)));
   const puttingBack = /\/api\/assignments\/([^/]+)\/put-back$/.exec(url.pathname);
@@ -326,7 +337,7 @@ describe.each([
     open(`${prefix}/`);
     await waitFor(() => expect(subtitle()).toBe('Fri, Nov 20 · Tomorrow'));
     expect(address()).toBe(`${prefix}/?date=2026-11-20`);
-    expect(await screen.findByText('No Assignments for this day')).toBeTruthy();
+    expect(await screen.findByText(/^Nothing planned for /)).toBeTruthy();
   });
 
   it('opens on the Monday when today is a Friday', async () => {
@@ -352,7 +363,7 @@ describe.each([
   it('steps by Working day with arrows that name their day, and the address follows the day on screen', async () => {
     assignments = [{ id: 'a0', date: '2026-11-23', driverId: 'drv-a', driverName: 'Sample Driver A', note: 'Monday work', createdAt: '', updatedAt: '' }];
     open(`${prefix}/?date=2026-11-20`);
-    await screen.findByText('No Assignments for this day');
+    await screen.findByText(/^Nothing planned for /);
 
     fireEvent.click(screen.getByRole('button', { name: 'Next Working day, Mon 23' }));
     expect(await screen.findByText('Monday work')).toBeTruthy();
@@ -375,7 +386,7 @@ describe.each([
 
   it('steps by Working day with the left and right arrow keys when no field has the focus', async () => {
     open(`${prefix}/?date=2026-11-20`);
-    await screen.findByText('No Assignments for this day');
+    await screen.findByText(/^Nothing planned for /);
 
     fireEvent.keyDown(document.body, { key: 'ArrowRight' });
     await waitFor(() => expect(address()).toBe(`${prefix}/?date=2026-11-23`));
@@ -387,7 +398,7 @@ describe.each([
 
   it('leaves the arrow keys to a field that has the focus', async () => {
     open(`${prefix}/?date=2026-11-20`);
-    await screen.findByText('No Assignments for this day');
+    await screen.findByText(/^Nothing planned for /);
 
     fireEvent.click(await within(lane('Unassigned')).findByRole('button', { name: 'Add an Assignment for Unassigned' }));
     fireEvent.click(screen.getByRole('button', { name: /Note or other truck/ }));
@@ -400,7 +411,7 @@ describe.each([
 
   it('offers Back to the next Working day only when the board is on another day', async () => {
     open(`${prefix}/?date=2026-11-20`);
-    await screen.findByText('No Assignments for this day');
+    await screen.findByText(/^Nothing planned for /);
     expect(screen.queryByRole('button', { name: /^Back to/ })).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Next Working day, Mon 23' }));
@@ -412,7 +423,7 @@ describe.each([
 
   it('adds an Assignment with only the day from the Unassigned lane\'s +, confirms it, and shows it there', async () => {
     open(`${prefix}/?date=2026-11-20`);
-    await screen.findByText('No Assignments for this day');
+    await screen.findByText(/^Nothing planned for /);
 
     fireEvent.click(await within(lane('Unassigned')).findByRole('button', { name: 'Add an Assignment for Unassigned' }));
     fireEvent.click(within(lane('Unassigned')).getByRole('button', { name: 'Save' }));
@@ -426,10 +437,12 @@ describe.each([
 
   it('keeps the Board\'s API calls under the same prefix as the page', async () => {
     open(`${prefix}/`);
-    await screen.findByText('No Assignments for this day');
+    await screen.findByText(/^Nothing planned for /);
     await waitFor(() => expect(api.mock.calls.some(([url]) => String(url).includes('/api/weeks/'))).toBe(true));
+    await waitFor(() => expect(api.mock.calls.some(([url]) => String(url).includes('/start-from'))).toBe(true));
     expect([...new Set(api.mock.calls.map(([url]) => String(url)))].sort()).toEqual([
       `${prefix}/api/assignments?date=2026-11-20`,
+      `${prefix}/api/days/2026-11-20/start-from`,
       `${prefix}/api/drivers?include=inactive`,
       `${prefix}/api/foremen?include=inactive`,
       `${prefix}/api/materials?include=inactive`,
@@ -446,7 +459,7 @@ describe('Board', () => {
     failLoads = true;
     open('/?date=2026-11-20');
     expect(await screen.findByText('Could not load the Assignments for this day.')).toBeTruthy();
-    expect(screen.queryByText('No Assignments for this day')).toBeNull();
+    expect(screen.queryByText(/^Nothing planned for /)).toBeNull();
   });
 
   it('says so when the lists to pick from cannot be loaded, and still shows the day', async () => {
@@ -465,7 +478,7 @@ describe('the lanes', () => {
 
   it('shows a lane for each active Driver with his usual Truck, and Unassigned last, each saying "Nothing planned yet" on an empty day', async () => {
     open('/?date=2026-11-20');
-    await screen.findByText('No Assignments for this day');
+    await screen.findByText(/^Nothing planned for /);
     await waitFor(() => expect(lanes()).toEqual(['Sample Driver A', 'Sample Driver B', 'Unassigned']));
     expect(within(lane('Sample Driver A')).getByText('Truck 21')).toBeTruthy();
     expect(within(lane('Sample Driver B')).getByText('Truck 24')).toBeTruthy();
@@ -480,7 +493,7 @@ describe('the lanes', () => {
     expect(blocks('Sample Driver X')).toEqual(['First · Haul stone']);
 
     fireEvent.click(screen.getByRole('button', { name: 'Next Working day, Mon 23' }));
-    await screen.findByText('No Assignments for this day');
+    await screen.findByText(/^Nothing planned for /);
     expect(lanes()).toEqual(['Sample Driver A', 'Sample Driver B', 'Unassigned']);
   });
 
@@ -523,7 +536,7 @@ describe('the composer', () => {
   const save = (composer: HTMLElement) => fireEvent.click(within(composer).getByRole('button', { name: 'Save' }));
   const day = async () => {
     open('/?date=2026-11-20');
-    await screen.findByText('No Assignments for this day');
+    await screen.findByText(/^Nothing planned for /);
   };
 
   it('has a + on every lane, Unassigned included, and opens one composer at a time, under that Driver', async () => {
@@ -1021,7 +1034,7 @@ describe('opening an Assignment', () => {
       await waitFor(() => expect(within(lane('Sample Driver A')).getByText('Nothing planned yet')).toBeTruthy());
       expect(sent).toEqual([{ delete: 'a1' }]);
       expect(screen.queryByRole('region', { name: 'Open Assignment' })).toBeNull();
-      expect(await screen.findByText('No Assignments for this day')).toBeTruthy();
+      expect(await screen.findByText(/^Nothing planned for /)).toBeTruthy();
     });
 
     it('cancels it with ✕ on a Sent day: it stays in its place, struck through, greyed and marked Cancelled', async () => {
@@ -1128,61 +1141,126 @@ describe('opening an Assignment', () => {
   });
 });
 
-describe('Copy today', () => {
-  // The page's today is 2026-11-19.
+describe('starting a day from another', () => {
+  // The page's today is Thursday 2026-11-19; the next Working day is Friday 2026-11-20.
   const planned = (fields: Record<string, unknown> = {}) => ({
-    id: 'a1', date: '2026-11-19', driverId: 'drv-a', driverName: 'Sample Driver A', note: 'Haul stone',
-    createdAt: '2026-11-19T20:00:00.000Z', updatedAt: '2026-11-19T20:00:00.000Z', ...fields,
+    id: 'a1', date: '2026-11-19', driverId: 'drv-a', driverName: 'Sample Driver A', materialId: 'mat-dirt', materialName: 'Sample Dirt',
+    note: 'Haul stone', position: 0, createdAt: '2026-11-19T20:00:00.000Z', updatedAt: '2026-11-19T20:00:00.000Z', changedAt: null, ...fields,
   });
-  const todayKnown = async () => {
-    await waitFor(() => expect(api.mock.calls.some(([url]) => String(url).endsWith('/api/today'))).toBe(true));
-    await act(async () => {});
-  };
+  const startButton = () => screen.queryByRole('button', { name: /^Start from/ });
+  const copyButton = () => screen.queryByRole('button', { name: /^Copy to/ });
+  const nothingPlanned = () => screen.findByText(/^Nothing planned for /);
 
-  it.each([
-    ['tomorrow', '2026-11-20', true],
-    ['a later day', '2026-12-02', true],
-    ['today', '2026-11-19', false],
-    ['a past day', '2026-11-18', false],
-  ])('on %s is shown: %s', async (_day, date, shown) => {
-    open(`/?date=${date}`);
-    await todayKnown();
-    expect(screen.queryByRole('button', { name: 'Copy today' }) != null).toBe(shown);
-  });
+  it('says nothing is planned on an empty day, offers Start from the latest earlier day with Assignments, and copies it in one tap', async () => {
+    assignments = [
+      planned({ id: 'a1', date: '2026-11-17', note: 'Older day' }),
+      planned({ id: 'a2' }),
+      planned({ id: 'a3', driverId: 'drv-b', driverName: 'Sample Driver B', materialId: 'mat-minus', materialName: '2" minus' }),
+    ];
+    open('/?date=2026-11-23');
+    expect((await nothingPlanned()).textContent).toBe('Nothing planned for Mon, Nov 23');
 
-  it('copies today\'s Assignments onto the day on screen, without notes, and keeps what was there', async () => {
-    assignments = [planned(), planned({ id: 'a2', date: '2026-11-21', driverId: 'drv-b', driverName: 'Sample Driver B', note: 'Already planned' })];
-    open('/?date=2026-11-21');
-    await screen.findByText('Already planned');
+    fireEvent.click(await screen.findByRole('button', { name: 'Start from Thu, Nov 19' }));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Copy today' }));
-
-    expect(await screen.findByText('Copied 1 Assignment from today')).toBeTruthy();
-    // The Worker decides which day is today; the page names only the target day.
-    expect(sent).toEqual([{ to: '2026-11-21' }]);
-    expect(await within(await screen.findByRole('article', { name: 'Sample Driver A' })).findByText('No details yet')).toBeTruthy();
-    expect(within(lane('Sample Driver B')).getByText('Already planned')).toBeTruthy();
+    expect(await within(await screen.findByRole('article', { name: 'Sample Driver B' })).findByText(/2" minus/)).toBeTruthy();
+    expect(blocks('Sample Driver A')).toEqual([expect.stringContaining('Sample Dirt')]);
+    expect(sent).toEqual([{ startFrom: '2026-11-23' }]);
     expect(screen.queryByText('Haul stone')).toBeNull();
+    expect(screen.queryByText(/^Nothing planned for /)).toBeNull();
+    expect(startButton()).toBeNull();
+    expect(await screen.findByText('Started Mon, Nov 23 from Thu, Nov 19: 2 Assignments')).toBeTruthy();
   });
 
-  it('says there is nothing to copy when today has no Assignments', async () => {
-    open('/?date=2026-11-20');
-    await screen.findByText('No Assignments for this day');
-    fireEvent.click(await screen.findByRole('button', { name: 'Copy today' }));
-    expect(await screen.findByText('Today has no Assignments to copy')).toBeTruthy();
-    expect(screen.getByText('No Assignments for this day')).toBeTruthy();
+  it('saves nothing just for looking at an empty day', async () => {
+    assignments = [planned()];
+    open('/?date=2026-11-23');
+    await screen.findByRole('button', { name: 'Start from Thu, Nov 19' });
+    expect(sent).toEqual([]);
+    expect(api.mock.calls.filter(([, init]) => init?.method)).toEqual([]);
+  });
+
+  it('offers no Start from when no earlier day has Assignments', async () => {
+    assignments = [planned({ date: '2026-11-24' })];
+    open('/?date=2026-11-23');
+    await nothingPlanned();
+    await act(async () => {});
+    expect(startButton()).toBeNull();
+    expect(screen.getByText(/Use \+ on a lane to plan the day/)).toBeTruthy();
+  });
+
+  it('offers neither on a day that has Assignments, even if all are cancelled', async () => {
+    daySends = { '2026-11-23': SENT_AT };
+    assignments = [planned(), planned({ id: 'a2', date: '2026-11-23', cancelledAt: '2026-11-19T22:00:00.000Z' })];
+    open('/?date=2026-11-23');
+    expect(await within(await screen.findByRole('article', { name: 'Sample Driver A' })).findByText(/Sample Dirt/)).toBeTruthy();
+    expect(screen.queryByText(/^Nothing planned for /)).toBeNull();
+    expect(startButton()).toBeNull();
+    expect(copyButton()).toBeNull();
+  });
+
+  it('offers no Start from on an empty day before today, which is read-only', async () => {
+    assignments = [planned({ date: '2026-11-16' })];
+    open('/?date=2026-11-18');
+    expect((await nothingPlanned()).textContent).toBe('Nothing planned for Wed, Nov 18');
+    await act(async () => {});
+    expect(startButton()).toBeNull();
+    expect(copyButton()).toBeNull();
+  });
+
+  it('offers Copy to the next Working day on a past day while that day is empty, and shows the copy there', async () => {
+    assignments = [planned({ date: '2026-11-17' })];
+    open('/?date=2026-11-17');
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy to Fri, Nov 20' }));
+
+    await waitFor(() => expect(address()).toBe('/?date=2026-11-20'));
+    expect(sent).toEqual([{ copy: '2026-11-17', to: '2026-11-20' }]);
+    expect(await within(await screen.findByRole('article', { name: 'Sample Driver A' })).findByText(/Sample Dirt/)).toBeTruthy();
+    expect(screen.queryByText('Haul stone')).toBeNull();
+    expect(await screen.findByText('Copied Tue, Nov 17 to Fri, Nov 20: 1 Assignment')).toBeTruthy();
+  });
+
+  it('offers no Copy to once the next Working day has Assignments', async () => {
+    assignments = [planned({ date: '2026-11-17' }), planned({ id: 'a2', date: '2026-11-20', note: 'Already planned' })];
+    open('/?date=2026-11-17');
+    await screen.findByText('Haul stone');
+    await act(async () => {});
+    expect(copyButton()).toBeNull();
+  });
+
+  it('offers no Copy to on a past day whose Assignments are all cancelled, nor on today or a later day', async () => {
+    daySends = { '2026-11-17': SENT_AT };
+    assignments = [planned({ date: '2026-11-17', cancelledAt: '2026-11-17T22:00:00.000Z' }), planned({ id: 'a2' })];
+    open('/?date=2026-11-17');
+    await screen.findByText('Haul stone');
+    await act(async () => {});
+    expect(copyButton()).toBeNull();
+    cleanup();
+    open('/?date=2026-11-19');
+    await screen.findByText('Haul stone');
+    await act(async () => {});
+    expect(copyButton()).toBeNull();
   });
 
   it.each([
-    ['a refused field', { status: 400, body: { error: 'invalid', fields: { to: 'Days before today are read-only. Pick today or a later day.' } } }, 'Days before today are read-only. Pick today or a later day.'],
-    ['a refusal', { status: 409, body: { error: 'past_day', message: 'Today has moved on.' } }, 'Today has moved on.'],
-    ['a failure', { status: 500, body: { error: 'oops' } }, 'Could not copy today'],
-  ])('shows the Worker\'s message for %s', async (_what, refusal, message) => {
+    ['a refusal', { status: 409, body: { error: 'day_planned', message: 'That day already has Assignments, so nothing was copied onto it.' } }, 'That day already has Assignments, so nothing was copied onto it.'],
+    ['a refused field', { status: 400, body: { error: 'invalid', fields: { date: 'Days before today are read-only. Pick today or a later day.' } } }, 'Days before today are read-only. Pick today or a later day.'],
+    ['a failure', { status: 500, body: { error: 'oops' } }, 'Could not start this day'],
+  ])('shows the Worker\'s message for %s on Start from, and reads the day again', async (_what, refusal, message) => {
+    assignments = [planned()];
     copyRefusal = refusal;
-    open('/?date=2026-11-20');
-    await screen.findByText('No Assignments for this day');
-    fireEvent.click(await screen.findByRole('button', { name: 'Copy today' }));
+    open('/?date=2026-11-23');
+    fireEvent.click(await screen.findByRole('button', { name: 'Start from Thu, Nov 19' }));
     expect(await screen.findByText(message)).toBeTruthy();
+  });
+
+  it('shows the Worker\'s message when Copy to is refused, and stays on the day', async () => {
+    assignments = [planned({ date: '2026-11-17' })];
+    copyRefusal = { status: 500, body: { error: 'oops' } };
+    open('/?date=2026-11-17');
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy to Fri, Nov 20' }));
+    expect(await screen.findByText('Could not copy this day')).toBeTruthy();
+    expect(address()).toBe('/?date=2026-11-17');
   });
 });
 
@@ -1210,7 +1288,7 @@ describe('sending a day', () => {
 
   it('offers no Send yet on a day with nothing planned', async () => {
     open('/?date=2026-11-20');
-    await screen.findByText('No Assignments for this day');
+    await screen.findByText(/^Nothing planned for /);
     await waitFor(() => expect(dayState()).toBe('Draft · not sent yet'));
     expect((sendButton() as HTMLButtonElement).disabled).toBe(true);
   });
@@ -1373,13 +1451,13 @@ describe('the week strip', () => {
   it('still shows its days, without states, when the week cannot be read', async () => {
     failWeeks = true;
     open('/?date=2026-11-20');
-    await screen.findByText('No Assignments for this day');
+    await screen.findByText(/^Nothing planned for /);
     await waitFor(() => expect(tiles()).toEqual(['Mon 16', 'Tue 17', 'Wed 18', 'Thu 19 · Today', 'Fri 20 · Tomorrow', 'Sat 21', 'Sun 22']));
   });
 
   it('replaces Jump to', async () => {
     open('/?date=2026-11-20');
-    await screen.findByText('No Assignments for this day');
+    await screen.findByText(/^Nothing planned for /);
     expect(screen.queryByLabelText('Jump to')).toBeNull();
   });
 });

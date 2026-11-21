@@ -4,7 +4,7 @@ import { json, readJson, refuse, text } from './http';
 import { exists, handleList, isList, listOrder } from './lists';
 import { checkTyped, saveLinked, typedIn, type Typed } from './typedNames';
 import { addDays, dayState, holidayName, isCalendarDate, mondayOf, sinceSent, unassignedOn, weekDates } from '../../shared/days';
-import type { Assignment, BusinessDay, Day, ListName, NewAssignment, TypedNames, Week } from '../../shared/types';
+import type { Assignment, BusinessDay, CopiedDay, Day, ListName, NewAssignment, TypedNames, Week } from '../../shared/types';
 
 /** The JSON API under /api/ (or /truck-dispatch/api/). */
 export async function handleApi(request: Request, env: Env, route: string, query: URLSearchParams): Promise<Response> {
@@ -286,7 +286,7 @@ async function copyOnto(env: Env, from: string, to: string): Promise<Response> {
   if (!meta.changes) return json({ error: 'day_planned', message: 'That day already has Assignments, so nothing was copied onto it.' }, 409);
 
   const { results } = await env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.date = ? ${DAY_ORDER}`).bind(to).all<AssignmentRow>();
-  return json({ from, to, assignments: results.map(marked) }, 201);
+  return json({ from, to, assignments: results.map(marked) } satisfies CopiedDay, 201);
 }
 
 async function addAssignment(request: Request, env: Env): Promise<Response> {
