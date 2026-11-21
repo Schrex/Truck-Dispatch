@@ -71,10 +71,11 @@ export type ListName = keyof Lists;
  */
 export type EntryFields<L extends ListName> = Partial<Omit<Lists[L], 'id'>>;
 
-/** Today and tomorrow in US Eastern time (GET api/today). */
+/** Today and tomorrow in US Eastern time, and the next Working day after today, which the board opens on (GET api/today). */
 export interface BusinessDay {
   today: string;
   tomorrow: string;
+  nextWorkingDay: string;
 }
 
 /** What the page sends to add an Assignment. Only the date is required. */
@@ -87,6 +88,18 @@ export interface NewAssignment {
   materialId?: string | null;
   foremanId?: string | null;
   note?: string | null;
+}
+
+/**
+ * A Place or Material an Assignment may give by name instead of by id, when
+ * adding or changing it: the Worker links the entry with that name, ignoring
+ * case, bringing a removed one back, or adds a new one. A Place added this way
+ * has no kind yet.
+ */
+export interface TypedNames {
+  fromPlaceName?: string | null;
+  toPlaceName?: string | null;
+  materialName?: string | null;
 }
 
 /** One piece of work given to one Driver for one day, with the names of its Driver, Truck and Places resolved. */

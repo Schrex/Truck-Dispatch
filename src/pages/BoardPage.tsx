@@ -1,27 +1,28 @@
-import { useEffect, useState } from 'react';
-import { CalendarDays, ChevronLeft, ChevronRight, Copy, Loader2, Settings } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { Copy, Loader2, Settings } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import type { Assignment, BusinessDay, Driver, Foreman, Material, Place, Truck } from '../../shared/types';
+import { isCalendarDate } from '../../shared/days';
 import { AssignmentDialog } from '@/components/AssignmentDialog';
 import { Lanes } from '@/components/Lanes';
+import { DayNavigation, daySubtitle } from '@/components/DayNavigation';
 import { PageHeader } from '@/components/PageHeader';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/sonner';
 import { copyTodayOnto, fetchAssignments, fetchBusinessDay, fetchList, FieldErrors, Refused } from '@/lib/api';
-import { formatDate, isDate, shiftDate } from '@/lib/dates';
 
 /**
  * The Dispatch board: one day's Assignments, one lane per Driver. The day on
  * screen is kept in the address (?date=), so a reload or a shared link shows
- * the same day; with no day there, the Board opens on tomorrow (US Eastern).
+ * the same day; with no day there, the Board opens on the next Working day
+ * after today (US Eastern), so on a Friday it opens on Monday.
  * Today and later days can be changed; days before today are read-only, with
  * no add, edit or delete controls (the Worker refuses those changes too).
  */
 export function BoardPage() {
   const [search, setSearch] = useSearchParams();
   const fromAddress = search.get('date');
-  const date = isDate(fromAddress) ? fromAddress : null;
+  const date = isCalendarDate(fromAddress) ? fromAddress : null;
   const [drivers, setDrivers] = useState<Driver[] | null>(null);
   const [trucks, setTrucks] = useState<Truck[] | null>(null);
   const [places, setPlaces] = useState<Place[] | null>(null);
@@ -40,7 +41,7 @@ export function BoardPage() {
   const canCopyToday = Boolean(date && businessDay && date > businessDay.today);
   const [copying, setCopying] = useState(false);
 
-  const show = (day: string, replace = false) => setSearch({ date: day }, { replace });
+  const show = useCallback((day: string) => setSearch({ date: day }), [setSearch]);
 
   useEffect(() => {
     // Inactive entries too, so an Assignment that still uses one shows it in its picker.
@@ -61,7 +62,7 @@ export function BoardPage() {
   }, []);
 
   useEffect(() => {
-    if (!date && businessDay) setSearch({ date: businessDay.tomorrow }, { replace: true });
+    if (!date && businessDay) setSearch({ date: businessDay.nextWorkingDay }, { replace: true });
   }, [date, businessDay, setSearch]);
 
   useEffect(() => {
@@ -106,21 +107,8 @@ export function BoardPage() {
 
   return (
     <div className="min-h-screen bg-surface">
-      <PageHeader title="Dispatch" subtitle={date ? formatDate(date) : 'Loading…'}>
-        <div className="space-y-1.5">
-          <label htmlFor="jump-to" className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            <CalendarDays className="h-3.5 w-3.5" /> Jump to
-          </label>
-          <div className="flex items-center gap-1">
-            <Button variant="outline" size="icon" className="h-11 w-11" aria-label="Previous day" disabled={!date} onClick={() => date && show(shiftDate(date, -1))}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <Input id="jump-to" type="date" className="h-11 w-44" value={date ?? ''} onChange={(e) => isDate(e.target.value) && show(e.target.value)} />
-            <Button variant="outline" size="icon" className="h-11 w-11" aria-label="Next day" disabled={!date} onClick={() => date && show(shiftDate(date, 1))}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
+      <PageHeader title="Dispatch" subtitle={date ? daySubtitle(date, businessDay?.today ?? null) : 'Loading…'}>
+        <DayNavigation date={date} nextWorkingDay={businessDay?.nextWorkingDay ?? null} onShow={show} />
         {canCopyToday && (
           <Button variant="outline" size="lg" className="px-5" disabled={copying} onClick={copyToday}>
             {copying ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />} Copy today
