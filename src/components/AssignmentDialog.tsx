@@ -134,14 +134,6 @@ export function AssignmentDialog({
     setErrors(({ [field]: _gone, ...rest }) => rest);
   };
 
-  /** Picking a Driver fills an empty Truck with their usual Truck, if it is still in use; a chosen Truck is left alone. */
-  const pickDriver = (driverId: string | null) => {
-    set('driverId', driverId);
-    if (form.truckId) return;
-    const usual = drivers?.find((driver) => driver.id === driverId)?.defaultTruckId;
-    if (usual && trucks?.some((truck) => truck.id === usual && truck.active)) set('truckId', usual);
-  };
-
   async function submit(event: FormEvent) {
     event.preventDefault();
     setSaving(true);
@@ -182,10 +174,11 @@ export function AssignmentDialog({
             <Input id="date" type="date" required value={form.date} onChange={(e) => set('date', e.target.value)} />
           </Field>
           <Field id="driverId" label="Driver" optional error={errors.driverId}>
-            <ListPicker id="driverId" label="Driver" empty="No Driver" choices={choicesOf('drivers', drivers)} value={form.driverId} onChange={pickDriver} />
+            <ListPicker id="driverId" label="Driver" empty="No Driver" choices={choicesOf('drivers', drivers)} value={form.driverId} onChange={(value) => set('driverId', value)} />
           </Field>
+          {/* No Truck means the Driver takes his own: pick one only when the work needs a certain Truck. */}
           <Field id="truckId" label="Truck" optional error={errors.truckId}>
-            <ListPicker id="truckId" label="Truck" empty="No Truck" choices={choicesOf('trucks', trucks)} value={form.truckId} onChange={(value) => set('truckId', value)} />
+            <ListPicker id="truckId" label="Truck" empty="His own" choices={choicesOf('trucks', trucks)} value={form.truckId} onChange={(value) => set('truckId', value)} />
           </Field>
           <Field id="fromPlaceId" label="From Place" optional error={errors.fromPlaceId}>
             <ListPicker id="fromPlaceId" label="From Place" empty="No From Place" choices={choicesOf('places', places)} value={form.fromPlaceId} onChange={(value) => set('fromPlaceId', value)} />
