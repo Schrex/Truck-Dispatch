@@ -18,6 +18,6 @@ export default defineConfig(({ mode }) => ({
     alias: { '@': path.resolve(__dirname, './src') },
   },
   test: {
-    include: ['src/**/*.test.{ts,tsx}', 'worker/src/**/*.test.ts', 'scripts/**/*.test.mjs'],
+    include: ['src/**/*.test.{ts,tsx}', 'shared/**/*.test.ts', 'worker/src/**/*.test.ts', 'scripts/**/*.test.mjs'],
   },
 }));
