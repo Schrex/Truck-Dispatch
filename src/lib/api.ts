@@ -1,4 +1,4 @@
-import type { Assignment, BusinessDay, EntryFields, ListName, Lists, NewAssignment } from '../../shared/types';
+import type { Assignment, AssignmentChange, BusinessDay, ChangedAssignment, CopiedDay, Day, DriverDay, EntryFields, ListName, Lists, NewAssignment, OrderedList, TypedNames, WeekDay } from '../../shared/types';
 import { basePath } from './basePath';
 
 // Every call starts at the base path the page was reached under: /api/...
@@ -29,7 +29,8 @@ export function fetchBusinessDay(): Promise<BusinessDay> {
 }
 
 /**
- * A list's entries by display name: active ones only, or every entry with
+ * A list's entries in its order (Dave's own for Drivers, Places and Materials,
+ * then by display name): active ones only, or every entry with
  * includeInactive (Settings, and the Board so a saved inactive entry keeps its name).
  */
 export async function fetchList<L extends ListName>(list: L, { includeInactive = false } = {}): Promise<Lists[L][]> {
@@ -47,15 +48,46 @@ export async function changeEntry<L extends ListName>(list: L, id: string, field
   return Object.values(await request<Record<string, Lists[L]>>(`api/${list}/${encodeURIComponent(id)}`, json('PATCH', fields)))[0];
 }
 
+/**
+ * Sets Dave's own order of a whole list: the ids first to last; any left out
+ * have none. Answers every entry, removed ones too, in the new order.
+ */
+export async function reorderList<L extends OrderedList>(list: L, ids: string[]): Promise<Lists[L][]> {
+  return (await request<Record<L, Lists[L][]>>(`api/${list}/order`, json('PUT', { order: ids })))[list];
+}
+
+/** How many days after today hold one of the Driver's Assignments, to warn before he is removed. */
+export async function fetchLaterDays(driverId: string): Promise<number> {
+  return (await request<{ laterDays: number }>(`api/drivers/${encodeURIComponent(driverId)}/later-days`)).laterDays;
+}
+
 function json(method: string, body: unknown): RequestInit {
   return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
 }
 
-export async function fetchAssignments(date: string): Promise<Assignment[]> {
-  return (await request<{ assignments: Assignment[] }>(`api/assignments?date=${encodeURIComponent(date)}`)).assignments;
+/** A day's Assignments, each marked Changed or Added since the Send, and when the day was first Sent (null for a Draft). */
+export function fetchDay(date: string): Promise<Day> {
+  return request<Day>(`api/assignments?date=${encodeURIComponent(date)}`);
 }
 
-export async function addAssignment(assignment: NewAssignment): Promise<Assignment> {
+/** The state of each day of the week starting on a Monday, Monday to Sunday, for the week strip. */
+export async function fetchWeek(monday: string): Promise<WeekDay[]> {
+  return (await request<{ days: WeekDay[] }>(`api/weeks/${encodeURIComponent(monday)}`)).days;
+}
+
+/**
+ * Sends a day to the Drivers; answers when it was first Sent. Sending a Sent
+ * day again changes nothing. Refused for a day with no Assignments or before today.
+ */
+export async function sendDay(date: string): Promise<string> {
+  return (await request<{ sentAt: string }>(`api/days/${encodeURIComponent(date)}/send`, { method: 'POST' })).sentAt;
+}
+
+/**
+ * Adds an Assignment, last in its lane. A Place or Material may be given by
+ * name instead of by id (typed in the composer); the Worker links or adds it.
+ */
+export async function addAssignment(assignment: NewAssignment & TypedNames): Promise<Assignment> {
   return (
     await request<{ assignment: Assignment }>('api/assignments', {
       method: 'POST',
@@ -66,49 +98,61 @@ export async function addAssignment(assignment: NewAssignment): Promise<Assignme
 }
 
 /**
- * Every field of a saved Assignment, as adding or changing one takes them. A
- * field added to NewAssignment does not compile until it is set here, so a
- * duplicate never leaves one behind.
+ * Changes only the fields given; the rest of the Assignment stays as it is.
+ * On a Sent day a new Driver answers the copy added in his lane and the
+ * first one, cancelled.
  */
-export function fieldsOf(assignment: Assignment): Required<NewAssignment> {
-  return {
-    date: assignment.date,
-    driverId: assignment.driverId,
-    truckId: assignment.truckId,
-    fromPlaceId: assignment.fromPlaceId,
-    toPlaceId: assignment.toPlaceId,
-    materialId: assignment.materialId,
-    foremanId: assignment.foremanId,
-    note: assignment.note,
-  };
-}
-
-/** Replaces every field of an Assignment; one left empty is cleared. */
-export async function changeAssignment(id: string, assignment: NewAssignment): Promise<Assignment> {
-  return (
-    await request<{ assignment: Assignment }>(`api/assignments/${encodeURIComponent(id)}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(assignment),
-    })
-  ).assignment;
+export function changeAssignment(id: string, changes: AssignmentChange): Promise<ChangedAssignment> {
+  return request<ChangedAssignment>(`api/assignments/${encodeURIComponent(id)}`, json('PATCH', changes));
 }
 
 /**
- * Copies every Assignment on today onto a later day, notes left empty; answers
- * the new ones. The Worker decides which day is today, so a page left open past
- * midnight still copies the real today.
+ * Moves an Assignment one place in its lane: "earlier" for Do this first,
+ * "later" for Do this later. Answers the lane in its new order, numbered
+ * again, so the page can show every block in it where it now is.
  */
-export async function copyTodayOnto(to: string): Promise<Assignment[]> {
-  return (
-    await request<{ assignments: Assignment[] }>('api/assignments/copy', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ to }),
-    })
-  ).assignments;
+export async function moveAssignment(id: string, direction: 'earlier' | 'later'): Promise<Assignment[]> {
+  return (await request<{ assignments: Assignment[] }>(`api/assignments/${encodeURIComponent(id)}/move`, json('POST', { direction }))).assignments;
 }
 
-export async function deleteAssignment(id: string): Promise<void> {
-  await request(`api/assignments/${encodeURIComponent(id)}`, { method: 'DELETE' });
+/** The day Start from on `date` would copy: the latest earlier day with Assignments, or null when there is none. */
+export async function fetchStartFrom(date: string): Promise<string | null> {
+  return (await request<{ from: string | null }>(`api/days/${encodeURIComponent(date)}/start-from`)).from;
+}
+
+/**
+ * Start from: the Worker copies the latest earlier day with Assignments onto
+ * this empty day, notes and cancelled ones left behind. Refused once the day
+ * has Assignments, so a copy never adds to work.
+ */
+export function startDayFrom(date: string): Promise<CopiedDay> {
+  return request<CopiedDay>(`api/days/${encodeURIComponent(date)}/start-from`, { method: 'POST' });
+}
+
+/** Copy to: the Worker copies a day onto another that is still empty, by the same rules as Start from. */
+export function copyDayTo(from: string, to: string): Promise<CopiedDay> {
+  return request<CopiedDay>(`api/days/${encodeURIComponent(from)}/copy-to`, json('POST', { to }));
+}
+
+/**
+ * ✕: the Worker deletes the Assignment on a Draft day (answers null) and
+ * cancels it on a Sent day (answers it, cancelled and kept in its place).
+ */
+export async function takeOffAssignment(id: string): Promise<Assignment | null> {
+  // A delete answers 204 with no body, read as an empty answer.
+  return (await request<{ assignment?: Assignment }>(`api/assignments/${encodeURIComponent(id)}`, { method: 'DELETE' })).assignment ?? null;
+}
+
+/** Put back: a cancelled Assignment is no longer cancelled. Answers it. */
+export async function putBackAssignment(id: string): Promise<Assignment> {
+  return (await request<{ assignment: Assignment }>(`api/assignments/${encodeURIComponent(id)}/put-back`, { method: 'POST' })).assignment;
+}
+
+/**
+ * One Driver's day for the Driver view: only that it is a Draft until Dave
+ * Sends it, then his Assignments in Dave's order, cancelled ones included,
+ * marked Changed (with what they were) or Added.
+ */
+export function fetchDriverDay(driverId: string, date: string): Promise<DriverDay> {
+  return request<DriverDay>(`api/drivers/${encodeURIComponent(driverId)}/days/${encodeURIComponent(date)}`);
 }

@@ -5,9 +5,10 @@ const HUB_HOME = '/';
 
 /**
  * The header every page shares, in the Hub's style: a "← Hub" link, an Oswald
- * uppercase title and a subtitle. The page's own controls go on the right.
+ * uppercase title and a subtitle. The page's own controls go on the right;
+ * anything that needs the full width (the Board's week strip) goes below.
  */
-export function PageHeader({ title, subtitle, children }: { title: string; subtitle: string; children?: ReactNode }) {
+export function PageHeader({ title, subtitle, children, below }: { title: string; subtitle: string; children?: ReactNode; below?: ReactNode }) {
   return (
     <header className="border-b bg-background">
       <div className="container py-6">
@@ -21,6 +22,7 @@ export function PageHeader({ title, subtitle, children }: { title: string; subti
           </div>
           {children && <div className="flex flex-wrap items-end gap-3">{children}</div>}
         </div>
+        {below && <div className="mt-4">{below}</div>}
       </div>
     </header>
   );

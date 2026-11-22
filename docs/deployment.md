@@ -55,7 +55,9 @@ The comment updates on every push. Each PR keeps its own address, so two open PR
 - **URL:** shown on the deploy run (Actions → *Deploy staging* → the run → `staging` environment link), and in the repo's **Environments** list.
 - **Logs:** Actions → *Deploy staging*. The run summary records the deployed commit and each smoke-test check. Worker logs: Cloudflare dashboard → `truck-dispatch-staging` → Observability.
 - **Order:** migrate → seed → deploy → smoke test. A failed migration stops before the new version goes live. One deploy runs at a time, and later merges wait.
-- **Smoke test** (`scripts/smoke.mjs`): waits up to ~30 s for the new version to answer, then checks the page and API at `/` and `/truck-dispatch/`. Read-only: it never adds orders.
+- **Smoke test** (`scripts/smoke.mjs`): waits up to ~30 s for `/api/health` to report the new commit, then checks the page and API at `/` and `/truck-dispatch/`. Read-only: it never adds orders.
+  - While Cloudflare spreads a version, some requests still reach the old one after health already reports the new one (the old Worker answers routes it doesn't know with 404 `not_found`). So every API answer carries an `X-Commit` header, and a check that gets an answer from another commit (or with no header) is retried for up to ~30 s. Any other failure fails the check at once.
+  - A check that fails with *"still the old version after N tries"* means the new version never reached it: re-run the job, or look at the deployment in the Cloudflare dashboard.
 
 ### Redeploy a known-good commit
 
