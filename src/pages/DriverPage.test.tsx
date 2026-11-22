@@ -28,6 +28,15 @@ const api = vi.fn(async (input: RequestInfo | URL) => {
   const answer = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
   const path = url.pathname;
   if (path.endsWith('/api/today')) return answer(businessDay);
+  const next = /\/api\/drivers\/([^/]+)\/next-sent$/.exec(path);
+  if (next) {
+    const dates = Object.entries(sentDays)
+      .filter(([key, list]) => key.startsWith(`${next[1]} `) && list.some((a) => !a.cancelledAt))
+      .map(([key]) => key.split(' ')[1])
+      .filter((date) => date > businessDay.tomorrow)
+      .sort();
+    return answer({ date: dates[0] ?? null });
+  }
   const driverDay = /\/api\/drivers\/([^/]+)\/days\/([^/]+)$/.exec(path);
   if (driverDay) {
     read.push(`${driverDay[1]} ${driverDay[2]}`);
@@ -233,16 +242,61 @@ describe('a Driver\'s yesterday, today and tomorrow', () => {
     expect(within(cancelled).getByText('Haul stone').closest('.line-through')).toBeTruthy();
   });
 
-  it('reads the day shown again when the page regains focus, moving on to a new day', async () => {
+  it('reads Today again when the page regains focus, moving on to a new day', async () => {
     open('/');
-    await pick('Tomorrow');
-    await day('Tomorrow, Fri, Nov 20');
+    await day('Today, Thu, Nov 19');
     businessDay = { today: '2026-11-20', tomorrow: '2026-11-21', nextWorkingDay: '2026-11-23' };
-    sentDays['drv-a 2026-11-21'] = [card({ date: '2026-11-21', note: 'Saturday haul' })];
+    sentDays['drv-a 2026-11-20'] = [card({ date: '2026-11-20', note: 'Friday haul' })];
     act(() => {
       window.dispatchEvent(new Event('focus'));
     });
-    expect(within(await day('Tomorrow, Sat, Nov 21')).getByText('Saturday haul')).toBeTruthy();
+    expect(within(await day('Today, Fri, Nov 20')).getByText('Friday haul')).toBeTruthy();
+  });
+
+  it('keeps a picked day on regaining focus, reading Dave\'s latest changes to it', async () => {
+    open('/');
+    await pick('Tomorrow');
+    await day('Tomorrow, Fri, Nov 20');
+    sentDays['drv-a 2026-11-20'] = [card({ date: '2026-11-20', note: 'Added since' })];
+    act(() => {
+      window.dispatchEvent(new Event('focus'));
+    });
+    expect(within(await day('Tomorrow, Fri, Nov 20')).getByText('Added since')).toBeTruthy();
+  });
+
+  it('steps one calendar day at a time with ‹ ›, weekends included, titling other days by their date', async () => {
+    sentDays['drv-a 2026-11-22'] = [card({ date: '2026-11-22', note: 'Sunday haul' })];
+    open('/');
+    await day('Today, Thu, Nov 19');
+    fireEvent.click(screen.getByRole('button', { name: 'Day after' }));
+    await day('Tomorrow, Fri, Nov 20');
+    fireEvent.click(screen.getByRole('button', { name: 'Day after' }));
+    expect(await day('Sat, Nov 21')).toBeTruthy();
+    const toggle = screen.getByRole('group', { name: 'Day' });
+    expect(within(toggle).getAllByRole('button').every((b) => b.getAttribute('aria-pressed') === 'false')).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Day after' }));
+    expect(within(await day('Sun, Nov 22')).getByText('Sunday haul')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Day before' }));
+    await day('Sat, Nov 21');
+    await pick('Today');
+    expect(await day('Today, Thu, Nov 19')).toBeTruthy();
+  });
+
+  it('points to Dave\'s next Sent day beyond tomorrow, and takes him there', async () => {
+    sentDays['drv-a 2026-11-23'] = [card({ date: '2026-11-23', note: 'Monday haul' })];
+    open('/');
+    fireEvent.click(await screen.findByRole('button', { name: 'Next from Dave: Mon, Nov 23 →' }));
+    expect(within(await day('Mon, Nov 23')).getByText('Monday haul')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^Next from Dave/ })).toBeNull();
+  });
+
+  it('does not point anywhere when nothing beyond tomorrow is Sent for him', async () => {
+    sentDays['drv-a 2026-11-20'] = [card({ date: '2026-11-20', note: 'Friday haul' })];
+    sentDays['drv-b 2026-11-23'] = [card({ date: '2026-11-23', driverId: 'drv-b' })];
+    open('/');
+    await day('Today, Thu, Nov 19');
+    await waitFor(() => expect(read).toContain('drv-a 2026-11-19'));
+    expect(screen.queryByRole('button', { name: /^Next from Dave/ })).toBeNull();
   });
 
   it('says so when his day cannot load', async () => {

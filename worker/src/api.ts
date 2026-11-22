@@ -26,6 +26,12 @@ export async function handleApi(request: Request, env: Env, route: string, query
     return json({ error: 'method_not_allowed' }, 405, { Allow: 'GET, HEAD' });
   }
 
+  const nextOf = /^drivers\/([^/]+)\/next-sent$/.exec(route);
+  if (nextOf) {
+    if (reading) return nextSent(env, decodeURIComponent(nextOf[1]));
+    return json({ error: 'method_not_allowed' }, 405, { Allow: 'GET, HEAD' });
+  }
+
   const driverDay = /^drivers\/([^/]+)\/days\/([^/]+)$/.exec(route);
   if (driverDay) {
     if (reading) return readDriverDay(env, decodeURIComponent(driverDay[1]), decodeURIComponent(driverDay[2]));
@@ -95,6 +101,23 @@ export async function handleApi(request: Request, env: Env, route: string, query
  * How many days after today a Driver has Assignments on, so Settings can warn
  * before he is removed that work is still planned for him.
  */
+/**
+ * The first day after tomorrow (US Eastern) that is Sent and holds one of the
+ * Driver's Assignments that is not cancelled, or null, so the Driver view can
+ * point him to it ("Next from Dave: Mon, Nov 23") when it is beyond its
+ * Yesterday, Today and Tomorrow, as on a weekend before a Monday.
+ */
+async function nextSent(env: Env, driverId: string): Promise<Response> {
+  if (!(await exists(env, 'drivers', driverId))) return json({ error: 'not_found' }, 404);
+  const row = await env.DB.prepare(
+    `SELECT MIN(a.date) AS date FROM assignments a JOIN day_sends s ON s.date = a.date
+      WHERE a.driver_id = ? AND a.date > ? AND a.cancelled_at IS NULL`,
+  )
+    .bind(driverId, clock(env).tomorrow)
+    .first<{ date: string | null }>();
+  return json({ date: row?.date ?? null });
+}
+
 async function laterDays(env: Env, driverId: string): Promise<Response> {
   if (!(await exists(env, 'drivers', driverId))) return json({ error: 'not_found' }, 404);
   const row = await env.DB.prepare('SELECT COUNT(DISTINCT date) AS days FROM assignments WHERE driver_id = ? AND date > ?')

@@ -405,6 +405,47 @@ describe('a Driver\'s later days', () => {
   });
 });
 
+describe('a Driver\'s next Sent day', () => {
+  const nextSent = async (id: string) => {
+    const response = await get(`/api/drivers/${id}/next-sent`);
+    expect(response.status).toBe(200);
+    return ((await response.json()) as { date: string | null }).date;
+  };
+  const sendDay = (date: string) => send('POST', `/api/days/${date}/send`);
+
+  it('is none when nothing after tomorrow is Sent for him', async () => {
+    await add({ date: '2026-11-23', driverId: 'drv-a' });
+    expect(await nextSent('drv-a')).toBeNull();
+  });
+
+  it('is the first Sent day after tomorrow with his work, weekends included, skipping tomorrow, other Drivers and Drafts', async () => {
+    await add({ date: '2026-11-20', driverId: 'drv-a' });
+    await sendDay('2026-11-20');
+    await add({ date: '2026-11-21', driverId: 'drv-b' });
+    await sendDay('2026-11-21');
+    await add({ date: '2026-11-22', driverId: 'drv-a' });
+    await add({ date: '2026-11-23', driverId: 'drv-a' });
+    await sendDay('2026-11-23');
+    await add({ date: '2026-11-24', driverId: 'drv-a' });
+    await sendDay('2026-11-24');
+    expect(await nextSent('drv-a')).toBe('2026-11-23');
+    await sendDay('2026-11-22');
+    expect(await nextSent('drv-a')).toBe('2026-11-22');
+  });
+
+  it('leaves out a day where his only Assignment is cancelled', async () => {
+    const monday = await add({ date: '2026-11-23', driverId: 'drv-a' });
+    await sendDay('2026-11-23');
+    await remove(monday.id);
+    expect(await nextSent('drv-a')).toBeNull();
+  });
+
+  it('answers 404 for a Driver that does not exist, and only to a read', async () => {
+    expect((await get('/api/drivers/nobody/next-sent')).status).toBe(404);
+    expect((await send('POST', '/api/drivers/drv-a/next-sent', {})).status).toBe(405);
+  });
+});
+
 describe('Jobs', () => {
   it('list the seeded Jobs by name, with their job number', async () => {
     expect(await list('/api/jobs')).toEqual([

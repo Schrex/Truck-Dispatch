@@ -112,7 +112,7 @@ Trips, Inspections, Tickets and sign-off are later phases and change nothing her
 65. As a Driver, I want to be asked "Who are you?" once with the active Drivers as large buttons, so that I can pick myself with gloves on.
 66. As a Driver, I want my phone to remember my name and the Driver view, so that it opens on my day every morning.
 67. As a Driver, I want a "← Drivers" button back to the list of Drivers, so that a shared phone can change hands.
-68. As a Driver, I want Yesterday, Today and Tomorrow, one at a time, opening on Today, so that I know what I am doing now and next, Saturdays included, and can look back at yesterday.
+68. As a Driver, I want Yesterday, Today and Tomorrow one tap away, ‹ › to step to any other day, weekends included, and "Next from Dave" to take me to the next day he has Sent me beyond tomorrow, so that I know what I am doing now and next even on a weekend before a Monday.
 69. As a Driver, I want my Assignments as large cards in Dave's order, each with Material, Pick up and Drop off, and the note, so that I can read them from the cab.
 70. As a Driver, I want a card to say "Take Truck 53 for this one" when Dave named a Truck, so that I know when to switch.
 71. As a Driver, I want a card Dave changed after Sending marked "Changed by Dave", with what it was before ("was Cobblestone"), and one he added after Sending marked "Added by Dave", so that I notice what is different.
@@ -185,7 +185,7 @@ materials     + sort_order INTEGER
 - **✕**: delete on a Draft day; on a Sent day it sets the cancelled time instead. **Put back** clears it.
 - **Send** a day: records the send; a bad date or a day before today is 400 `{ fields }`, a day with no Assignments is 409 `{ error, message }`; sending again does nothing. No warnings.
 - **Start from**: copies the latest earlier day that has Assignments onto an empty day, per the stories above; a day that has Assignments is 409 `{ error, message }`. The copy names the columns it copies rather than the ones it skips, so a later column is never copied by accident. Copy today's route is replaced by it; Duplicate's use is removed from the page.
-- **Driver view read**: one Driver's Assignments for a date, only if the day is Sent, otherwise an answer that says the day is a Draft; cancelled ones included and marked; Changed ones with what they were before, Added ones marked. The page asks for the day the Driver picked: yesterday, today or tomorrow.
+- **Driver view read**: one Driver's Assignments for a date, only if the day is Sent, otherwise an answer that says the day is a Draft; cancelled ones included and marked; Changed ones with what they were before, Added ones marked. The page asks for the day the Driver picked (any day), and for his next Sent day after tomorrow.
 - A Truck's HCSS code and id stay editable through the list routes.
 - The list routes accept and return the sort order, and a Place's usual Foreman. A reorder sets the sort order of a whole list in one request.
 - Past days stay read-only in the Worker by US Eastern time, as now. Unlike the Daily Schedule, there is no lock on a Sent day.
