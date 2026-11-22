@@ -225,6 +225,18 @@ describe('a Driver\'s yesterday, today and tomorrow', () => {
     expect(within(changed).getByText('Take your own Truck (was Truck 24)')).toBeTruthy();
   });
 
+  it('shows the Foreman, and what he was when Dave changed him after the Send', async () => {
+    sentDays['drv-a 2026-11-19'] = [
+      card({ note: 'Haul stone', foremanId: 'frm-b', foremanName: 'Brody', sinceSent: 'changed', changedAt: '2026-11-19T12:00:00.000Z', was: { foremanName: 'Sample Foreman A' } }),
+      card({ note: 'No foreman', position: 1 }),
+    ];
+    open('/');
+    const [withForeman, without] = cardsIn(await day('Today, Thu, Nov 19'));
+    expect(within(withForeman).getByText('Foreman').nextSibling?.textContent).toBe('Brody');
+    expect(within(withForeman).getByText('was Sample Foreman A')).toBeTruthy();
+    expect(within(without).queryByText('Foreman')).toBeNull();
+  });
+
   it('marks one added after the Send "Added by Dave"', async () => {
     sentDays['drv-a 2026-11-20'] = [card({ date: '2026-11-20', note: 'Fill the shop', sinceSent: 'added' })];
     open('/');

@@ -1577,6 +1577,15 @@ describe('the Driver view read', () => {
     expect(card.was).toEqual({ materialName: 'Sample Stone', truckNumber: '24', note: 'Haul stone' });
   });
 
+  it('says what the Foreman was when Dave changes him after the Send', async () => {
+    const stone = await plan(FULL);
+    await sendDay('2026-11-20');
+    await change(stone.id, { foremanId: 'frm-b' }, LATER);
+    const [card] = await cards('drv-a', '2026-11-20');
+    expect(card).toMatchObject({ sinceSent: 'changed', foremanName: 'Sample Foreman B' });
+    expect(card.was).toEqual({ foremanName: 'Sample Foreman A' });
+  });
+
   it('shows Changed with nothing it was when only its place in his order changed, or it was changed back', async () => {
     const stone = await plan(FULL);
     await plan({ date: '2026-11-20', driverId: 'drv-a', note: 'Fill the shop' });

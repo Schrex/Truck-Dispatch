@@ -33,12 +33,12 @@ function truckLine({ truckNumber, was }: DriverAssignment): string | null {
 
 /**
  * One of a Driver's Assignments, large enough to read from the cab: the
- * Material, Pick up and Drop off, the note, which Truck when it is not his
+ * Material, Pick up and Drop off, the Foreman (when there is one), the note, which Truck when it is not his
  * own, and Dave's changes since Sending it: Changed (with what it was), Added,
  * or cancelled (struck through).
  */
 export function DriverCard({ assignment }: { assignment: DriverAssignment }) {
-  const { materialName, fromPlaceName, toPlaceName, note, cancelledAt, sinceSent, was } = assignment;
+  const { materialName, fromPlaceName, toPlaceName, foremanName, note, cancelledAt, sinceSent, was } = assignment;
   const mark = cancelledAt ? CANCELLED : sinceSent && MARKS[sinceSent];
   const truck = truckLine(assignment);
   return (
@@ -59,6 +59,13 @@ export function DriverCard({ assignment }: { assignment: DriverAssignment }) {
           <dt className="text-muted-foreground">Drop off</dt>
           <dd className="font-medium">{toPlaceName ?? '–'}</dd>
           {'toPlaceName' in was && <dd className="col-start-2 -mt-2"><Was value={was.toPlaceName} /></dd>}
+          {(foremanName || 'foremanName' in was) && (
+            <>
+              <dt className="text-muted-foreground">Foreman</dt>
+              <dd className="font-medium">{foremanName ?? '–'}</dd>
+              {'foremanName' in was && <dd className="col-start-2 -mt-2"><Was value={was.foremanName} /></dd>}
+            </>
+          )}
         </dl>
         {(note || 'note' in was) && (
           <p className="whitespace-pre-line text-lg">

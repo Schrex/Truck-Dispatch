@@ -186,6 +186,7 @@ const WAS_FIELDS = [
   ['fromPlaceId', 'fromPlaceName'],
   ['toPlaceId', 'toPlaceName'],
   ['materialId', 'materialName'],
+  ['foremanId', 'foremanName'],
   ['note', 'note'],
 ] as const satisfies readonly (readonly [keyof Assignment, keyof Was])[];
 
