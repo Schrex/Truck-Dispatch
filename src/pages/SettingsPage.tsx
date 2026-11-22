@@ -33,12 +33,8 @@ const SECTIONS: SectionSpec<ListName>[] = [
     title: 'Trucks',
     noun: 'Truck',
     name: { key: 'number', label: 'Number' },
-    fields: [
-      { key: 'hcssCode', label: 'HCSS code', kind: 'text' },
-      { key: 'hcssGuid', label: 'HCSS id', kind: 'text' },
-    ],
-    detail: (truck) => hcssLink(truck),
-    status: (truck) => hcssLink(truck),
+    // Its HCSS code and id stay in the database for counting Trips later; they come from HCSS, so Settings neither shows nor asks for them.
+    fields: [],
   }),
   section({
     list: 'places',
@@ -82,9 +78,6 @@ const SECTIONS: SectionSpec<ListName>[] = [
   }),
   section({ list: 'foremen', title: 'Foremen', noun: 'Foreman', name: { key: 'name', label: 'Name' }, fields: [] }),
 ];
-
-/** Whether a Truck has its HCSS id, so its Trips can be counted later. */
-const hcssLink = (truck: { hcssGuid: string | null }) => (truck.hcssGuid ? 'Linked to HCSS Fleet' : 'Not linked yet');
 
 /** Whether Dave puts this list in his own order with ▲▼. */
 const isOrdered = (list: ListName): list is OrderedList => (ORDERED_LISTS as readonly ListName[]).includes(list);

@@ -4,17 +4,33 @@ import type { ReactNode } from 'react';
 const HUB_HOME = '/';
 
 /**
- * The header every page shares, in the Hub's style: a "← Hub" link, an Oswald
- * uppercase title and a subtitle. The page's own controls go on the right;
+ * The header every page shares, in the Hub's style: a "← Hub" link (or the
+ * page's own way back in its place, as the Driver view's "← Drivers"), an
+ * Oswald uppercase title and a subtitle. The page's own controls go on the right;
  * anything that needs the full width (the Board's week strip) goes below.
  */
-export function PageHeader({ title, subtitle, children, below }: { title: string; subtitle: string; children?: ReactNode; below?: ReactNode }) {
+export function PageHeader({
+  title,
+  subtitle,
+  children,
+  below,
+  back,
+}: {
+  title: string;
+  subtitle: string;
+  children?: ReactNode;
+  below?: ReactNode;
+  /** Shown top left instead of "← Hub". */
+  back?: ReactNode;
+}) {
   return (
     <header className="border-b bg-background">
       <div className="container py-6">
-        <a href={HUB_HOME} className="text-sm text-muted-foreground hover:text-foreground">
-          ← Hub
-        </a>
+        {back ?? (
+          <a href={HUB_HOME} className="text-sm text-muted-foreground hover:text-foreground">
+            ← Hub
+          </a>
+        )}
         <div className="mt-4 flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="font-display text-3xl font-semibold uppercase tracking-wide">{title}</h1>

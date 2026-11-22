@@ -28,7 +28,7 @@ Trips, Inspections, Tickets and sign-off are later phases and change nothing her
 2. As Dave, I want each lane to show the Driver's name and his usual Truck, so that I know what he is driving without opening anything.
 3. As Dave, I want an Unassigned lane at the bottom, so that I can plan work before I know who will do it.
 4. As Dave, I want each Assignment drawn as a block reading "From → To" (or its note when it has no Places), so that a lane reads as a Driver's day at a glance.
-5. As Dave, I want a lane's blocks in the order I set, marked First and Then, so that the Driver knows what to do first.
+5. As Dave, I want a lane's blocks in the order I set, marked First and Then (a cancelled one neither, as it is off the day), so that the Driver knows what to do first.
 6. As Dave, I want no Now, "since 7:05", Busy or Free on the board yet, so that the board never claims to know progress it cannot see.
 7. As Dave, I want an empty lane to say "Nothing planned yet", so that I can tell an empty day from one still loading.
 8. As Dave, I want a block for a job site to show its Foreman, as in "TIUNY (Brody)", so that I know who is running the work.
@@ -52,7 +52,7 @@ Trips, Inspections, Tickets and sign-off are later phases and change nothing her
 23. As Dave, I want a sentence preview ("Randy hauls 2" minus from Villager to TIUNY (Brody)"), so that I can check what I am about to save.
 24. As Dave, I want Save allowed with only the day, so that I can jot down work before I know the details.
 25. As Dave, I want the new Assignment placed last in its lane, so that adding work never reshuffles the day.
-26. As Dave, I want the composer to remember the last Places and Material I picked until I close it, so that giving the same haul to a second Driver is a few taps.
+26. As Dave, I want the composer to fold when I Save and the next **+** to start with the last Places and Material I picked, until I close it, so that the lane is tidy and giving the same haul to a second Driver is a few taps.
 27. As Dave, I want "Close" to drop what I typed without saving, so that I can back out.
 
 ### Changing an Assignment
@@ -111,8 +111,8 @@ Trips, Inspections, Tickets and sign-off are later phases and change nothing her
 64. As a Driver, I want a **Scheduler | Driver** switch in the header, so that I can get to my own view.
 65. As a Driver, I want to be asked "Who are you?" once with the active Drivers as large buttons, so that I can pick myself with gloves on.
 66. As a Driver, I want my phone to remember my name and the Driver view, so that it opens on my day every morning.
-67. As a Driver, I want "Not you?" to pick again, so that a shared phone can change hands.
-68. As a Driver, I want to see today and tomorrow, so that I know what I am doing now and next, Saturdays included.
+67. As a Driver, I want a "← Drivers" button back to the list of Drivers, so that a shared phone can change hands.
+68. As a Driver, I want Yesterday, Today and Tomorrow, one at a time, opening on Today, so that I know what I am doing now and next, Saturdays included, and can look back at yesterday.
 69. As a Driver, I want my Assignments as large cards in Dave's order, each with Material, Pick up and Drop off, and the note, so that I can read them from the cab.
 70. As a Driver, I want a card to say "Take Truck 53 for this one" when Dave named a Truck, so that I know when to switch.
 71. As a Driver, I want a card Dave changed after Sending marked "Changed by Dave", with what it was before ("was Cobblestone"), and one he added after Sending marked "Added by Dave", so that I notice what is different.
@@ -131,7 +131,7 @@ Trips, Inspections, Tickets and sign-off are later phases and change nothing her
 81. As Dave, I want to put Drivers, Places and Materials in my own order with ▲▼ (or drag), so that lanes and chips follow it.
 82. As Dave, I want a Place's kind offered as Job site, Plant and Shop or yard, so that the choice is simple; a yard already saved keeps showing as Shop or yard.
 83. As Dave, I want a usual Foreman on a job-site Place, so that new Assignments there fill him in.
-84. As Dave, I want a Truck's panel to keep its HCSS code and id and say "Linked to HCSS Fleet" or "Not linked yet", so that I can link a new Truck and know which Trucks will have Trips counted later.
+84. As Dave, I want Settings to say nothing about HCSS on a Truck, so that the panel holds only what I manage; its HCSS code and id stay in the data and come from HCSS when Trips are counted later.
 85. As Dave, I want a Place's panel to say "On the truck map" or "Not on the truck map yet", so that I know which Places will match Trips later.
 86. As Dave, I want "Remove" to make an entry inactive after asking, and to warn when a Driver still has Assignments on later days, so that old Assignments keep its name and I know what is still planned for him; nothing is ever deleted.
 87. As Dave, I want inactive entries listed apart and able to come back, so that a returning Driver or a reopened pit is one tap.
@@ -185,7 +185,7 @@ materials     + sort_order INTEGER
 - **✕**: delete on a Draft day; on a Sent day it sets the cancelled time instead. **Put back** clears it.
 - **Send** a day: records the send; a bad date or a day before today is 400 `{ fields }`, a day with no Assignments is 409 `{ error, message }`; sending again does nothing. No warnings.
 - **Start from**: copies the latest earlier day that has Assignments onto an empty day, per the stories above; a day that has Assignments is 409 `{ error, message }`. The copy names the columns it copies rather than the ones it skips, so a later column is never copied by accident. Copy today's route is replaced by it; Duplicate's use is removed from the page.
-- **Driver view read**: one Driver's Assignments for a date, only if the day is Sent, otherwise an answer that says the day is a Draft; cancelled ones included and marked; Changed ones with what they were before, Added ones marked. The page asks for today and tomorrow.
+- **Driver view read**: one Driver's Assignments for a date, only if the day is Sent, otherwise an answer that says the day is a Draft; cancelled ones included and marked; Changed ones with what they were before, Added ones marked. The page asks for the day the Driver picked: yesterday, today or tomorrow.
 - A Truck's HCSS code and id stay editable through the list routes.
 - The list routes accept and return the sort order, and a Place's usual Foreman. A reorder sets the sort order of a whole list in one request.
 - Past days stay read-only in the Worker by US Eastern time, as now. Unlike the Daily Schedule, there is no lock on a Sent day.

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import type { BusinessDay, Driver, DriverDay } from '../../shared/types';
-import { shortDate, weekdayName } from '../../shared/days';
+import { addDays, shortDate, weekdayName } from '../../shared/days';
 import { DriverCard } from '@/components/DriverCard';
 import { PageHeader } from '@/components/PageHeader';
 import { ViewToggle } from '@/components/ViewToggle';
@@ -12,21 +12,35 @@ import { storedDriver, storeDriver } from '@/lib/deviceView';
 /** A day as the page holds it: loading (undefined), failed (null), or as the Worker read it. */
 type Shown = DriverDay | null | undefined;
 
+/** The days a Driver can look at, calendar days around today. */
+const DAYS = ['Yesterday', 'Today', 'Tomorrow'] as const;
+type Word = (typeof DAYS)[number];
+
+/** The date each word names, from today (US Eastern, as the Worker says). */
+function dateFor(word: Word, day: BusinessDay): string {
+  if (word === 'Yesterday') return addDays(day.today, -1);
+  if (word === 'Tomorrow') return day.tomorrow;
+  return day.today;
+}
+
 /**
- * The Driver view: one Driver's today and tomorrow (calendar days, so a Sent
- * Saturday shows on Friday), read from the Worker. The first time, it asks
- * "Who are you?" with the active Drivers as large buttons; the device then
- * remembers him, and "Not you?" asks again. Every time the page comes back
- * into view it reads today again and both days, so a phone left overnight
- * moves on to the new day and Dave's latest changes show.
+ * The Driver view: one Driver's day, Yesterday, Today or Tomorrow (calendar
+ * days, so a Sent Saturday shows on Friday), one at a time, read from the
+ * Worker. It opens on Today. The first time, it asks "Who are you?" with the
+ * active Drivers as large buttons; the device then remembers him, and
+ * "← Drivers" goes back to that list (the device still opens on his day until
+ * another Driver is picked). Every time the page comes back into view it reads
+ * today again and the day shown, so a phone left overnight moves on to the new
+ * day and Dave's latest changes show.
  */
 export function DriverPage() {
   const [drivers, setDrivers] = useState<Driver[] | null>(null);
   const [driversFailed, setDriversFailed] = useState(false);
   const [driverId, setDriverId] = useState<string | null>(storedDriver);
+  const [picking, setPicking] = useState(false);
+  const [word, setWord] = useState<Word>('Today');
   const [businessDay, setBusinessDay] = useState<BusinessDay | null>(null);
-  const [today, setToday] = useState<Shown>(undefined);
-  const [tomorrow, setTomorrow] = useState<Shown>(undefined);
+  const [shown, setShown] = useState<Shown>(undefined);
   const [refreshes, setRefreshes] = useState(0);
 
   useEffect(() => {
@@ -36,66 +50,69 @@ export function DriverPage() {
   // Coming back to the page (focus, or the tab shown again) reads everything again.
   useEffect(() => {
     const refresh = () => setRefreshes((n) => n + 1);
-    const shown = () => document.visibilityState === 'visible' && refresh();
+    const visible = () => document.visibilityState === 'visible' && refresh();
     window.addEventListener('focus', refresh);
-    document.addEventListener('visibilitychange', shown);
+    document.addEventListener('visibilitychange', visible);
     return () => {
       window.removeEventListener('focus', refresh);
-      document.removeEventListener('visibilitychange', shown);
+      document.removeEventListener('visibilitychange', visible);
     };
   }, []);
 
   // A remembered Driver who is no longer in the list (removed) is asked again.
   const driver = drivers?.find((d) => d.id === driverId) ?? null;
-  const asking = driverId === null || (drivers !== null && driver === null);
+  const asking = picking || driverId === null || (drivers !== null && driver === null);
 
   useEffect(() => {
-    if (!driverId) return;
+    if (!driverId || picking) return;
     let stale = false;
     // What is on screen stays until the new read answers, so a refresh does not flash.
     fetchBusinessDay().then(
       (day) => {
         if (stale) return;
         setBusinessDay(day);
-        const read = (date: string, show: (shown: Shown) => void) =>
-          fetchDriverDay(driverId, date).then(
-            (answer) => !stale && show(answer),
-            () => !stale && show(null),
-          );
-        read(day.today, setToday);
-        read(day.tomorrow, setTomorrow);
+        fetchDriverDay(driverId, dateFor(word, day)).then(
+          (answer) => !stale && setShown(answer),
+          () => !stale && setShown(null),
+        );
       },
-      () => {
-        if (stale) return;
-        setToday((shown) => shown ?? null);
-        setTomorrow((shown) => shown ?? null);
-      },
+      () => !stale && setShown((current) => current ?? null),
     );
     return () => {
       stale = true;
     };
-  }, [driverId, refreshes]);
+  }, [driverId, picking, word, refreshes]);
 
-  const choose = (id: string | null) => {
+  const choose = (id: string) => {
     storeDriver(id);
     setDriverId(id);
-    setBusinessDay(null);
-    setToday(undefined);
-    setTomorrow(undefined);
+    setPicking(false);
+    setWord('Today');
+    setShown(undefined);
+  };
+  const show = (next: Word) => {
+    if (next === word) return;
+    setWord(next);
+    setShown(undefined);
   };
 
   return (
     <div className="min-h-screen bg-surface">
-      <PageHeader title="Dispatch" subtitle={driver && !asking ? driver.name : 'Driver view'}>
+      <PageHeader
+        title="Dispatch"
+        subtitle={driver && !asking ? driver.name : 'Driver view'}
+        back={
+          asking ? undefined : (
+            <button type="button" className="py-1 text-base text-muted-foreground hover:text-foreground" onClick={() => setPicking(true)}>
+              ← Drivers
+            </button>
+          )
+        }
+      >
         <ViewToggle current="driver" />
-        {!asking && (
-          <Button variant="outline" size="lg" className="px-5" onClick={() => choose(null)}>
-            Not you?
-          </Button>
-        )}
       </PageHeader>
 
-      <main className="container max-w-2xl space-y-8 py-6">
+      <main className="container max-w-2xl space-y-6 py-6">
         {asking ? (
           <section aria-labelledby="who" className="space-y-4">
             <h2 id="who" className="font-display text-2xl font-semibold uppercase tracking-wide">
@@ -113,8 +130,14 @@ export function DriverPage() {
           </section>
         ) : (
           <>
-            <DaySection word="Today" date={businessDay?.today ?? null} shown={today} />
-            <DaySection word="Tomorrow" date={businessDay?.tomorrow ?? null} shown={tomorrow} />
+            <div role="group" aria-label="Day" className="grid grid-cols-3 rounded-md border bg-background p-1">
+              {DAYS.map((d) => (
+                <Button key={d} type="button" size="lg" variant={d === word ? 'default' : 'ghost'} aria-pressed={d === word} onClick={() => show(d)}>
+                  {d}
+                </Button>
+              ))}
+            </div>
+            <DaySection word={word} date={businessDay ? dateFor(word, businessDay) : null} shown={shown} />
           </>
         )}
       </main>
@@ -131,17 +154,16 @@ function Loading({ what }: { what: string }) {
 }
 
 /**
- * Today or tomorrow: "Dave hasn't sent Monday yet." for a Draft, so it is not
+ * The day shown: "Dave hasn't sent Monday yet." for a Draft, so it is not
  * taken for a day off; a Sent day's cards, or that there is nothing for him.
  */
-function DaySection({ word, date, shown }: { word: string; date: string | null; shown: Shown }) {
+function DaySection({ word, date, shown }: { word: Word; date: string | null; shown: Shown }) {
   // The day as last read, until a refresh that moved on to a new day answers.
   const day = shown?.date ?? date;
   const title = day ? `${word}, ${shortDate(day)}` : word;
-  const id = `day-${word.toLowerCase()}`;
   return (
-    <section aria-labelledby={id} className="space-y-3">
-      <h2 id={id} className="font-display text-2xl font-semibold uppercase tracking-wide">
+    <section aria-labelledby="day-shown" className="space-y-3">
+      <h2 id="day-shown" className="font-display text-2xl font-semibold uppercase tracking-wide">
         {title}
       </h2>
       {shown === undefined && <Loading what="your day" />}

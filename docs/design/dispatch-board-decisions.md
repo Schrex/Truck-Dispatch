@@ -55,17 +55,6 @@ assignments id, date, driver_id?, truck_id?, from_place_id?, to_place_id?,
             material_id?, foreman_id?, note?, created_at, updated_at
 ```
 
-## Where the existing code differs (found 19 Nov, needs reconciling)
-
-The repo already has a Dispatch board and a New Order form (`migrations/0001_orders.sql`, `src/components/NewOrderDialog.tsx`). Differences from the decisions above:
-
-- The table is `orders`; the domain term is **Assignment**.
-- `job` and `work` are required free text, and `driver_id` is required. The decision is that only the date is required, and lists replace free text.
-- `start_time` exists; the decision is no start time.
-- `pickup`, `dropoff` and `truck_number` are free text; the decision is links to Places and Trucks.
-- There are no jobs, places, materials, foremen or trucks tables, and no Settings page.
-- The base path is `/truck-dispatch/`, which is fine to keep.
-
 ---
 
 # Final mocks: decisions (grilling, 21 Nov 2026)
@@ -92,7 +81,7 @@ The schema for all four is designed now; each phase migrates only its own tables
 - **Truck on an Assignment** is stored only when Dave names a certain one; blank means "his own". The phone shows the Truck he checked in to (phase 2); the scheduler shows his usual Truck in grey. Replaces "picking a Driver fills in their usual Truck".
 - **Trip and Load.** A Trip is any movement the Truck records, loaded or empty; a Load is a Trip carrying material. Tickets and counts are per Load; the trip log lists Trips.
 - **Truck work** (a lowboy move) is an ordinary Assignment with a note, From and To Places and no Material; it shows by its note. No separate kind.
-- **Settings** is F3's single page, sections Drivers, Trucks, Places, Materials, Jobs, Foremen. Place kinds stay four in the data; Shop and Yard show as one "Shop or yard" choice saved as shop. Places, Materials and Drivers get a sort order (drag or ▲▼) that orders chips and lanes. Truck and Place panels show "Linked to HCSS Fleet" / "On the truck map" from the HCSS id and geofence code.
+- **Settings** is F3's single page, sections Drivers, Trucks, Places, Materials, Jobs, Foremen. Place kinds stay four in the data; Shop and Yard show as one "Shop or yard" choice saved as shop. Places, Materials and Drivers get a sort order (drag or ▲▼) that orders chips and lanes. Place panels show "On the truck map" from the geofence code; Truck panels say nothing about HCSS (22 Nov).
 
 ## Days, copied from the Daily Schedule (`Schrex/daily-schedule`, `docs/specs/week-strip.md`)
 - **Week strip** in the header: Monday to Friday tiles plus narrow Saturday and Sunday, saying Today and Tomorrow, each with the day's state (Sent, Changed, Not sent, "2 unassigned", "–"); arrows that name their day and skip weekends and Holidays, also on the arrow keys; a week pager; "Back to (next working day)". Opens on the next working day. Same date behaviour, built in this app's stack (ADR-0002).
@@ -131,7 +120,7 @@ A fresh reviewer checked the decisions, the spec and the ticket plan against the
 - **Usual Foreman** comes from the drop-off if it is a job site, else the pick-up.
 - **Typed names** that match a removed entry bring it back. New and revived entries go last in their list; lists sort by their order, entries without one last, then by name.
 - **Saves are per field** (PATCH); changing the Driver puts it last in the new lane.
-- **The Truck panel keeps the HCSS code and id**, next to "Linked to HCSS Fleet".
+- ~~**The Truck panel keeps the HCSS code and id**, next to "Linked to HCSS Fleet".~~ Superseded 22 Nov: Settings shows neither; they stay in the data.
 - **Refusals follow the README**: bad or past dates 400 `{ fields }`; an empty day or a day already planned 409 `{ error, message }`.
 - **Do this first / Do this later** move one place each, hidden at the ends.
 - **Copying lists the columns it copies** (not the ones it skips), so a new column is never copied by accident; inactive Trucks and Foremen are dropped like inactive Places and Materials.
@@ -179,3 +168,11 @@ tickets    id, date, driver_id, truck_id, trip_id? (its Load), photo_key (R2), t
 sign_offs  id, date, truck_id, who driver|dave, driver_id?, repairs?, signed_at, version   append-only; latest version counts, Driver's locks 9 AM next day
 ```
 The Truck log is a page built from these; it has no table of its own.
+
+## After trying it on staging (grilling, 22 Nov 2026)
+
+- **Send stays the gate.** Randy's Monday was not showing because Monday was a Draft. A Draft day with Assignments now says "Drivers can't see this day until you Send." under its state.
+- **Settings says nothing about HCSS on a Truck**: no "Linked to HCSS Fleet" / "Not linked yet", no HCSS code or id fields. The values stay in the database for Trips later.
+- **Save folds the composer.** The next **+**, in any lane, starts with the same Places and Material; Close or another day starts it empty.
+- **Driver view**: "Not you?" is gone; "← Drivers", top left where "← Hub" is, goes back to "Who are you?". The device still opens on the last Driver picked. The Driver sees one day at a time with a **Yesterday | Today | Tomorrow** toggle (calendar days), opening on Today; Yesterday is read-only like the rest.
+- **First** is the first Assignment in a lane that is not cancelled, and a cancelled one is neither First nor Then; the Board's "N Assignments" leaves cancelled ones out.

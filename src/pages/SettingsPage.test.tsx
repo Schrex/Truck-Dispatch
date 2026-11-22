@@ -153,8 +153,7 @@ describe('Settings', () => {
     expect(chips('Drivers', 'removed')).toEqual(['Sample Driver X']);
     expect(chip('Drivers', 'Sample Driver A').textContent).toContain('Truck 21');
 
-    expect(chip('Trucks', '21').textContent).toContain('Linked to HCSS Fleet');
-    expect(chip('Trucks', '24').textContent).toContain('Not linked yet');
+    expect(chip('Trucks', '21').textContent).toBe('21');
     expect(chips('Trucks', 'removed')).toEqual(['99']);
 
     expect(chip('Places', 'Sample Plant').textContent).toContain('Plant');
@@ -245,17 +244,12 @@ describe('Settings', () => {
   });
 
   describe('a Truck', () => {
-    it('keeps its HCSS code and id editable, and says whether it is linked to HCSS Fleet', async () => {
+    it('says nothing about HCSS and asks for no HCSS code or id, which come from HCSS later', async () => {
       await settings();
       const panel = open('Trucks', '24');
-      expect(within(panel).getByText('Not linked yet')).toBeTruthy();
-      type(panel, /HCSS code/, 'T24');
-      type(panel, /HCSS id/, '9a2b');
-      await waitFor(() => expect(within(panel).getByText('Linked to HCSS Fleet')).toBeTruthy());
-      expect(sent).toEqual([
-        { method: 'PATCH', path: '/api/trucks/trk-24', body: { hcssCode: 'T24' } },
-        { method: 'PATCH', path: '/api/trucks/trk-24', body: { hcssGuid: '9a2b' } },
-      ]);
+      expect(within(panel).queryByText(/HCSS/)).toBeNull();
+      expect(within(panel).queryByText(/linked/i)).toBeNull();
+      expect(screen.queryByText(/HCSS/)).toBeNull();
     });
   });
 
@@ -344,12 +338,12 @@ describe('Settings', () => {
 
     it('keeps saving the new entry as Dave goes on typing, rather than adding it twice', async () => {
       await settings();
-      const panel = add('Trucks', 'Truck');
-      type(panel, 'Number', '30');
+      const panel = add('Jobs', 'Job');
+      type(panel, 'Name', 'Sample Job 30');
       await waitFor(() => expect(sent).toHaveLength(1));
-      type(panel, /HCSS code/, 'T30');
+      type(panel, /Job number/, 'J-30');
       await waitFor(() => expect(sent).toHaveLength(2));
-      expect(sent[1]).toEqual({ method: 'PATCH', path: '/api/trucks/new-3', body: { hcssCode: 'T30' } });
+      expect(sent[1]).toEqual({ method: 'PATCH', path: expect.stringMatching(/^\/api\/jobs\//), body: { jobNumber: 'J-30' } });
     });
 
     it('saves nothing until there is a name', async () => {

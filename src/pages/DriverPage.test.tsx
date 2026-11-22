@@ -63,6 +63,8 @@ function open(address = '/') {
 
 const day = (name: string) => screen.findByRole('region', { name });
 const cardsIn = (region: HTMLElement) => within(region).queryAllByRole('article');
+/** Taps Yesterday, Today or Tomorrow on the day toggle. */
+const pick = async (word: string) => fireEvent.click(within(await screen.findByRole('group', { name: 'Day' })).getByRole('button', { name: word }));
 
 beforeEach(() => {
   businessDay = THURSDAY;
@@ -88,7 +90,7 @@ describe('choosing the Driver view', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sample Driver B' }));
     expect(await day('Today, Thu, Nov 19')).toBeTruthy();
     expect(screen.getByText('Sample Driver B')).toBeTruthy();
-    await waitFor(() => expect(read).toEqual(expect.arrayContaining(['drv-b 2026-11-19', 'drv-b 2026-11-20'])));
+    await waitFor(() => expect(read).toContain('drv-b 2026-11-19'));
   });
 
   it('remembers the Driver and the view on this device, so the page opens on his day', async () => {
@@ -105,14 +107,31 @@ describe('choosing the Driver view', () => {
     expect(screen.getByRole('button', { name: 'Driver' }).getAttribute('aria-pressed')).toBe('true');
   });
 
-  it('asks again with "Not you?", so a shared phone can change hands', async () => {
+  it('goes back to the Drivers with "← Drivers", so a shared phone can change hands', async () => {
     open('/');
     fireEvent.click(await screen.findByRole('button', { name: 'Driver' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Sample Driver A' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Not you?' }));
+    await day('Today, Thu, Nov 19');
+    expect(screen.queryByRole('button', { name: 'Not you?' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '← Drivers' }));
+    expect(await screen.findByRole('heading', { name: 'Who are you?' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '← Drivers' })).toBeNull();
     fireEvent.click(await screen.findByRole('button', { name: 'Sample Driver B' }));
     expect(await screen.findByText('Sample Driver B')).toBeTruthy();
     await waitFor(() => expect(read).toContain('drv-b 2026-11-19'));
+  });
+
+  it('still opens on the remembered Driver\'s day after going back to the Drivers without picking', async () => {
+    const first = open('/');
+    fireEvent.click(await screen.findByRole('button', { name: 'Driver' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Sample Driver A' }));
+    fireEvent.click(await screen.findByRole('button', { name: '← Drivers' }));
+    await screen.findByRole('heading', { name: 'Who are you?' });
+    first.unmount();
+
+    open('/');
+    expect(await day('Today, Thu, Nov 19')).toBeTruthy();
+    expect(screen.getByText('Sample Driver A')).toBeTruthy();
   });
 
   it('switches back to the Scheduler from the same toggle, and remembers that too', async () => {
@@ -131,22 +150,42 @@ describe('choosing the Driver view', () => {
   });
 });
 
-describe('a Driver\'s today and tomorrow', () => {
+describe('a Driver\'s yesterday, today and tomorrow', () => {
   beforeEach(() => {
     localStorage.setItem('truck-dispatch:view', 'driver');
     localStorage.setItem('truck-dispatch:driver', 'drv-a');
   });
 
+  it('opens on Today and offers only Yesterday, Today and Tomorrow, one day at a time', async () => {
+    open('/');
+    const toggle = await screen.findByRole('group', { name: 'Day' });
+    expect(within(toggle).getAllByRole('button').map((b) => b.textContent)).toEqual(['Yesterday', 'Today', 'Tomorrow']);
+    expect(within(toggle).getByRole('button', { name: 'Today' }).getAttribute('aria-pressed')).toBe('true');
+    expect(await day('Today, Thu, Nov 19')).toBeTruthy();
+    expect(screen.queryByRole('region', { name: /^Tomorrow/ })).toBeNull();
+  });
+
+  it('shows yesterday\'s Sent Assignments, read from the Worker', async () => {
+    sentDays['drv-a 2026-11-18'] = [card({ date: '2026-11-18', note: 'Wednesday haul' })];
+    open('/');
+    await day('Today, Thu, Nov 19');
+    await pick('Yesterday');
+    expect(within(await day('Yesterday, Wed, Nov 18')).getByText('Wednesday haul')).toBeTruthy();
+    expect(read).toContain('drv-a 2026-11-18');
+  });
+
   it('says a day Dave has not Sent is not sent yet, so it is not mistaken for a day off', async () => {
     sentDays['drv-a 2026-11-19'] = [card({ note: 'Haul stone' })];
     open('/');
-    expect(within(await day('Tomorrow, Fri, Nov 20')).getByText("Dave hasn't sent Friday yet.")).toBeTruthy();
     expect(cardsIn(await day('Today, Thu, Nov 19'))).toHaveLength(1);
+    await pick('Tomorrow');
+    expect(within(await day('Tomorrow, Fri, Nov 20')).getByText("Dave hasn't sent Friday yet.")).toBeTruthy();
   });
 
   it('says a Sent day with nothing for him has no Assignments for him', async () => {
     sentDays['drv-a 2026-11-20'] = [];
     open('/');
+    await pick('Tomorrow');
     expect(within(await day('Tomorrow, Fri, Nov 20')).getByText('Nothing for you on Friday.')).toBeTruthy();
   });
 
@@ -180,6 +219,7 @@ describe('a Driver\'s today and tomorrow', () => {
   it('marks one added after the Send "Added by Dave"', async () => {
     sentDays['drv-a 2026-11-20'] = [card({ date: '2026-11-20', note: 'Fill the shop', sinceSent: 'added' })];
     open('/');
+    await pick('Tomorrow');
     const [added] = cardsIn(await day('Tomorrow, Fri, Nov 20'));
     expect(within(added).getByText('Added by Dave')).toBeTruthy();
   });
@@ -193,15 +233,15 @@ describe('a Driver\'s today and tomorrow', () => {
     expect(within(cancelled).getByText('Haul stone').closest('.line-through')).toBeTruthy();
   });
 
-  it('reads both days again when the page regains focus, moving on to a new day', async () => {
+  it('reads the day shown again when the page regains focus, moving on to a new day', async () => {
     open('/');
-    await day('Today, Thu, Nov 19');
+    await pick('Tomorrow');
+    await day('Tomorrow, Fri, Nov 20');
     businessDay = { today: '2026-11-20', tomorrow: '2026-11-21', nextWorkingDay: '2026-11-23' };
     sentDays['drv-a 2026-11-21'] = [card({ date: '2026-11-21', note: 'Saturday haul' })];
     act(() => {
       window.dispatchEvent(new Event('focus'));
     });
-    expect(await day('Today, Fri, Nov 20')).toBeTruthy();
     expect(within(await day('Tomorrow, Sat, Nov 21')).getByText('Saturday haul')).toBeTruthy();
   });
 
