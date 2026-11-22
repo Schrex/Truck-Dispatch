@@ -172,6 +172,8 @@ meter_readings  truck_id, read_at, odometer, engine_hours   PK (truck_id, read_a
 ```
 An Assignment's Now / Done / "since" are worked out from its Trips, not stored.
 
+Detailed design, evidence from one real day, and proposed changes (`fleet_visits` in place of `fleet_events`, Fleet access): `docs/design/telematics-backend.md`.
+
 ### Phase 4: tickets and sign-off
 ```
 tickets    id, date, driver_id, truck_id, trip_id? (its Load), photo_key (R2), taken_at,
