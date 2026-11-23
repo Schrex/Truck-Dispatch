@@ -80,7 +80,7 @@ What the app does as built, page by page. Words in capitals are defined in [`GLO
 
 No page links to it: open it by its address. **Board** (top right) goes back to the Board, as from Settings.
 
-Phase 3 run on one real day: Truck 55 (MCK-55-17), driven by Randy on Mon 16 Nov 2026, on the real HCSS Fleet data. The Trip builder (`shared/trips.ts`) works out everything below from what the Worker would know at the clock's time. Nothing is saved and the Worker is not asked.
+Phase 3 run on one real day: Truck 55 (MCK-55-17), driven by Randy on Mon 16 Nov 2026, on the real HCSS Fleet data. The Trip builder (`shared/trips.ts`) works out everything below from what the Worker would know at the clock's time, and the shared Truck log function (`shared/truckLog.ts`) turns its output into the Truck log columns, Unplanned work, ties, shop drives and each Assignment's Trip part. Nothing is saved and the Worker is not asked.
 
 - **Clock**: a slider over the day, opening at "end of day"; **Play** runs it in the 10-minute steps the Worker pulls Fleet (from 04:00 when at end of day), **Pause** stops it.
 - **Scenario** picker for Dave's Assignments: As planned (A1 J25008 Los Flamboyanes → Villager, then A2 Walworth Dolomite → J25008), The other way round (A1 reversed), Reroute at 11:20 (A1's drop-off changed to J611 Bishop Kearney; Trips before 11:20 match A1 as it was). Two made-up scenarios (not Fleet data) show the cases the real day lacks: **Made up: Unplanned work to split** (A1 Walworth Dolomite → J25008 twice, then J25008 → J611 → Villager → J25008, which nothing explains, then the shop) and **Made up: Sam on Truck 55 too** (the real day, with A2 Sam's, naming Truck 55, so two Drivers fit and the Truck log asks "Who was driving?").
