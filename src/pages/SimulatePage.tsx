@@ -107,7 +107,16 @@ export function SimulatePage() {
               />
             </section>
             {/* An Assignment made from Unplanned work sends Randy no notice, so it is not on his phone. */}
-            <DriverView driverName={REAL_DAY.driver.name} date={REAL_DAY.date} assignments={day.assignments.filter((a) => !a.fromTheTruck && a.driverId === REAL_DAY.driver.id)} />
+            <DriverView
+              date={REAL_DAY.date}
+              phones={[
+                {
+                  driverId: REAL_DAY.driver.id,
+                  driverName: REAL_DAY.driver.name,
+                  assignments: day.assignments.filter((a) => !a.fromTheTruck && a.driverId === REAL_DAY.driver.id),
+                },
+              ]}
+            />
           </div>
           <div className="min-w-0">
             <TripLog

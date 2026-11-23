@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../App';
 // The pages load lazily in the app (App.tsx); importing it here compiles it
@@ -9,7 +9,8 @@ import { REAL_DAY } from '@/simulate/realDay';
 import { readFleetJson, type FleetExportRow } from '../../shared/fleetExport';
 import { buildTripDay, type TripAssignment } from '../../shared/trips';
 import { truckLog } from '../../shared/truckLog';
-import type { Assignment, FleetImport, NewFleetImport, Truck, TruckLogDay } from '../../shared/types';
+import { easternMoment } from '../../shared/days';
+import type { Assignment, Driver, FleetImport, NewFleetImport, Truck, TruckLogDay } from '../../shared/types';
 // The 16 Nov export pulled at 15:02, as Dave downloads it from HCSS Fleet.
 import EXPORT_1502 from '../../shared/fixtures/fleet/2026-11-16-1502.json?raw';
 // The whole 16 Nov day cut at 13:05 and at 16:20, as Fleet would have exported it then.
@@ -41,7 +42,12 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   if (url.pathname.endsWith('/api/trucks')) return answer({ trucks: TRUCKS });
   if (url.pathname.endsWith('/api/today')) return answer({ today: TUESDAY, tomorrow: '2026-11-18', nextWorkingDay: '2026-11-18' });
   const truckDay = /\/api\/trucks\/([^/]+)\/days\/([^/]+)$/.exec(url.pathname);
-  if (truckDay) return answer(storedDays[`${truckDay[1]} ${truckDay[2]}`] ?? noVisits(truckDay[1], truckDay[2]));
+  if (truckDay) {
+    const at = url.searchParams.get('at') ?? undefined;
+    asked.push(at ?? null);
+    return answer(storedDays[`${truckDay[1]} ${truckDay[2]}`]?.(at) ?? noVisits(truckDay[1], truckDay[2]));
+  }
+  if (url.pathname.endsWith('/api/drivers')) return answer({ drivers: DRIVERS });
   return answer({ error: 'not_found' }, 404);
 });
 
@@ -70,21 +76,34 @@ const SHOWN = [shown('a1', 'J25008 Los Flamboyanes', 'Villager', 'Fill'), shown(
  * the Trip builder and the shared Truck log function. A past day by default;
  * `today` builds it as the Worker does on the day itself, at the latest Import.
  */
-function storedDay(truckId: string, date: string, rows: FleetExportRow[], asOf: string | null, { today = false } = {}): TruckLogDay {
+function storedDay(truckId: string, date: string, rows: FleetExportRow[], asOf: string | null, { today = false, clock }: { today?: boolean; clock?: string } = {}): TruckLogDay {
   const visits = rows.map((r) => ({ geofenceCode: r.geofenceCode, enteredAt: r.enteredAt, exitedAt: r.exitedAt, entryOdometer: r.entryOdometer, exitOdometer: r.exitOdometer }));
-  const at = asOf ?? `${date}T23:59:59.000Z`;
-  const dayOver = !today;
+  const opened = clock ?? (today ? '13:10' : '23:59');
+  // The end of the clock minute, never past the latest Import, as the Worker builds it.
+  const [hour, minute] = opened.split(':').map(Number);
+  const endOfMinute = easternMoment(date, hour, minute, 59);
+  const at = clock === undefined ? (asOf ?? `${date}T23:59:59.000Z`) : asOf && Date.parse(asOf) < Date.parse(endOfMinute) ? asOf : endOfMinute;
+  const dayOver = !today && opened === '23:59';
   const tripDay = buildTripDay({ places: REAL_DAY.places, jobs: REAL_DAY.jobs, visits, assignments: rows.length ? PLANNED : [], now: at, dayOver });
   const labels = { a1: 'A1', a2: 'A2' };
   const { assignments, ...truckLogBody } = truckLog({ tripDay, places: REAL_DAY.places, assignments: rows.length ? SHOWN : [], labels });
   return {
-    truckId, truckNumber: '55', date, asOf, clock: today ? '13:10' : '23:59', at, dayOver, places: REAL_DAY.places, tripDay, labels, assignments,
+    truckId, truckNumber: '55', date, asOf, clock: opened, at, dayOver, places: REAL_DAY.places, tripDay, labels, assignments,
     truckLog: truckLogBody, codesWithNoPlace: rows.some((r) => r.geofenceCode === 'sunset') ? [{ code: 'sunset', driveThrough: true }] : [],
   };
 }
 const noVisits = (truckId: string, date: string) => storedDay(truckId, date, [], null);
-/** The stored days the Worker has, by "truckId date". */
-let storedDays: Record<string, TruckLogDay>;
+/** The stored days the Worker has, by "truckId date": each built at the clock asked for (none: as the Worker opens it). */
+let storedDays: Record<string, (clock?: string) => TruckLogDay>;
+/** Stores a Truck's day for the stub to answer, at whatever clock the page asks. */
+const store = (truckId: string, date: string, rows: FleetExportRow[], asOf: string | null, options: { today?: boolean } = {}) => {
+  storedDays[`${truckId} ${date}`] = (clock) => storedDay(truckId, date, rows, asOf, { ...options, clock });
+};
+/** The clock each read of a stored day asked for, in order; null when it asked for none. */
+let asked: (string | null)[];
+
+/** Randy, who usually drives Truck 55. */
+const DRIVERS: Driver[] = [{ id: 'drv-randy', name: 'Randy', defaultTruckId: 'trk-55', sortOrder: null, active: true }];
 
 /** The active Trucks: 55 has its HCSS code, 12 has none yet. */
 const TRUCKS: Truck[] = [
@@ -97,6 +116,7 @@ beforeEach(() => {
   refusal = null;
   answered = {};
   storedDays = {};
+  asked = [];
   api.mockClear();
   vi.stubGlobal('fetch', api);
 });
@@ -233,7 +253,7 @@ describe('A stored day on the Fleet imports page', () => {
   };
 
   it('shows the real Trip log of Truck 55 on Mon 16 Nov, with the 16:20 cut stored', async () => {
-    storedDays[`trk-55 2026-11-16`] = storedDay('trk-55', '2026-11-16', readFleetJson(JSON.parse(CUT_1620)), AS_OF);
+    store('trk-55', '2026-11-16', readFleetJson(JSON.parse(CUT_1620)), AS_OF);
     await openPage();
     pickDay('trk-55', '2026-11-16');
 
@@ -257,7 +277,7 @@ describe('A stored day on the Fleet imports page', () => {
       .map((col) => Object.fromEntries([...col.querySelectorAll('dt')].map((dt) => [dt.textContent, dt.nextElementSibling?.textContent])));
 
   it('shows the Truck log of Mon 16 Nov: 06:24 to 16:03, miles blank for a meter reading, A1 and A2, the shop drives', async () => {
-    storedDays[`trk-55 2026-11-16`] = storedDay('trk-55', '2026-11-16', readFleetJson(JSON.parse(CUT_1620)), AS_OF);
+    store('trk-55', '2026-11-16', readFleetJson(JSON.parse(CUT_1620)), AS_OF);
     await openPage();
     pickDay('trk-55', '2026-11-16');
 
@@ -281,7 +301,7 @@ describe('A stored day on the Fleet imports page', () => {
   });
 
   it('has no end time on a day still going on, with only the 13:05 cut stored', async () => {
-    storedDays[`trk-55 2026-11-16`] = storedDay('trk-55', '2026-11-16', readFleetJson(JSON.parse(CUT_1305)), '2026-11-16T18:10:00.000Z', { today: true });
+    store('trk-55', '2026-11-16', readFleetJson(JSON.parse(CUT_1305)), '2026-11-16T18:10:00.000Z', { today: true });
     await openPage();
     pickDay('trk-55', '2026-11-16');
 
@@ -290,7 +310,7 @@ describe('A stored day on the Fleet imports page', () => {
   });
 
   it('lists "sunset" under codes with no Place, marked drive-through', async () => {
-    storedDays[`trk-55 2026-11-16`] = storedDay('trk-55', '2026-11-16', readFleetJson(JSON.parse(CUT_1620)), AS_OF);
+    store('trk-55', '2026-11-16', readFleetJson(JSON.parse(CUT_1620)), AS_OF);
     await openPage();
     pickDay('trk-55', '2026-11-16');
     const day = await screen.findByRole('region', { name: 'Stored day' });
@@ -313,11 +333,75 @@ describe('A stored day on the Fleet imports page', () => {
   });
 
   it('shows the Truck and day an Import just touched', async () => {
-    storedDays[`trk-55 2026-11-16`] = storedDay('trk-55', '2026-11-16', readFleetJson(JSON.parse(EXPORT_1502)), '2026-11-16T20:05:00.000Z');
+    store('trk-55', '2026-11-16', readFleetJson(JSON.parse(EXPORT_1502)), '2026-11-16T20:05:00.000Z');
     await openPage();
     drop(new File([EXPORT_1502], 'EntryExit-1502.json', { type: 'application/json' }));
     await screen.findByText('18 new · 0 closed · 0 already stored');
     await waitFor(() => expect((screen.getByLabelText('Day') as HTMLInputElement).value).toBe('2026-11-16'));
     expect(await screen.findByText('As of the Import at 15:05')).toBeTruthy();
+  });
+
+  describe('the replay clock and the Scheduler and Driver views', () => {
+    const A1 = 'First · J25008 Los Flamboyanes → Villager · Fill · Truck 55 (his own)';
+    const A2 = 'Then · Walworth Dolomite → J25008 Los Flamboyanes · 1&2 stone · Truck 55 (his own)';
+    const CARD_A1 = 'FillPick upJ25008 Los FlamboyanesDrop offVillager';
+    const CARD_A2 = '1&2 stonePick upWalworth DolomiteDrop offJ25008 Los Flamboyanes';
+    const scheduler = () => screen.getByRole('region', { name: 'Scheduler view' });
+    /** Randy's blocks as Dave reads them, in Dave's order. */
+    const randy = () =>
+      within(within(scheduler()).getByRole('article', { name: 'Randy' }))
+        .getAllByRole('listitem')
+        .map((block) => block.textContent);
+    /** Randy's cards on his phone, in Dave's order. */
+    const cards = () => within(screen.getByRole('region', { name: 'Driver view' })).getAllByRole('article').map((card) => card.textContent);
+    const clock = () => screen.getByRole('slider', { name: 'Clock' }) as HTMLInputElement;
+    const setClock = (minutes: number) => fireEvent.change(clock(), { target: { value: String(minutes) } });
+
+    const openMonday = async () => {
+      store('trk-55', '2026-11-16', readFleetJson(JSON.parse(CUT_1620)), AS_OF);
+      await openPage();
+      pickDay('trk-55', '2026-11-16');
+      await within(await screen.findByRole('region', { name: 'Scheduler view' })).findByRole('article', { name: 'Randy' });
+    };
+
+    it("opens Mon 16 Nov at the end of the day: Randy's lane with A1 and A2 Done, and his cards with their last Loads", async () => {
+      await openMonday();
+      expect(screen.getByText('end of day')).toBeTruthy();
+      expect(clock().value).toBe(String(23 * 60 + 59));
+      expect(randy()).toEqual([`${A1} · 4 Loads · Done · since 08:24`, `${A2} · 2 Loads · Done · since 11:30`]);
+      expect(cards()).toEqual([`4 Loads · last 11:25${CARD_A1}`, `2 Loads · last 13:54${CARD_A2}`]);
+      expect(asked.at(-1)).toBeNull();
+    });
+
+    it('dragged to 10:02, shows A1 with 2 Loads, Now, 1.59 h, and the Trip log and Truck log follow it', async () => {
+      await openMonday();
+      setClock(10 * 60 + 2);
+
+      await waitFor(() => expect(randy()).toEqual([`${A1} · 2 Loads · Now · since 08:24`, A2]));
+      expect(asked.at(-1)).toBe('10:02');
+      expect(screen.getByText('10:02')).toBeTruthy();
+      expect(cards()[0]).toMatch(/^Now2 Loads · last /);
+      expect(columns()[0]).toMatchObject({ '# of loads': '2', 'Trucking hours': '1.59' });
+      expect(header()).toMatchObject({ 'Start time': '06:24', 'End time': '' });
+      expect(tripLog().every(([left]) => left! <= '10:02')).toBe(true);
+    });
+
+    it('plays the day in 10-minute steps', async () => {
+      await openMonday();
+      setClock(10 * 60);
+      await screen.findByText('10:00');
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+      try {
+        fireEvent.click(screen.getByRole('button', { name: 'Play the day' }));
+        act(() => {
+          vi.advanceTimersToNextTimer();
+        });
+        expect(await screen.findByText('10:10')).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy();
+        await waitFor(() => expect(asked.at(-1)).toBe('10:10'));
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });

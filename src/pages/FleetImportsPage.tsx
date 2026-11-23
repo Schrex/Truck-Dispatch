@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type DragEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type DragEvent, type SetStateAction } from 'react';
 import { ClipboardList, Loader2, Upload } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { PageHeader } from '@/components/PageHeader';
@@ -10,10 +10,14 @@ import { Refused, fetchBusinessDay, fetchList, fetchTruckLogDay, importFleetExpo
 import { cn } from '@/lib/utils';
 import { TruckLog } from '@/components/TruckLog';
 import { TruckLogAssignments } from '@/components/TruckLogAssignments';
+import { Lanes } from '@/components/Lanes';
+import { DriverView } from '@/simulate/DriverView';
+import { ReplayClock } from '@/simulate/ReplayClock';
 import { TripLog } from '@/simulate/TripLog';
+import { clockTime } from '@/simulate/simulate';
 import { easternTime } from '../../shared/days';
 import { EXPORT_ADVICE, countFleetXlsxVisits, readFleetJson, readFleetXlsx, type FleetExportRow, type FleetSheet } from '../../shared/fleetExport';
-import type { CodeWithNoPlace, FleetExportFormat, FleetImport, FleetImportDay, ImportCounts, Truck, TruckLogDay } from '../../shared/types';
+import type { CodeWithNoPlace, Driver, FleetExportFormat, FleetImport, FleetImportDay, ImportCounts, Truck, TruckLogDay } from '../../shared/types';
 
 /** A dropped file's text or bytes. FileReader, as every browser (and jsdom) has it. */
 function readFile(file: File, as: 'text'): Promise<string>;
@@ -125,40 +129,65 @@ function CodesWithNoPlace({ id, codes }: { id: string; codes: CodeWithNoPlace[] 
 /** What the stored day shows: nothing picked yet, loading, the day, or why it could not be read. */
 type StoredDayState = { state: 'idle' } | { state: 'loading' } | { state: 'shown'; day: TruckLogDay } | { state: 'failed' };
 
+/** Minutes since midnight of a clock minute, "10:02" → 602. */
+const minutesOf = (hhmm: string) => {
+  const [hour, minute] = hhmm.split(':').map(Number);
+  return hour * 60 + minute;
+};
+
 /**
- * One Truck's stored day, picked by Truck and day: its Truck log (miles blank,
- * as no meter readings exist yet) and Trip log as the Trip builder has them,
- * as of the latest Import, and the day's codes with no Place.
- * `refresh` changes after each Import, so the day read again shows it.
+ * One Truck's stored day, picked by Truck and day, as the Simulation shows
+ * its made-up one: a replay clock, the Scheduler view (the real lanes) and the
+ * Driver view (the real Driver cards), each Assignment with its Trip part,
+ * the Trip log, and its Truck log (miles blank, as no meter readings exist
+ * yet), all as the Worker builds the day at the clock's minute, never past
+ * the latest Import. Unplanned work is shown, not answered.
+ * `clock` is the minute asked for; null opens the day as the Worker does (a
+ * past day at its end, today at the latest Import). `refresh` changes after
+ * each Import, so the day read again shows it.
  */
 function StoredDay({
   trucks,
+  allTrucks,
+  drivers,
   truckId,
   date,
+  clock,
   refresh,
   onTruck,
   onDate,
+  onClock,
 }: {
   trucks: CodedTruck[];
+  allTrucks: Truck[] | null;
+  drivers: Driver[] | null;
   truckId: string;
   date: string;
+  clock: number | null;
   refresh: number;
   onTruck: (id: string) => void;
   onDate: (date: string) => void;
+  onClock: (clock: number | null) => void;
 }) {
   const [shown, setShown] = useState<StoredDayState>({ state: 'idle' });
   useEffect(() => {
     if (!truckId || !date) return setShown({ state: 'idle' });
     let current = true;
-    setShown({ state: 'loading' });
-    fetchTruckLogDay(truckId, date).then(
+    // Moving the clock keeps the day on screen while the Worker builds it again.
+    setShown((was) => (was.state === 'shown' && was.day.truckId === truckId && was.day.date === date ? was : { state: 'loading' }));
+    fetchTruckLogDay(truckId, date, clock === null ? undefined : clockTime(clock)).then(
       (day) => current && setShown({ state: 'shown', day }),
       () => current && setShown({ state: 'failed' }),
     );
     return () => {
       current = false;
     };
-  }, [truckId, date, refresh]);
+  }, [truckId, date, clock, refresh]);
+
+  const day = shown.state === 'shown' ? shown.day : null;
+  /** The clock on screen: the minute asked for, else the one the Worker opened the day at. */
+  const onScreen = clock ?? (day ? minutesOf(day.clock) : 0);
+  const setClock = useCallback((next: SetStateAction<number>) => onClock(typeof next === 'function' ? next(onScreen) : next), [onClock, onScreen]);
 
   return (
     <section aria-label="Stored day" className="space-y-3">
@@ -192,24 +221,77 @@ function StoredDay({
       {trucks.length === 0 && <EmptyBox>No Truck has an HCSS code yet. Set one in Settings.</EmptyBox>}
       {shown.state === 'loading' && <Loading what="the day" />}
       {shown.state === 'failed' && <p className="text-sm text-destructive">Could not load the day. Check the connection and pick it again.</p>}
-      {shown.state === 'shown' && (
-        <>
-          <p className="text-sm text-muted-foreground">
-            {shown.day.asOf ? `As of the Import at ${easternTime(shown.day.asOf)}` : 'No Import has covered this day yet.'}
-          </p>
-          <CodesWithNoPlace id="no-place-day" codes={shown.day.codesWithNoPlace} />
-          <TruckLog truck={{ number: shown.day.truckNumber, hcssCode: trucks.find((t) => t.id === shown.day.truckId)?.hcssCode ?? null }} date={shown.day.date} truckDay={shown.day.tripDay.truckDay} noMeterReadings>
-            <TruckLogAssignments
-              columns={shown.day.truckLog.columns}
-              unplanned={shown.day.truckLog.unplanned}
-              whichAssignment={shown.day.truckLog.whichAssignment}
-              shopTrips={shown.day.truckLog.shopTrips}
-            />
-          </TruckLog>
-          <TripLog trips={shown.day.tripDay.trips} places={shown.day.places} assignmentLabels={shown.day.labels} />
-        </>
-      )}
+      {day && <StoredDayViews day={day} trucks={trucks} allTrucks={allTrucks} drivers={drivers} clock={onScreen} onClock={setClock} />}
     </section>
+  );
+}
+
+/** A stored day's replay clock and views, as the Worker built it at the clock's minute. */
+function StoredDayViews({
+  day,
+  trucks,
+  allTrucks,
+  drivers,
+  clock,
+  onClock,
+}: {
+  day: TruckLogDay;
+  trucks: CodedTruck[];
+  allTrucks: Truck[] | null;
+  drivers: Driver[] | null;
+  clock: number;
+  onClock: (next: SetStateAction<number>) => void;
+}) {
+  const { truckDay } = day.tripDay;
+  /** The Drivers with Assignments on the day, in the order they first come. */
+  const onTheDay = [...new Map(day.assignments.flatMap((a) => (a.driverId ? [[a.driverId, a.driverName ?? '']] : []))).entries()];
+  const laneDrivers = drivers?.filter((d) => onTheDay.some(([id]) => id === d.id)) ?? null;
+  /** The Truck's Unplanned work is on its Driver's lane; while "Who was driving?" is open, on each who fits. */
+  const laneUnplanned = (driverId: string) =>
+    (truckDay.driver ? truckDay.driver.id === driverId : truckDay.driverCandidates.some((d) => d.id === driverId)) ? day.truckLog.unplanned.length : 0;
+
+  return (
+    <>
+      <p className="text-sm text-muted-foreground">
+        {day.asOf ? `As of the Import at ${easternTime(day.asOf)}` : 'No Import has covered this day yet.'}
+      </p>
+      <ReplayClock clock={clock} onClock={onClock} className="sticky top-0 z-10 -mx-4 border-b bg-background/95 px-4 py-3 backdrop-blur" />
+      <CodesWithNoPlace id="no-place-day" codes={day.codesWithNoPlace} />
+      <div className="grid gap-6 xl:grid-cols-2">
+        <div className="min-w-0 space-y-6">
+          <section aria-label="Scheduler view" className="space-y-3">
+            <h2 className="font-display text-xl font-semibold uppercase tracking-wide">Scheduler view</h2>
+            <Lanes
+              assignments={day.assignments}
+              drivers={laneDrivers}
+              trucks={allTrucks}
+              unplanned={Object.fromEntries(onTheDay.map(([id]) => [id, laneUnplanned(id)]))}
+            />
+          </section>
+          {onTheDay.length > 0 && (
+            <DriverView
+              date={day.date}
+              phones={onTheDay.map(([driverId, driverName]) => ({
+                driverId,
+                driverName,
+                assignments: day.assignments.filter((a) => a.driverId === driverId),
+              }))}
+            />
+          )}
+        </div>
+        <div className="min-w-0">
+          <TripLog trips={day.tripDay.trips} places={day.places} assignmentLabels={day.labels} />
+        </div>
+      </div>
+      <TruckLog truck={{ number: day.truckNumber, hcssCode: trucks.find((t) => t.id === day.truckId)?.hcssCode ?? null }} date={day.date} truckDay={truckDay} noMeterReadings>
+        <TruckLogAssignments
+          columns={day.truckLog.columns}
+          unplanned={day.truckLog.unplanned}
+          whichAssignment={day.truckLog.whichAssignment}
+          shopTrips={day.truckLog.shopTrips}
+        />
+      </TruckLog>
+    </>
   );
 }
 
@@ -235,9 +317,24 @@ export function FleetImportsPage() {
   const [truckId, setTruckId] = useState('');
   const [date, setDate] = useState('');
   const [refresh, setRefresh] = useState(0);
+  /** The replay clock's minute; null opens the day as the Worker does. A new Truck, day or Import opens it so again. */
+  const [clock, setClock] = useState<number | null>(null);
+  /** Every active Truck and Driver, for the Scheduler view's lanes; null while they load. */
+  const [allTrucks, setAllTrucks] = useState<Truck[] | null>(null);
+  const [drivers, setDrivers] = useState<Driver[] | null>(null);
+  const pickTruck = (id: string) => {
+    setTruckId(id);
+    setClock(null);
+  };
+  const pickDate = (picked: string) => {
+    setDate(picked);
+    setClock(null);
+  };
 
   useEffect(() => {
     // The first Truck with an HCSS code, on today, until Dave picks another or an Import says which.
+    fetchList('trucks').then(setAllTrucks, () => setAllTrucks([]));
+    fetchList('drivers').then(setDrivers, () => setDrivers([]));
     codedTrucks().then(
       (all) => {
         setTrucks(all);
@@ -261,9 +358,9 @@ export function FleetImportsPage() {
         const result = await importFleetExport({ fileName: file.name, format, rows });
         update({ key, fileName: file.name, state: 'imported', result });
         // Show the day it touched last, for its Truck.
-        setTruckId(result.truckId);
+        pickTruck(result.truckId);
         const touched = result.days.at(-1)?.date;
-        if (touched) setDate(touched);
+        if (touched) pickDate(touched);
         setRefresh((n) => n + 1);
       } catch (error) {
         failed(error instanceof Refused ? error.message : 'Could not import it. Check the connection and drop it again.');
@@ -424,7 +521,18 @@ export function FleetImportsPage() {
           </section>
         )}
 
-        <StoredDay trucks={trucks} truckId={truckId} date={date} refresh={refresh} onTruck={setTruckId} onDate={setDate} />
+        <StoredDay
+          trucks={trucks}
+          allTrucks={allTrucks}
+          drivers={drivers}
+          truckId={truckId}
+          date={date}
+          clock={clock}
+          refresh={refresh}
+          onTruck={pickTruck}
+          onDate={pickDate}
+          onClock={setClock}
+        />
       </main>
     </div>
   );
