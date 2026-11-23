@@ -5,9 +5,11 @@ import { App } from '../App';
 // The pages load lazily in the app (App.tsx); importing it here compiles it
 // before the first test, so a cold run never waits on that inside a test.
 import './FleetImportsPage';
-import type { FleetImport, NewFleetImport } from '../../shared/types';
+import type { FleetImport, NewFleetImport, Truck } from '../../shared/types';
 // The 16 Nov export pulled at 15:02, as Dave downloads it from HCSS Fleet.
 import EXPORT_1502 from '../../shared/fixtures/fleet/2026-11-16-1502.json?raw';
+// The 16 Nov xlsx, the whole day, as a data URL.
+import XLSX from '../../shared/fixtures/fleet/2026-11-16-EntryExitReport.xlsx?inline';
 
 
 /** What each Import the page sent was. */
@@ -29,8 +31,15 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       import: { id: 'imp-1', truckId: 'trk-55', truckNumber: '55', fileName: body.fileName, format: body.format, importedAt: '2026-11-16T20:05:00.000Z', added: body.rows.length, closed: 0, unchanged: 0, days: [{ date: '2026-11-16', added: body.rows.length, closed: 0, unchanged: 0 }], codesWithNoPlace: [], ...answered } satisfies FleetImport,
     }, 201);
   }
+  if (url.pathname.endsWith('/api/trucks')) return answer({ trucks: TRUCKS });
   return answer({ error: 'not_found' }, 404);
 });
+
+/** The active Trucks: 55 has its HCSS code, 12 has none yet. */
+const TRUCKS: Truck[] = [
+  { id: 'trk-12', number: '12', hcssCode: null, hcssGuid: null, active: true },
+  { id: 'trk-55', number: '55', hcssCode: 'MCK-55-17', hcssGuid: null, active: true },
+];
 
 beforeEach(() => {
   sent = [];
@@ -118,5 +127,38 @@ describe('The Fleet imports page', () => {
     drop(new File([EXPORT_1502], 'EntryExit-1502.json', { type: 'application/json' }));
     await screen.findByText('18 new · 0 closed · 0 already stored');
     expect(screen.queryByRole('list', { name: 'Codes with no Place' })).toBeNull();
+  });
+});
+
+describe('Dropping an xlsx Fleet export', () => {
+  /** The real 16 Nov xlsx, as Dave downloads it from HCSS Fleet. */
+  const xlsx = () =>
+    new File([Uint8Array.from(atob(XLSX.split(',')[1]), (c) => c.charCodeAt(0))], 'EntryExitReport.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+
+  it('asks which Truck it is for, offering only Trucks with an HCSS code, and imports its 20 rows for the one picked', async () => {
+    await openPage();
+    drop(xlsx());
+
+    const pick = await screen.findByRole('button', { name: 'Truck 55 (MCK-55-17)' }, { timeout: 5000 });
+    expect(screen.getByText(/which truck/i)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Truck 12/ })).toBeNull();
+    expect(sent).toEqual([]);
+
+    fireEvent.click(pick);
+    expect(await screen.findByText('20 new · 0 closed · 0 already stored')).toBeTruthy();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ fileName: 'EntryExitReport.xlsx', format: 'xlsx' });
+    expect(new Set(sent[0].rows.map((r) => r.equipmentCode))).toEqual(new Set(['MCK-55-17']));
+    expect(sent[0].rows.at(-1)).toMatchObject({ geofenceCode: 'SHOP', enteredAt: '2026-11-16T21:03:25.000Z', exitedAt: null });
+  });
+
+  it('says why an xlsx that is not the entry/exit report was not imported, and asks for no Truck', async () => {
+    await openPage();
+    drop(new File([new Uint8Array([1, 2, 3])], 'notes.xlsx'));
+    expect(await screen.findByText(/not an xlsx spreadsheet/i, undefined, { timeout: 5000 })).toBeTruthy();
+    expect(screen.queryByText(/which truck/i)).toBeNull();
+    expect(sent).toEqual([]);
   });
 });

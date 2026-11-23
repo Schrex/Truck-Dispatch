@@ -1,11 +1,22 @@
 import { readFileSync } from 'node:fs';
 import { expect } from 'vitest';
-import { readFleetJson, type FleetExportRow } from '../../../shared/fleetExport';
+import { readSheet } from 'read-excel-file/universal';
+import { readFleetJson, readFleetXlsx, type FleetExportRow } from '../../../shared/fleetExport';
 import type { apiOn } from './api';
 
 /** A Fleet export fixture (shared/fixtures/fleet/) read into rows, as the Fleet imports page sends them. */
 export function fleetRows(name: string): FleetExportRow[] {
   return readFleetJson(JSON.parse(readFileSync(`shared/fixtures/fleet/${name}`, 'utf8')));
+}
+
+/**
+ * An xlsx Fleet export fixture read into rows, as the Fleet imports page sends
+ * them: its sheet read by read-excel-file, for the Truck Dave picked.
+ */
+export async function fleetXlsxRows(name: string, equipmentCode: string): Promise<FleetExportRow[]> {
+  const file = readFileSync(`shared/fixtures/fleet/${name}`);
+  const sheet = await readSheet(file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength) as ArrayBuffer);
+  return readFleetXlsx(sheet, equipmentCode);
 }
 
 /**

@@ -5,6 +5,8 @@
  * ends in the same FleetExportRow.
  */
 
+import { addDays, easternMoment } from './days';
+
 /** One visit of one Truck to one geofence, as an export gives it. Times are UTC ISO 8601. */
 export interface FleetExportRow {
   /** The Truck's HCSS code (Fleet's EquipmentCode). */
@@ -66,5 +68,92 @@ export function readFleetJson(json: unknown): FleetExportRow[] {
       entryOdometer: odometer(r.EntryOdometer),
       exitOdometer: exitedAt ? odometer(r.ExitOdometer) : null,
     };
+  });
+}
+
+/** A sheet's cells, row by row, as an xlsx library reads them (read-excel-file on the Fleet imports page). */
+export type FleetSheet = readonly (readonly unknown[])[];
+
+/** The first four column titles of Fleet's entry/exit xlsx report; Duration and Calculated Mileage follow and are not read. */
+const XLSX_TITLES = ['Location Code', 'Location Description', 'Entry Time', 'Exit Time'];
+
+/** "Entry Date: 11/16/2026": the row that starts each day, M/D/YYYY in US Eastern. */
+const ENTRY_DATE = /^Entry Date:\s*(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
+/** "07:02:03 AM": a US Eastern wall time; Fleet gives the seconds, a minute alone is read as :00. */
+const WALL_TIME = /^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AP]M)$/i;
+
+/** Seconds since midnight of a wall time cell, or null when the cell is not one. */
+function wallTime(cell: unknown): number | null {
+  const match = typeof cell === 'string' ? WALL_TIME.exec(cell.trim()) : null;
+  if (!match) return null;
+  const [, h, m, s, half] = match;
+  const hour = (Number(h) % 12) + (half.toUpperCase() === 'PM' ? 12 : 0);
+  return hour * 3600 + Number(m) * 60 + Number(s ?? 0);
+}
+
+const pad = (n: number) => String(n).padStart(2, '0');
+
+/** One visit row of the sheet, under its day's Entry Date row. Times are seconds since that day's midnight. */
+interface XlsxVisit {
+  date: string;
+  geofenceCode: string;
+  entry: number;
+  exit: number;
+}
+
+/**
+ * The rows of Fleet's entry/exit xlsx report, for the Truck Dave picked
+ * (its HCSS code: the xlsx names no Truck), or throws with a message a person
+ * can act on. The xlsx gives no odometers, so they are null.
+ *
+ * Its layout: a header row (Location Code, Location Description, Entry Time,
+ * Exit Time, Duration, Calculated Mileage); an "Entry Date: M/D/YYYY" row
+ * starting each day; then a row per visit, its times "hh:mm:ss AM" in US
+ * Eastern. They are read as US Eastern explicitly, never the runtime's zone.
+ *
+ * Fleet cuts visits at midnight: a visit still there at the end of a day
+ * exits at "12:00:00 AM". When the next day starts there at 12:00:00 AM, that
+ * midnight is its exit (Fleet's own split, as the JSON gives it); otherwise the
+ * Truck is still there and the visit is open.
+ */
+export function readFleetXlsx(sheet: FleetSheet, equipmentCode: string): FleetExportRow[] {
+  const [header, ...rows] = sheet;
+  if (!header || !XLSX_TITLES.every((title, i) => typeof header[i] === 'string' && header[i].trim() === title)) {
+    throw new Error('This sheet is not the entry/exit report. Export the entry/exit report from HCSS Fleet and drop that.');
+  }
+  const visits: XlsxVisit[] = [];
+  let date: string | null = null;
+  rows.forEach((row, i) => {
+    const first = typeof row[0] === 'string' ? row[0].trim() : '';
+    const day = ENTRY_DATE.exec(first);
+    if (day) {
+      date = `${day[3]}-${pad(Number(day[1]))}-${pad(Number(day[2]))}`;
+      return;
+    }
+    if (row.every((cell) => cell == null || cell === '')) return;
+    const entry = wallTime(row[2]);
+    const exit = wallTime(row[3]);
+    if (!first || entry === null || exit === null) {
+      throw new Error(`Row ${i + 2} has no Location Code, Entry Time or Exit Time. Is this the HCSS Fleet entry/exit report?`);
+    }
+    if (date === null) throw new Error(`Row ${i + 2} comes before any "Entry Date" row. Is this the HCSS Fleet entry/exit report?`);
+    visits.push({ date, geofenceCode: first, entry, exit });
+  });
+  if (visits.length === 0) {
+    throw new Error('This file has no entry/exit rows. Export the entry/exit report from HCSS Fleet and drop that.');
+  }
+
+  const code = equipmentCode.trim();
+  const at = (day: string, seconds: number) => easternMoment(day, Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60);
+  return visits.map((visit, i) => {
+    let exitedAt: string | null = at(visit.date, visit.exit);
+    if (visit.exit === 0) {
+      // Exit 12:00:00 AM: the visit ran to the end of its day.
+      const nextDay = addDays(visit.date, 1);
+      const next = visits.slice(i + 1).find((v) => v.date !== visit.date);
+      const continues = next !== undefined && next.date === nextDay && next.geofenceCode === visit.geofenceCode && next.entry === 0;
+      exitedAt = continues ? at(nextDay, 0) : null;
+    }
+    return { equipmentCode: code, geofenceCode: visit.geofenceCode, enteredAt: at(visit.date, visit.entry), exitedAt, entryOdometer: null, exitOdometer: null };
   });
 }
