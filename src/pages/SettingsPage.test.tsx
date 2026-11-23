@@ -2,6 +2,9 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../App';
+// The pages load lazily in the app (App.tsx); importing them here compiles them
+// before the first test, so a cold run never waits on that inside a test.
+import './SettingsPage';
 import type { TruckProblem } from '../../shared/types';
 
 /** When the Worker marks a problem fixed in these tests: Thursday 19 Nov 2026, 10:00 AM US Eastern. */

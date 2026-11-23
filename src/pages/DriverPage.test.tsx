@@ -2,6 +2,9 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../App';
+// The pages load lazily in the app (App.tsx); importing them here compiles them
+// before the first test, so a cold run never waits on that inside a test.
+import './DriverPage';
 import { weekDates } from '../../shared/days';
 import type { CheckIn, DriverAssignment, DriverDay, Inspection, NewInspection, TruckProblem } from '../../shared/types';
 
