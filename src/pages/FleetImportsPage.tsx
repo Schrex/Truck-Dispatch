@@ -14,8 +14,7 @@ import { Lanes } from '@/components/Lanes';
 import { DriverView } from '@/components/DriverView';
 import { ReplayClock } from '@/components/ReplayClock';
 import { TripLog } from '@/components/TripLog';
-import { clockTime } from '@/simulate/simulate';
-import { easternTime, shortDate } from '../../shared/days';
+import { clockMinutes, easternTime, minuteClock, shortDate } from '../../shared/days';
 import { EXPORT_ADVICE, countFleetXlsxVisits, readFleetJson, readFleetXlsx, type FleetExportRow, type FleetSheet } from '../../shared/fleetExport';
 import type { CodeWithNoPlace, Driver, FleetExportFormat, FleetImport, FleetImportDay, ImportCounts, Truck, TruckLogDay } from '../../shared/types';
 
@@ -129,12 +128,6 @@ function CodesWithNoPlace({ id, codes }: { id: string; codes: CodeWithNoPlace[] 
 /** What the stored day shows: nothing picked yet, loading, the day, or why it could not be read. */
 type StoredDayState = { state: 'idle' } | { state: 'loading' } | { state: 'shown'; day: TruckLogDay } | { state: 'failed' };
 
-/** Minutes since midnight of a clock minute, "10:02" → 602. */
-const minutesOf = (hhmm: string) => {
-  const [hour, minute] = hhmm.split(':').map(Number);
-  return hour * 60 + minute;
-};
-
 /**
  * One Truck's stored day, picked by Truck and day, as the Simulation shows
  * its made-up one: a replay clock, the Scheduler view (the real lanes) and the
@@ -178,7 +171,7 @@ function StoredDay({
     let current = true;
     // Moving the clock keeps the day on screen while the Worker builds it again.
     setShown((was) => (was.state === 'shown' && was.day.truckId === truckId && was.day.date === date ? was : { state: 'loading' }));
-    fetchTruckLogDay(truckId, date, clock === null ? undefined : clockTime(clock)).then(
+    fetchTruckLogDay(truckId, date, clock === null ? undefined : minuteClock(clock)).then(
       (day) => current && setShown({ state: 'shown', day }),
       () => current && setShown({ state: 'failed' }),
     );
@@ -189,7 +182,7 @@ function StoredDay({
 
   const day = shown.state === 'shown' ? shown.day : null;
   /** The clock on screen: the minute asked for, else the one the Worker opened the day at. */
-  const onScreen = clock ?? (day ? minutesOf(day.clock) : 0);
+  const onScreen = clock ?? (day ? clockMinutes(day.clock) : 0);
   const setClock = useCallback((next: SetStateAction<number>) => onClock(typeof next === 'function' ? next(onScreen) : next), [onClock, onScreen]);
 
   return (

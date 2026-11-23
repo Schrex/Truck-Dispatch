@@ -2,7 +2,7 @@ import { useEffect, useState, type Dispatch, type SetStateAction } from 'react';
 import { Pause, Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { DAY_END, clockTime } from '@/simulate/simulate';
+import { DAY_END, minuteClock } from '../../shared/days';
 
 /** Play moves the clock in the steps the Worker pulls Fleet (every 10 minutes). */
 const PULL_MINUTES = 10;
@@ -54,7 +54,7 @@ export function ReplayClock({ clock, onClock, className }: { clock: number; onCl
         className="w-full max-w-md accent-primary"
       />
       <p className="text-sm">
-        <strong className="font-display text-lg">{clock === DAY_END ? 'end of day' : clockTime(clock)}</strong>
+        <strong className="font-display text-lg">{clock === DAY_END ? 'end of day' : minuteClock(clock)}</strong>
       </p>
     </div>
   );

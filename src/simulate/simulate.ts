@@ -7,14 +7,10 @@
 import type { Assignment, Driver } from '../../shared/types';
 import { buildTripDay, linkedAssignment, routeAt, type TripDay, type TruckLogColumn, type TruckLogTrip, type TruckLogUnplanned, type TruckLogWhichAssignment } from '../../shared/trips';
 import { truckLog } from '../../shared/truckLog';
+import { DAY_END, minuteClock } from '../../shared/days';
 import { REAL_DAY, easternIso, placeName, type PlannedAssignment, type Scenario } from './realDay';
 import { tripAnswers, type PlannedMadeAssignment, type UnplannedAnswer } from './answers';
 
-/** The last minute of the day: the clock's end, when the day is over. */
-export const DAY_END = 23 * 60 + 59;
-
-/** "10:02" for minutes since midnight. */
-export const clockTime = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 
 /** Dave Assigned the day the evening before (17:00 ET on Sun 15 Nov). */
 const ASSIGNED_AT = '2026-11-15T22:00:00Z';
@@ -88,7 +84,7 @@ export interface SimulateAtOptions {
 /** The real day under one scenario, with Dave's answers to its Unplanned work, at `minutes` past midnight, US Eastern. */
 export function simulateAt({ scenario, minutes, answers = [], splits = [] }: SimulateAtOptions): SimulatedDay {
   // The Worker knows the whole of the clock's minute.
-  const now = easternIso(REAL_DAY.date, `${clockTime(minutes)}:59`);
+  const now = easternIso(REAL_DAY.date, `${minuteClock(minutes)}:59`);
   // The real 16 Nov day, unless the scenario makes one up.
   const day = scenario.day ?? REAL_DAY;
   const drivers = scenario.drivers ?? [REAL_DAY.driver];

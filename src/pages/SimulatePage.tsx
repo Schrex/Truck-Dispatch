@@ -12,8 +12,8 @@ import { UnplannedAnswerFlow } from '@/simulate/UnplannedAnswerFlow';
 import { madeAssignmentId, type UnplannedAnswer } from '@/simulate/answers';
 import { REAL_DAY, placeName } from '@/simulate/realDay';
 import { ReplayClock } from '@/components/ReplayClock';
-import { DAY_END, simulateAt } from '@/simulate/simulate';
-import { easternTime } from '../../shared/days';
+import { simulateAt } from '@/simulate/simulate';
+import { DAY_END, easternTime } from '../../shared/days';
 
 /**
  * The simulation: Truck 55 (MCK-55-17), driven by Randy on Mon 16 Nov 2026,

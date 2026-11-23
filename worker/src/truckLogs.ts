@@ -4,7 +4,7 @@ import { clock } from './clock';
 import { codesWithNoPlaceIn } from './fleetImports';
 import { LATEST_INSPECTIONS } from './inspectionQueries';
 import { json, refuse } from './http';
-import { addDays, easternMoment, easternTime, isCalendarDate } from '../../shared/days';
+import { DAY_END, addDays, easternMoment, easternTime, isCalendarDate, minuteClock } from '../../shared/days';
 import { buildTripDay, routeAt, type FleetVisit, type TripAssignment, type TripJob, type TripPlace, type TruckCheckIn, type TruckDayInput } from '../../shared/trips';
 import { truckLog, truckLogLanes } from '../../shared/truckLog';
 import type { Assignment, AssignmentTripPart, DayTruck, TruckLogDay } from '../../shared/types';
@@ -25,7 +25,7 @@ export async function handleTruckLogs(request: Request, env: Env, route: string,
 }
 
 /** The last minute of a day: a past day opens there, so the drive back to the shop is written. */
-const DAY_END = '23:59';
+const DAY_END_CLOCK = minuteClock(DAY_END);
 
 const CLOCK = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
@@ -143,10 +143,10 @@ async function storedTruckDay(env: Env, truck: StoredTruck, date: string, at: st
 
   const asOf = (latest.results[0]?.importedAt as string | null) ?? null;
   const { today, now: workerNow } = clock(env);
-  const clockAt = at ?? (date < today ? DAY_END : easternTime(asOf ?? workerNow.toISOString()));
+  const clockAt = at ?? (date < today ? DAY_END_CLOCK : easternTime(asOf ?? workerNow.toISOString()));
   // Never later than the latest Import: a stale export must not turn a drive-through into Unplanned work.
   const moment = asOf ? earlier(endOfMinute(date, clockAt), asOf) : endOfMinute(date, clockAt);
-  const dayOver = date < today && clockAt === DAY_END;
+  const dayOver = date < today && clockAt === DAY_END_CLOCK;
 
   const stored = visits.results as unknown as { geofenceCode: string; enteredAt: string; exitedAt: string | null; entryOdometer: number | null; exitOdometer: number | null }[];
   const tripPlaces = places.results as unknown as TripPlace[];

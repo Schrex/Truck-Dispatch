@@ -261,6 +261,18 @@ export function clockTime(moment: string | Date): string {
  * an ISO 8601 moment in UTC, as the Worker writes them, so comparing the text
  * compares the moments.
  */
+/** The last minute of a day, in minutes since midnight: a replay clock's end, where a past day opens. */
+export const DAY_END = 23 * 60 + 59;
+
+/** "10:02" (US Eastern, as the replay clock and `?at=` read it) for minutes since midnight. */
+export const minuteClock = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+
+/** Minutes since midnight of an "HH:MM" clock minute, "10:02" → 602. */
+export const clockMinutes = (hhmm: string) => {
+  const [hour, minute] = hhmm.split(':').map(Number);
+  return hour * 60 + minute;
+};
+
 export interface AssignedTimes {
   /** Its day, YYYY-MM-DD. */
   date: string;
