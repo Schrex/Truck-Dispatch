@@ -61,10 +61,26 @@ describe('Trips and matching on the 16 Nov day', () => {
     expect(d.trips.at(-1)!.miles).toBe(18.39);
   });
 
-  it('says what each Assignment shows on the board and the Driver card', () => {
+  it('gives each Assignment its Trip part: Loads, Done, since, last Load, Trucking hours, tons from Tickets', () => {
     const [a1, a2] = day('two').assignments;
-    expect(a1).toMatchObject({ loads: 4, status: 'done', firstTripAt: '2026-11-16T13:24:26Z', lastLoadAt: '2026-11-16T16:25:45Z' });
-    expect(a2).toMatchObject({ loads: 2, status: 'done' });
+    // A1 runs from leaving North at 08:24 to arriving back at North from South at 14:43 (6 h 19 min).
+    expect(a1).toEqual({
+      assignmentId: 'a1',
+      loads: 4,
+      empties: 4,
+      tons: null,
+      status: 'done',
+      since: '2026-11-16T13:24:26Z',
+      lastLoadAt: '2026-11-16T16:25:45Z',
+      truckingHours: 6.32,
+    });
+    // A2 runs from leaving the Plant at 11:30 to arriving at North at 13:54 (2 h 24 min).
+    expect(a2).toMatchObject({ loads: 2, status: 'done', since: '2026-11-16T16:30:53Z', truckingHours: 2.4, tons: null });
+  });
+
+  it('gives an Assignment with no Trips yet an empty Trip part', () => {
+    const a2 = day('two', '2026-11-16T15:02:00Z').assignments[1];
+    expect(a2).toEqual({ assignmentId: 'a2', loads: 0, empties: 0, tons: null, status: 'none', since: null, lastLoadAt: null, truckingHours: null });
   });
 
   it('checks the day miles against Trip miles plus miles inside Places', () => {

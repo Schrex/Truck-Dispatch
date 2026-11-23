@@ -1,5 +1,5 @@
 /**
- * One Truck's day for the Trip builder's tests and the simulation page. The
+ * One Truck's day for the Trip builder's tests only. The
  * times, odometers and order are a real HCSS Fleet day (Mon 16 Nov 2026); the
  * names are made up, like seed/fixture.sql: never real Jobs, Places or people.
  */

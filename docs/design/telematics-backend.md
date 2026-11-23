@@ -184,7 +184,7 @@ Each one needs agreement before phase 3 is built.
 
 ## Build order (each one a ticket)
 
-1. **`buildTrips` with the 16 Nov fixture** (pure, no network): cleaning, Trips, matching with earlier versions, and the miles check. This needs no HCSS access and no phase 2. **Done as a first version:** `shared/trips.ts` (`buildTripDay`), tested in `shared/trips.test.ts` on `shared/trips.fixture.ts`, and run in the page at `/simulate` to try the rules with fake data.
+1. **`buildTrips` with the 16 Nov fixture** (pure, no network): cleaning, Trips, matching with earlier versions, and the miles check. This needs no HCSS access and no phase 2. **Done as a first version:** `shared/trips.ts` (`buildTripDay`), tested in `shared/trips.test.ts` on `shared/trips.fixture.ts`, and run in the page at `/simulate` on Truck 55's real day, where it fills each Assignment's optional Trip part (`Assignment.trips` in `shared/types.ts`) that the real board block shows.
 2. **Migration** with `fleet_visits` (if P2 is agreed), `trips` and `meter_readings`. Also `POST trips/pull`, reading a fixture file in tests.
 3. **Adapter A or B**, after P1: token cache, the scheduled pull, and a health read.
 4. **New fields on the board and the Driver view**: loads, Now, Done.

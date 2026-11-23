@@ -11,6 +11,7 @@ What the app does as built, page by page. Words in capitals are defined in [`GLO
 - A block shows the Assignment's Foreman beside its job site ("TIUNY (Brody)"), and the Truck: one the Assignment names shows plainly; with none named ("His own", the Driver takes his usual Truck) his usual Truck shows in grey, or nothing if he has none.
 - A **Draft** block has a dashed outline and a small "Draft" tag beside First or Then; an Assigned block looks plain, tagged only once it is Changed or Added (or Cancelled).
 - Above the lanes, the day's count leaves cancelled Assignments out.
+- A block can also show what the Truck did on it (phase 3): its Loads so far, **Now** or **Done**, and "since 08:24" when work on it began. Only when the Assignment carries a Trip part (`trips`) with at least one Trip; the Worker does not send one yet, so on the board today blocks look as above. The Simulation (`/simulate`) shows it on Truck 55's real day.
 
 ### Adding (the composer)
 - The **+** on a lane (Unassigned included) opens the composer in that lane.

@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { Loader2, UserCheck } from 'lucide-react';
-import type { Assignment, SinceSent } from '../../shared/types';
+import type { Assignment, AssignmentTripPart, SinceSent } from '../../shared/types';
+import { easternTime } from '../../shared/trips';
 import { Button } from '@/components/ui/button';
 import { foremanSite } from '@/lib/lists';
 import { cancelledText, cn } from '@/lib/utils';
@@ -48,6 +49,40 @@ const MARKS: Record<Exclude<SinceSent, null>, { word: string; className: string 
 /** The mark on a cancelled block, in place of Changed: greyed like the block itself. */
 const CANCELLED = { word: 'Cancelled', className: 'bg-muted text-muted-foreground' };
 
+/** Now while the Truck is on it, Done once it moved on: from the Trip part, never from Dave or the Driver. */
+const TRIP_STATUS: Record<Exclude<AssignmentTripPart['status'], 'none'>, { word: string; className: string }> = {
+  now: { word: 'Now', className: 'bg-primary text-primary-foreground' },
+  done: { word: 'Done', className: 'bg-muted text-muted-foreground' },
+};
+
+/**
+ * The Trip part's line, "2 Loads · Now · since 08:24", once the Truck has made a
+ * Trip for it; nothing at all before, or when the Worker sends no Trip part,
+ * so the block looks as it always has.
+ */
+function TripLine({ trips }: { trips: AssignmentTripPart | undefined }) {
+  if (!trips || trips.status === 'none') return null;
+  const status = TRIP_STATUS[trips.status];
+  return (
+    <>
+      {SEPARATOR}
+      <span className="mt-1 flex flex-wrap items-center gap-x-1 text-muted-foreground">
+        <span className="font-medium text-foreground">
+          {trips.loads} {trips.loads === 1 ? 'Load' : 'Loads'}
+        </span>
+        {' · '}
+        <span className={cn('rounded px-1.5 py-0.5 text-xs font-medium', status.className)}>{status.word}</span>
+        {trips.since && (
+          <>
+            {' · '}
+            <span>since {easternTime(trips.since)}</span>
+          </>
+        )}
+      </span>
+    </>
+  );
+}
+
 /** The mark on a Draft, which its Driver sees nothing of yet: outlined dashed, like the block's frame. */
 const DRAFT = { word: 'Draft', className: 'border border-dashed border-muted-foreground/60 text-muted-foreground' };
 
@@ -68,7 +103,10 @@ const DRAFT = { word: 'Draft', className: 'border border-dashed border-muted-for
  * Cancelled (rather than Changed), as the Driver sees it. With onEdit (today
  * and later days) tapping the block opens or closes the Assignment in its
  * lane; without it (past days) it is plain. With onAssign a Draft that has a
- * Driver also has Assign on the block: one tap, no confirm (ADR 0005).
+ * Driver also has Assign on the block: one tap, no confirm (ADR 0005). With a
+ * Trip part (phase 3) that has Trips, a last line says its Loads so far, Now or
+ * Done, and since when ("2 Loads · Now · since 08:24"); without one the block
+ * is exactly as before.
  */
 export function AssignmentBlock({
   assignment,
@@ -147,6 +185,7 @@ export function AssignmentBlock({
           </span>
         </>
       )}
+      <TripLine trips={assignment.trips} />
     </>
   );
   const frame = cn(

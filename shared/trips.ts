@@ -5,9 +5,11 @@
  * board and the Driver's card show. Pure, so the Worker and the simulation
  * page run the same code, and it is tested on one real day's shape.
  */
+import type { AssignmentTripPart, TripStatus } from './types';
 
 /** Minutes and the US Eastern day, as the rest of the app uses them. */
 const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
 const BUSINESS_TIME_ZONE = 'America/New_York';
 
 /** Rules tuned on 16 Nov: shorter than this is a drive-through. */
@@ -94,18 +96,17 @@ export interface Trip {
   match: Match;
 }
 
-export type AssignmentStatus = 'none' | 'now' | 'done';
+export type AssignmentStatus = TripStatus;
 
-/** What the board's block and the Driver's card show for one Assignment. */
-export interface AssignmentTrips {
+/**
+ * One Assignment's Trips at `now`: its Trip part, as the board's block and the
+ * Driver's card show it (shared/types.ts, Assignment.trips), and the counts
+ * behind it. The Truck log's column reads the same.
+ */
+export interface AssignmentTrips extends AssignmentTripPart {
   assignmentId: string;
-  loads: number;
+  /** Its Trips that are not Loads: ways back and drives to its pickup. */
   empties: number;
-  status: AssignmentStatus;
-  /** left_at of its first Trip: "since 08:24". */
-  firstTripAt: string | null;
-  /** arrived_at of its latest Load: "last 11:25". */
-  lastLoadAt: string | null;
 }
 
 export interface TripDay {
@@ -291,13 +292,18 @@ function summarize(assignments: TripAssignment[], trips: Trip[], places: TripPla
     const own = written.filter((t) => t.match.assignmentId === a.id);
     const loads = own.filter((t) => t.match.kind === 'load');
     const status: AssignmentStatus = own.length === 0 ? 'none' : latest?.match.assignmentId === a.id && !atShop ? 'now' : 'done';
+    const first = own[0];
+    const last = own.at(-1);
     return {
       assignmentId: a.id,
       loads: loads.length,
       empties: own.length - loads.length,
+      // Tons come from the Loads' Tickets (phase 4); none are read yet.
+      tons: null,
       status,
-      firstTripAt: own[0]?.leftAt ?? null,
+      since: first?.leftAt ?? null,
       lastLoadAt: loads.at(-1)?.arrivedAt ?? null,
+      truckingHours: first && last ? round((ms(last.arrivedAt) - ms(first.leftAt)) / HOUR) : null,
     };
   });
 }

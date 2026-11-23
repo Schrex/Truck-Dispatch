@@ -1,100 +1,84 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SimulatePage } from './SimulatePage';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
-const block = (label: string) => screen.getByRole('article', { name: `Board block ${label}` });
-const card = (label: string) => screen.getByRole('article', { name: `Driver card ${label}` });
+const scheduler = () => screen.getByRole('region', { name: 'Scheduler view' });
+/** Randy's blocks as Dave reads them, in Dave's order. */
+const randy = () =>
+  within(within(scheduler()).getByRole('article', { name: 'Randy' }))
+    .getAllByRole('listitem')
+    .map((block) => block.textContent);
 const setClock = (minutes: number) => fireEvent.change(screen.getByRole('slider', { name: 'Clock' }), { target: { value: String(minutes) } });
-const choose = (name: string, value: string) => fireEvent.change(screen.getByRole('combobox', { name }), { target: { value } });
+const choose = (value: string) => fireEvent.change(screen.getByRole('combobox', { name: 'Scenario' }), { target: { value } });
 
-describe('Simulation page on the real day (MCK-55-17, 16 Nov)', () => {
-  it('opens on the real HCSS day: A1 4 loads and Done, A2 2 loads, Bishop Kearney for Dave', () => {
+const A1 = 'First · J25008 Los Flamboyanes → Villager · Fill · Truck 55 (his own)';
+const A2 = 'Then · Walworth Dolomite → J25008 Los Flamboyanes · 1&2 stone · Truck 55 (his own)';
+
+describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => {
+  it('shows nothing but the clock, the scenario picker and the Scheduler view', () => {
     render(<SimulatePage />);
-    expect(screen.getByText(/MCK-55-17 · 2017 Mack Granite - 55 · 2026-11-16/)).toBeTruthy();
-    expect(within(block('A1')).getByText(/J25008 Los Flamboyanes → VILLAGER/)).toBeTruthy();
-    expect(within(block('A1')).getByText(/4 loads · since 08:24/)).toBeTruthy();
-    expect(within(block('A1')).getByText('Done')).toBeTruthy();
-    expect(within(block('A2')).getByText(/2 loads/)).toBeTruthy();
-    expect(within(card('A1')).getByText('4 loads · last 11:25')).toBeTruthy();
-    expect(screen.getByRole('status').textContent).toMatch(/For Dave next morning: 14:15 J25008 Los Flamboyanes → J611 Bishop Kearney/);
-    expect(screen.getByText(/vs meter 161.61: OK/)).toBeTruthy();
-    expect(screen.getByText(/Ignition On 06:19:40, Ignition Off 16:12:45/)).toBeTruthy();
-    expect(within(screen.getByRole('table', { name: 'Trips' })).getAllByRole('row')).toHaveLength(16);
+    expect(screen.getAllByRole('slider').map((s) => s.getAttribute('aria-label'))).toEqual(['Clock']);
+    expect(screen.getAllByRole('combobox').map((s) => s.getAttribute('aria-label'))).toEqual(['Scenario']);
+    expect(screen.getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['Play the day']);
+    expect(within(screen.getByRole('combobox', { name: 'Scenario' })).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'As planned',
+      'The other way round',
+      'Reroute at 11:20',
+    ]);
+    expect(screen.queryByRole('table')).toBeNull();
+    expect(document.querySelector('input[type=file]')).toBeNull();
+    expect(screen.getAllByRole('region').map((r) => r.getAttribute('aria-label'))).toEqual(['Scheduler view']);
   });
 
-  it('shows the day as the Worker knows it when the clock moves back', () => {
+  it('opens at end of day: Randy’s lane with Truck 55, A1 4 Loads Done since 08:24, A2 2 Loads Done', () => {
+    render(<SimulatePage />);
+    expect(screen.getByText('end of day')).toBeTruthy();
+    expect(within(scheduler()).getByRole('article', { name: 'Randy' }).querySelector('[data-lane-about]')?.textContent).toBe('Truck 55');
+    expect(randy()).toEqual([`${A1} · 4 Loads · Done · since 08:24`, `${A2} · 2 Loads · Done · since 11:30`]);
+  });
+
+  it('at 10:02 shows A1 with 2 Loads and Now, and nothing new on A2', () => {
     render(<SimulatePage />);
     setClock(10 * 60 + 2);
     expect(screen.getByText('10:02')).toBeTruthy();
-    expect(within(block('A1')).getByText(/2 loads/)).toBeTruthy();
-    expect(within(block('A1')).getByText('Now')).toBeTruthy();
-    expect(within(block('A2')).getByText('No loads yet')).toBeTruthy();
-    expect(screen.getByText(/the day’s meter reading comes at 4 AM/)).toBeTruthy();
+    expect(randy()).toEqual([`${A1} · 2 Loads · Now · since 08:24`, A2]);
   });
 
-  it('flips which Trips are Loads when Villager is the pickup', () => {
+  it('before the Truck leaves the shop, looks like today’s board', () => {
     render(<SimulatePage />);
-    choose('Scenario', 'other-way');
-    expect(within(block('A1')).getByText(/3 loads/)).toBeTruthy();
+    setClock(6 * 60);
+    expect(randy()).toEqual([A1, A2]);
   });
 
-  it('matches against the Assignment as it was before a reroute', () => {
+  it('the other way round gives A1 3 Loads', () => {
     render(<SimulatePage />);
-    choose('Scenario', 'reroute');
-    expect(within(block('A1')).getByText(/5 loads/)).toBeTruthy();
-    expect(screen.queryByRole('status')).toBeNull();
+    choose('other-way');
+    expect(randy()[0]).toBe('First · Villager → J25008 Los Flamboyanes · Fill · Truck 55 (his own) · 3 Loads · Done · since 08:24');
   });
 
-  it('changes the counts when Dave’s Assignment changes', () => {
+  it('the reroute at 11:20 gives A1 5 Loads, counting the ones before it, and shows A1 as it was before 11:20', () => {
     render(<SimulatePage />);
-    choose('A1 To', 'geo:J611 Bishop Kearney');
-    expect(within(block('A1')).getByText(/1 load ·/)).toBeTruthy();
+    choose('reroute');
+    expect(randy()[0]).toBe('First · Changed · J25008 Los Flamboyanes → J611 Bishop Kearney · Fill · Truck 55 (his own) · 5 Loads · Done · since 08:24');
+    setClock(11 * 60);
+    expect(randy()[0]).toBe(`${A1} · 3 Loads · Now · since 08:24`);
   });
 
-  it('lists a geofence code with no Place when a Place leaves the truck map', () => {
+  it('plays the day in 10-minute steps, the rate the Worker pulls Fleet', () => {
+    vi.useFakeTimers();
     render(<SimulatePage />);
-    fireEvent.click(screen.getByRole('checkbox', { name: 'J611 Bishop Kearney on the truck map' }));
-    expect(screen.getByText(/Geofence codes with no Place .*: J611 Bishop Kearney/)).toBeTruthy();
-  });
-});
-
-describe('Simulation page with other days', () => {
-  it('runs the made-up day the tests use', () => {
-    render(<SimulatePage />);
-    choose('Day', 'fake');
-    expect(within(block('A1')).getByText(/Sample Site North → Sample Plant/)).toBeTruthy();
-    expect(within(block('A1')).getByText(/4 loads/)).toBeTruthy();
-  });
-
-  it('runs an uploaded HCSS entry/exit export, with no Assignments until some are added', async () => {
-    render(<SimulatePage />);
-    const exportJson = {
-      Result: [
-        { EquipmentCode: 'TRK-9', GeofenceCode: 'YARD', GeofenceType: 'Other', EntryDateTime: '2026-11-18T05:00:00+00:00', ExitDateTime: '2026-11-18T12:00:00+00:00', EntryOdometer: 100, ExitOdometer: 100.2 },
-        { EquipmentCode: 'TRK-9', GeofenceCode: 'PIT', GeofenceType: 'Plant', EntryDateTime: '2026-11-18T12:30:00+00:00', ExitDateTime: '2026-11-18T12:45:00+00:00', EntryOdometer: 110, ExitOdometer: 110.1 },
-        { EquipmentCode: 'TRK-9', GeofenceCode: 'J9 Site', GeofenceType: 'Job', EntryDateTime: '2026-11-18T13:10:00+00:00', ExitDateTime: null, EntryOdometer: 120, ExitOdometer: 125 },
-      ],
-    };
-    const file = new File([JSON.stringify(exportJson)], 'trk-9.json', { type: 'application/json' });
-    fireEvent.change(screen.getByLabelText('Upload an HCSS Fleet entry/exit JSON'), { target: { files: [file] } });
-    await waitFor(() => expect(screen.getByText(/TRK-9 · 2026-11-18/)).toBeTruthy());
-    expect(screen.getByText(/trk-9.json: HCSS Fleet entry\/exit, 3 rows/)).toBeTruthy();
-    expect(within(screen.getByRole('table', { name: 'Trips' })).getAllByRole('row')).toHaveLength(3);
-    expect(screen.getByText('No meter readings for this day: the miles check is skipped.')).toBeTruthy();
-
-    fireEvent.click(screen.getByRole('button', { name: /Assignment/ }));
-    choose('A1 From', 'geo:PIT');
-    choose('A1 To', 'geo:J9 Site');
-    expect(within(block('A1')).getByText(/1 load/)).toBeTruthy();
-  });
-
-  it('says so when an uploaded file is not an entry/exit export', async () => {
-    render(<SimulatePage />);
-    const file = new File(['{"hello": 1}'], 'other.json', { type: 'application/json' });
-    fireEvent.change(screen.getByLabelText('Upload an HCSS Fleet entry/exit JSON'), { target: { files: [file] } });
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/Could not read other.json: No entry\/exit rows found/));
+    setClock(10 * 60);
+    fireEvent.click(screen.getByRole('button', { name: 'Play the day' }));
+    act(() => {
+      vi.advanceTimersToNextTimer();
+    });
+    expect(screen.getByText('10:10')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy();
   });
 });
