@@ -153,6 +153,11 @@ export async function putBackAssignment(id: string): Promise<Assignment> {
  * Sends it, then his Assignments in Dave's order, cancelled ones included,
  * marked Changed (with what they were) or Added.
  */
+/** The Driver's first Sent day after tomorrow with work for him, or null. */
+export async function fetchNextSent(driverId: string): Promise<string | null> {
+  return (await request<{ date: string | null }>(`api/drivers/${encodeURIComponent(driverId)}/next-sent`)).date;
+}
+
 export function fetchDriverDay(driverId: string, date: string): Promise<DriverDay> {
   return request<DriverDay>(`api/drivers/${encodeURIComponent(driverId)}/days/${encodeURIComponent(date)}`);
 }

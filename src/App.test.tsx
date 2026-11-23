@@ -673,7 +673,7 @@ describe('the composer', () => {
     expect(within(lane('Sample Driver B')).getByText('Truck 24', { selector: 'li span' }).className).toContain('text-muted-foreground');
   });
 
-  it('remembers the Places and Material after a save, for the next Driver, until it is closed', async () => {
+  it('folds after a save, and remembers the Places and Material for the next +, until it is closed', async () => {
     await day();
     let composer = await compose('Sample Driver A');
     tap(composer, 'Pick up', 'Sample Plant');
@@ -684,6 +684,7 @@ describe('the composer', () => {
     fireEvent.change(within(composer).getByRole('textbox', { name: 'Note' }), { target: { value: 'Two loads' } });
     save(composer);
     expect(await screen.findByText('Assignment saved')).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole('form')).toBeNull());
 
     composer = await compose('Sample Driver B');
     expect(pressed(composer, 'Pick up')).toEqual(['Sample Plant']);
@@ -693,7 +694,9 @@ describe('the composer', () => {
     save(composer);
     await waitFor(() => expect(sent).toHaveLength(2));
     expect(sent[1]).toEqual({ date: '2026-11-20', driverId: 'drv-b', truckId: null, fromPlaceId: 'plc-plant', toPlaceName: 'Sample New Site', materialId: 'mat-dirt', foremanId: null, note: null });
+    await waitFor(() => expect(screen.queryByRole('form')).toBeNull());
 
+    composer = await compose('Sample Driver B');
     fireEvent.click(within(lane('Sample Driver B')).getByRole('button', { name: 'Close' }));
     expect(screen.queryByRole('form')).toBeNull();
     composer = await compose('Sample Driver A');
@@ -1066,10 +1069,12 @@ describe('opening an Assignment', () => {
       open('/?date=2026-11-20');
       fireEvent.click(within(await openBlock('Haul stone')).getByRole('button', { name: 'Cancel' }));
       await waitFor(() => expect(blocks('Sample Driver A')).toEqual([
-        'First · Cancelled · Haul stone · Truck 21 (his own)',
-        'Then · Topsoil haul · Truck 21 (his own)',
+        'Cancelled · Haul stone · Truck 21 (his own)',
+        'First · Topsoil haul · Truck 21 (his own)',
       ]));
       expect(sent).toEqual([{ delete: 'a1' }]);
+      // Off the day, so not counted.
+      expect(screen.getByText('1 Assignment')).toBeTruthy();
       expect(frameOf('Haul stone · Cancelled').className).toMatch(/line-through/);
       expect(frameOf('Haul stone · Cancelled').className).toMatch(/opacity/);
       expect(screen.getByRole('status', { name: 'Day state' }).textContent).toBe('Changed since Sent');
@@ -1101,7 +1106,7 @@ describe('opening an Assignment', () => {
       open('/?date=2026-11-20');
       pick(await openBlock('Haul stone'), 'Driver', 'Sample Driver B');
       await waitFor(() => expect(blocks('Sample Driver B')).toEqual(['First · Topsoil haul · Truck 24 (his own)', 'Then · Added · Haul stone · Truck 24 (his own)']));
-      expect(blocks('Sample Driver A')).toEqual(['First · Cancelled · Haul stone · Truck 21 (his own)']);
+      expect(blocks('Sample Driver A')).toEqual(['Cancelled · Haul stone · Truck 21 (his own)']);
       expect(within(lane('Sample Driver B')).getByRole('region', { name: 'Open Assignment' })).toBeTruthy();
     });
 
@@ -1124,7 +1129,7 @@ describe('opening an Assignment', () => {
       failSaves = true;
       fireEvent.click(within(opened).getByRole('button', { name: 'Put back' }));
       expect(await within(opened).findByText('Could not put the Assignment back. Try again.')).toBeTruthy();
-      expect(blocks('Sample Driver A')).toEqual(['First · Cancelled · Haul stone · Truck 21 (his own)']);
+      expect(blocks('Sample Driver A')).toEqual(['Cancelled · Haul stone · Truck 21 (his own)']);
     });
   });
 
@@ -1301,12 +1306,14 @@ describe('sending a day', () => {
     open('/?date=2026-11-20');
     await screen.findByText('Haul stone');
     await waitFor(() => expect(dayState()).toBe('Draft · not sent yet · saved 4:12 PM'));
+    expect(screen.getByText("Drivers can't see this day until you Send.")).toBeTruthy();
 
     fireEvent.click(sendButton()!);
 
     await waitFor(() => expect(dayState()).toBe('Sent Thu, Nov 19 · 4:15 PM'));
     expect(sent).toEqual([{ send: '2026-11-20' }]);
     expect(sendButton()).toBeNull();
+    expect(screen.queryByText("Drivers can't see this day until you Send.")).toBeNull();
   });
 
   it('says when the day was last saved after a delete too, never going back to an earlier save', async () => {
@@ -1330,6 +1337,7 @@ describe('sending a day', () => {
     await screen.findByText(/^Nothing planned for /);
     await waitFor(() => expect(dayState()).toBe('Draft · not sent yet'));
     expect((sendButton() as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByText("Drivers can't see this day until you Send.")).toBeNull();
   });
 
   it('shows a Sent day with its sent time and no Send button', async () => {

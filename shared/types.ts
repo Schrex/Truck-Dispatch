@@ -212,7 +212,7 @@ export interface CopiedDay {
  * Sent ("was Cobblestone"): only those that differ now, each with the name it
  * had then; null when it was empty (for the Truck, his own).
  */
-export type Was = Partial<Pick<Assignment, 'truckNumber' | 'fromPlaceName' | 'toPlaceName' | 'materialName' | 'note'>>;
+export type Was = Partial<Pick<Assignment, 'truckNumber' | 'fromPlaceName' | 'toPlaceName' | 'materialName' | 'foremanName' | 'note'>>;
 
 /** An Assignment as a Driver sees it: with what it was when Sent, empty unless it is Changed. */
 export interface DriverAssignment extends Assignment {

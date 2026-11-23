@@ -85,6 +85,9 @@ export function DaySend({
       <p role="status" aria-label="Day state" className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
         {stateLine(assignments, sentAt, savedAt)}
       </p>
+      {editable && sentAt === null && assignments.length > 0 && (
+        <p className="text-sm text-muted-foreground">Drivers can't see this day until you Send.</p>
+      )}
       {editable && sentAt === null && (
         <Button size="lg" className="px-5" disabled={sending || assignments.length === 0} onClick={send}>
           {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Send

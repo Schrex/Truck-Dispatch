@@ -47,7 +47,7 @@ const MARKS: Record<Exclude<SinceSent, null>, { word: string; className: string 
 const CANCELLED = { word: 'Cancelled', className: 'bg-muted text-muted-foreground' };
 
 /**
- * One Assignment as a block in its lane, marked First (the first in the lane)
+ * One Assignment as a block in its lane, marked First (the first in the lane that is not cancelled)
  * or Then. It reads "From → To" (or the one Place set), or its note when it
  * has no Places; under that, the Material, the Foreman, the note when it is
  * not already the title, and the Truck. The Assignment's own Foreman is named
@@ -107,10 +107,11 @@ export function AssignmentBlock({
   const body = (
     <>
       <span className="flex items-center gap-2">
-        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{first ? 'First' : 'Then'}</span>
+        {/* A cancelled one is off the day, so it is neither First nor Then; its mark says Cancelled. */}
+        {!assignment.cancelledAt && <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{first ? 'First' : 'Then'}</span>}
         {mark && (
           <>
-            {SEPARATOR}
+            {!assignment.cancelledAt && SEPARATOR}
             <span className={cn('rounded px-1.5 py-0.5 text-xs font-medium', mark.className)}>{mark.word}</span>
           </>
         )}

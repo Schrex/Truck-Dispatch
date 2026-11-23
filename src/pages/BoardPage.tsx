@@ -24,8 +24,9 @@ import { fetchBusinessDay, fetchDay, fetchList } from '@/lib/api';
  * Today and later days can be changed; days before today are read-only, with
  * no add, edit or delete controls (the Worker refuses those changes too).
  * Adding starts from a lane's +, which opens the composer in that lane; one
- * is open at a time, and its draft is kept here, so the Places and Material
- * carry from one lane to the next until Close.
+ * is open at a time. Save closes it, and its draft is kept here, so the
+ * next + (in any lane) starts with the same Places and Material; Close, or
+ * another day, starts it empty.
  * The header says whether the day is a Draft, Sent or Changed since Sent,
  * with Send while it is a Draft, and below it the week strip shows the
  * state of every day of the week.
@@ -139,6 +140,8 @@ export function BoardPage() {
     setComposingFor(undefined);
     setDraft(EMPTY_DRAFT);
   };
+  // Cancelled Assignments are off the day, so the count leaves them out.
+  const live = assignments?.filter((a) => a.cancelledAt === null).length ?? 0;
   const composerLane = composingFor === undefined ? undefined : drivers?.find((driver) => driver.id === composingFor);
 
   return (
@@ -164,9 +167,9 @@ export function BoardPage() {
             Could not load the Drivers, Trucks, Places, Materials and Foremen to pick from. Reload the page to try again.
           </p>
         )}
-        {assignments && assignments.length > 0 && (
+        {live > 0 && (
           <p className="text-sm text-muted-foreground">
-            {assignments.length} Assignment{assignments.length === 1 ? '' : 's'}
+            {live} Assignment{live === 1 ? '' : 's'}
           </p>
         )}
 
@@ -228,6 +231,7 @@ export function BoardPage() {
                   onDraft={setDraft}
                   onSaved={(assignment) => {
                     setDraft(afterSave);
+                    setComposingFor(undefined);
                     saved(assignment);
                   }}
                   onClose={closeComposer}

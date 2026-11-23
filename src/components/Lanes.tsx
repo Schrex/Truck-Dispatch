@@ -110,6 +110,8 @@ export function Lanes({
         const about = [lane.removed && 'Removed', lane.usualTruck && `Truck ${lane.usualTruck}`].filter(Boolean).join(' · ');
         const name = lane.driverName ?? 'Unassigned';
         const openAt = lane.assignments.findIndex((assignment) => assignment.id === openId);
+        // First is the first that is not cancelled, as the moves count them; a cancelled one is off the day.
+        const firstAt = lane.assignments.findIndex((assignment) => assignment.cancelledAt === null);
         return (
           <Card key={lane.key} role="article" aria-labelledby={`lane-${lane.key}`} className="space-y-3 p-4">
             <div className="flex flex-col gap-3 md:flex-row md:items-start">
@@ -146,7 +148,7 @@ export function Lanes({
                     <AssignmentBlock
                       key={assignment.id}
                       assignment={assignment}
-                      first={i === 0}
+                      first={i === firstAt}
                       usualTruck={lane.usualTruck}
                       jobSites={jobSites}
                       onEdit={onEdit}
