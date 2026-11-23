@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Loader2, Wrench } from 'lucide-react';
-import type { TruckProblem } from '../../../shared/types';
+import { NOTE_LIMIT, type TruckProblem } from '../../../shared/types';
 import { businessDateOf, clockTime, shortDate } from '../../../shared/days';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -126,7 +126,7 @@ function OpenProblem({ problem, onFixed }: { problem: TruckProblem; onFixed: (fi
             <label htmlFor={noteId} className="text-xs font-medium">
               How it was fixed (optional)
             </label>
-            <Input id={noteId} value={note} maxLength={1000} onChange={(event) => setNote(event.target.value)} autoFocus />
+            <Input id={noteId} value={note} maxLength={NOTE_LIMIT} onChange={(event) => setNote(event.target.value)} autoFocus />
           </div>
           <Button type="submit" size="sm" disabled={saving}>
             Save

@@ -14,8 +14,8 @@ interface Lane {
   driverName: string | null;
   /** A removed (inactive) Driver keeps a lane only on a day he has work. */
   removed: boolean;
-  usualTruck: string | null;
-  usualTruckId: string | null;
+  /** His usual Truck; null for none, for Unassigned, or while the Trucks load. */
+  usualTruck: { id: string; number: string } | null;
   assignments: Assignment[];
 }
 
@@ -27,22 +27,24 @@ interface Lane {
  * Unassigned lane last.
  */
 function lanesOf(assignments: Assignment[], drivers: Driver[] | null, trucks: Truck[] | null): Lane[] {
-  const truckNumber = (id: string | null) => trucks?.find((t) => t.id === id)?.number ?? null;
+  const truckOf = (id: string | null) => {
+    const truck = trucks?.find((t) => t.id === id);
+    return truck ? { id: truck.id, number: truck.number } : null;
+  };
   const lanes = new Map<string, Lane>();
   const lane = (key: string, driverName: string, driver?: Driver): Lane => ({
     key,
     driverId: key,
     driverName,
     removed: driver ? !driver.active : false,
-    usualTruck: driver ? truckNumber(driver.defaultTruckId) : null,
-    usualTruckId: driver?.defaultTruckId ?? null,
+    usualTruck: driver ? truckOf(driver.defaultTruckId) : null,
     assignments: [],
   });
   const working = new Set(assignments.map((a) => a.driverId));
   for (const driver of drivers ?? []) {
     if (driver.active || working.has(driver.id)) lanes.set(driver.id, lane(driver.id, driver.name, driver));
   }
-  const unassigned: Lane = { key: 'unassigned', driverId: null, driverName: null, removed: false, usualTruck: null, usualTruckId: null, assignments: [] };
+  const unassigned: Lane = { key: 'unassigned', driverId: null, driverName: null, removed: false, usualTruck: null, assignments: [] };
   for (const assignment of assignments) {
     if (!assignment.driverId) {
       unassigned.assignments.push(assignment);
@@ -60,7 +62,7 @@ function lanesOf(assignments: Assignment[], drivers: Driver[] | null, trucks: Tr
  * "needs repair" when that Inspection found something), or "Not checked in".
  */
 function truckLine(lane: Lane, checkIns: CheckIn[] | undefined): string | null {
-  const usual = lane.usualTruck && `Truck ${lane.usualTruck}`;
+  const usual = lane.usualTruck && `Truck ${lane.usualTruck.number}`;
   if (!checkIns || !lane.driverId) return usual;
   const checkIn = checkIns.find((c) => c.driverId === lane.driverId);
   if (!checkIn) return 'Not checked in';
@@ -74,7 +76,7 @@ function truckLine(lane: Lane, checkIns: CheckIn[] | undefined): string | null {
 function truckToday(lane: Lane, checkIns: CheckIn[] | undefined): { id: string; number: string } | null {
   const checkIn = checkIns?.find((c) => c.driverId === lane.driverId);
   if (checkIn) return { id: checkIn.truckId, number: checkIn.truckNumber };
-  return lane.usualTruckId && lane.usualTruck ? { id: lane.usualTruckId, number: lane.usualTruck } : null;
+  return lane.usualTruck;
 }
 
 /** Where an open Assignment sits in its lane, so its editor offers only the moves it can make. */
@@ -199,7 +201,7 @@ export function Lanes({
                       key={assignment.id}
                       assignment={assignment}
                       first={i === firstAt}
-                      usualTruck={lane.usualTruck}
+                      usualTruck={lane.usualTruck?.number ?? null}
                       jobSites={jobSites}
                       onEdit={onEdit}
                       onAssign={lane.removed ? undefined : onAssign}

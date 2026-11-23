@@ -1638,4 +1638,17 @@ describe('open Truck problems on the Board', () => {
     expect(within(chip(/^24/)).queryByRole('img')).toBeNull();
     expect(within(chip(/^His own/)).queryByRole('img')).toBeNull();
   });
+
+  it('marks the His own chip red when the lane\'s Driver\'s usual Truck has an open problem, on any day', async () => {
+    problems = [problem()];
+    open('/?date=2026-11-20');
+    await screen.findByText(/^Nothing planned for /);
+    // Sample Driver A's usual Truck is 21.
+    fireEvent.click(await within(lane('Sample Driver A')).findByRole('button', { name: 'Add an Assignment for Sample Driver A' }));
+    await waitFor(() => expect(problemReads).toContain('?open=1'));
+    fireEvent.click(within(lane('Sample Driver A')).getByRole('button', { name: 'Note or other truck' }));
+    const truckRow = within(lane('Sample Driver A')).getByRole('group', { name: 'Truck' });
+    const hisOwn = await waitFor(() => within(truckRow).getByRole('button', { name: /^His own/ }));
+    expect(within(hisOwn).getByRole('img', { name: 'open problems' }).getAttribute('title')).toBe('Mud flap torn');
+  });
 });

@@ -14,7 +14,11 @@ import { WeekStrip } from '@/components/WeekStrip';
 import { ViewToggle } from '@/components/ViewToggle';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/sonner';
+import { useReadOnFocus } from '@/lib/useReadOnFocus';
 import { assignAssignment, fetchBusinessDay, fetchCheckIns, fetchDay, fetchList, fetchTruckProblems, Refused } from '@/lib/api';
+
+/** Every open Truck problem, for the marks. */
+const readOpenProblems = () => fetchTruckProblems({ open: true });
 
 /**
  * The board: one day's Assignments, one lane per Driver. The day on
@@ -66,41 +70,13 @@ export function BoardPage() {
 
   const show = useCallback((day: string) => setSearch({ date: day }), [setSearch]);
 
-  // Today's check-ins, read again when the page regains the focus (as the week strip is), so they arrive without a reload.
-  // One that cannot be read leaves the lanes showing each Driver's usual Truck until the next focus.
-  useEffect(() => {
-    if (!onToday || !businessDay) return;
-    let stale = false;
-    const load = () =>
-      fetchCheckIns(businessDay.today).then(
-        (all) => !stale && setCheckIns(all),
-        () => {},
-      );
-    load();
-    window.addEventListener('focus', load);
-    return () => {
-      stale = true;
-      window.removeEventListener('focus', load);
-    };
-  }, [onToday, businessDay]);
+  // Today's check-ins, read again on focus as the week strip is. One that cannot be read leaves the lanes showing
+  // each Driver's usual Truck until the next focus.
+  useReadOnFocus(onToday && businessDay ? businessDay.today : null, fetchCheckIns, setCheckIns);
 
   // Open problems are each Truck's state now, so they matter on any day Dave is planning; read again on focus, so one
   // marked fixed in Settings loses its mark. One that cannot be read leaves the marks as they were until the next focus.
-  useEffect(() => {
-    if (!editable) return;
-    let stale = false;
-    const load = () =>
-      fetchTruckProblems({ open: true }).then(
-        (open) => !stale && setProblems(open),
-        () => {},
-      );
-    load();
-    window.addEventListener('focus', load);
-    return () => {
-      stale = true;
-      window.removeEventListener('focus', load);
-    };
-  }, [editable]);
+  useReadOnFocus(editable ? true : null, readOpenProblems, setProblems);
 
   useEffect(() => {
     // Inactive entries too, so an Assignment that still uses one shows it in its picker.
@@ -271,6 +247,7 @@ export function BoardPage() {
                   date={date}
                   driverId={composingFor ?? null}
                   driverName={composerLane?.name ?? null}
+                  usualTruckId={composerLane?.defaultTruckId ?? null}
                   lists={{ places, materials, trucks, foremen }}
                   problems={problems}
                   draft={draft}

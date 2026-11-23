@@ -1,6 +1,6 @@
 import { useId, useState, type FormEvent, type ReactNode } from 'react';
 import { ChevronDown, ChevronUp, Loader2, X } from 'lucide-react';
-import type { Assignment, Foreman, Material, NewAssignment, Place, Truck, TruckProblem, TypedNames } from '../../shared/types';
+import { NOTE_LIMIT, type Assignment, type Foreman, type Material, type NewAssignment, type Place, type Truck, type TruckProblem, type TypedNames } from '../../shared/types';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -248,7 +248,7 @@ function ChipRow({
  * are rows of Place chips, "Hauling what?" a row of Material chips, each with
  * "Or type it" for a name the Worker finds, brings back or adds; "Note or
  * other truck" opens the Truck chips (His own first; a Truck with open
- * problems carries a red mark) and the note. A sentence
+ * problems carries a red mark, and His own carries his usual Truck's) and the note. A sentence
  * previews it. Save needs nothing but the day; a refusal or failure keeps
  * what was typed and says so. Close drops the draft. The draft itself is the
  * Board's, so the Places and Material are remembered for the next lane.
@@ -257,6 +257,7 @@ export function Composer({
   date,
   driverId,
   driverName,
+  usualTruckId = null,
   lists,
   problems,
   draft,
@@ -267,8 +268,10 @@ export function Composer({
   date: string;
   driverId: string | null;
   driverName: string | null;
+  /** The lane's Driver's usual Truck, which His own stands for; null for none (or Unassigned). */
+  usualTruckId?: string | null;
   lists: ComposerLists;
-  /** The open Truck problems: each Truck chip with one is marked red. */
+  /** The open Truck problems: each Truck chip with one is marked red, His own by the usual Truck's. */
   problems?: TruckProblem[];
   draft: Draft;
   onDraft: (change: (draft: Draft) => Draft) => void;
@@ -295,12 +298,14 @@ export function Composer({
   const active = <T extends { id: string; active: boolean }>(entries: T[] | null, label: (entry: T) => string): Chip[] | null =>
     entries && entries.filter((e) => e.active).map((e) => ({ id: e.id, label: label(e) }));
   const placeChips = active(places, (p) => p.shortName);
+  // His own is the lane's Driver's usual Truck, so it carries that Truck's mark.
+  const marked = (chip: Chip, truckId: string | null) => {
+    const open = openOn(truckId, problems);
+    return open.length ? { ...chip, mark: <ChipProblems problems={open} /> } : chip;
+  };
   const truckChips = trucks && [
-    { id: null, label: 'His own' },
-    ...(active(trucks, (t) => t.number) ?? []).map((chip) => {
-      const open = openOn(chip.id, problems);
-      return open.length ? { ...chip, mark: <ChipProblems problems={open} /> } : chip;
-    }),
+    marked({ id: null, label: 'His own' }, usualTruckId),
+    ...(active(trucks, (t) => t.number) ?? []).map((chip) => marked(chip, chip.id)),
   ];
   const unplaced = Object.entries(errors).filter(([field]) => !ROW_OF[field]).map(([, message]) => message);
   const more = draft.more || Boolean(errors.truckId || errors.note);
@@ -367,7 +372,7 @@ export function Composer({
             <Textarea
               id={noteId}
               rows={2}
-              maxLength={1000}
+              maxLength={NOTE_LIMIT}
               value={draft.note}
               onChange={(event) => {
                 const note = event.target.value;
