@@ -48,8 +48,9 @@ export interface FleetVisit {
   enteredAt: string;
   /** Null while the Truck is still there. */
   exitedAt: string | null;
-  entryOdometer: number;
-  /** Ignored while the visit is open: Fleet fills it with the current reading. */
+  /** Null when the export gives none (an xlsx export has no odometers). */
+  entryOdometer: number | null;
+  /** Ignored while the visit is open: Fleet fills it with the current reading. Null when the export gives none. */
   exitOdometer: number | null;
 }
 
@@ -93,7 +94,7 @@ export interface CleanVisit {
   placeId: string | null;
   enteredAt: string;
   exitedAt: string | null;
-  entryOdometer: number;
+  entryOdometer: number | null;
   exitOdometer: number | null;
   /** Where the Truck was when the day began (Fleet cuts visits at local midnight). */
   startOfDay: boolean;
@@ -108,7 +109,8 @@ export interface Trip {
   toCode: string;
   leftAt: string;
   arrivedAt: string;
-  miles: number;
+  /** From the odometers; null when either visit has none (an xlsx export). */
+  miles: number | null;
   /** Written to the trips table: the visit it reaches is past the drive-through test, so it can no longer change. */
   written: boolean;
   match: Match;
@@ -210,7 +212,8 @@ export interface TruckLogTrip {
   /** Where from and to: the Place's short name, else Fleet's geofence code. */
   from: string;
   to: string;
-  miles: number;
+  /** Null when the visits gave no odometers. */
+  miles: number | null;
 }
 
 /** One Place a piece of Unplanned work went to: its Place, else only Fleet's geofence code. */
@@ -291,10 +294,12 @@ export interface TripDay {
   /** Geofence codes with no Place: listed for Dave in Settings. */
   unknownCodes: string[];
   miles: {
-    trips: number;
-    insidePlaces: number;
+    /** Null when a Trip has no miles (visits with no odometers). */
+    trips: number | null;
+    /** Null when a closed visit has no odometers. */
+    insidePlaces: number | null;
     day: number | null;
-    /** Null until the day's meter readings exist. */
+    /** Null until the day's meter readings exist, or without Trip miles. */
     ok: boolean | null;
   };
 }
@@ -521,7 +526,7 @@ function pair(visits: CleanVisit[], now: string): Omit<Trip, 'match'>[] {
   for (let i = 0; i + 1 < visits.length; i++) {
     const from = visits[i];
     const to = visits[i + 1];
-    if (from.exitedAt === null || from.exitOdometer === null) continue;
+    if (from.exitedAt === null) continue;
     const settled = to.exitedAt !== null || ms(now) - ms(to.enteredAt) >= DRIVE_THROUGH_MINUTES * MINUTE;
     trips.push({
       fromPlaceId: from.placeId,
@@ -530,7 +535,8 @@ function pair(visits: CleanVisit[], now: string): Omit<Trip, 'match'>[] {
       toCode: to.geofenceCode,
       leftAt: from.exitedAt,
       arrivedAt: to.enteredAt,
-      miles: round(to.entryOdometer - from.exitOdometer),
+      // No odometers (an xlsx export): the Trip is still made, its miles blank.
+      miles: to.entryOdometer === null || from.exitOdometer === null ? null : round(to.entryOdometer - from.exitOdometer),
       written: settled,
     });
   }
@@ -796,8 +802,12 @@ export function buildTripDay(input: TripDayInput): TripDay {
   const unplanned = piecesOf(trips, runs);
   // Inside cleaned visits only: a drive-through's miles are already in the Trip across it,
   // and a short exit's miles are inside the joined visit.
-  const insidePlaces = round(visits.reduce((sum, v) => sum + (v.exitOdometer === null ? 0 : v.exitOdometer - v.entryOdometer), 0));
-  const tripMiles = round(trips.reduce((sum, t) => sum + t.miles, 0));
+  // Without odometers on every Trip and closed visit, the sums are not known.
+  const closed = visits.filter((v) => v.exitedAt !== null);
+  const insidePlaces = closed.every((v) => v.entryOdometer !== null && v.exitOdometer !== null)
+    ? round(closed.reduce((sum, v) => sum + (v.exitOdometer! - v.entryOdometer!), 0))
+    : null;
+  const tripMiles = trips.every((t) => t.miles !== null) ? round(trips.reduce((sum, t) => sum + t.miles!, 0)) : null;
   const day = input.meter && input.meter.endOdometer !== null ? round(input.meter.endOdometer - input.meter.startOdometer) : null;
   const unknownCodes = [...new Set(visits.filter((v) => v.placeId === null).map((v) => v.geofenceCode))];
   return {
@@ -818,7 +828,7 @@ export function buildTripDay(input: TripDayInput): TripDay {
       trips: tripMiles,
       insidePlaces,
       day,
-      ok: day === null ? null : Math.abs(day - tripMiles - insidePlaces) <= MILES_TOLERANCE,
+      ok: day === null || tripMiles === null || insidePlaces === null ? null : Math.abs(day - tripMiles - insidePlaces) <= MILES_TOLERANCE,
     },
   };
 }

@@ -110,7 +110,7 @@ export function TruckLogAssignments({
           <ul className="space-y-1 text-sm">
             {shopTrips.map((trip) => (
               <li key={trip.leftAt}>
-                {easternTime(trip.leftAt)}–{easternTime(trip.arrivedAt)} · {trip.from} → {trip.to} · {trip.miles} mi · empty
+                {easternTime(trip.leftAt)}–{easternTime(trip.arrivedAt)} · {trip.from} → {trip.to}{trip.miles === null ? '' : ` · ${trip.miles} mi`} · empty
               </li>
             ))}
           </ul>

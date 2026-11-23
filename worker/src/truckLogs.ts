@@ -101,8 +101,8 @@ async function readTruckDay(env: Env, truckId: string, date: string, at: string 
   const tripDay = buildTripDay({
     places: tripPlaces,
     jobs: jobs.results as unknown as TripJob[],
-    // An xlsx export gives no odometers: stored as null, passed as they are (see docs/how-it-works.md).
-    visits: stored.map((v): FleetVisit => ({ ...v, entryOdometer: v.entryOdometer as number })),
+    // An xlsx export gives no odometers: stored as null, its Trips made with miles blank.
+    visits: stored satisfies FleetVisit[],
     assignments: tripAssignments,
     now: moment,
     dayOver,

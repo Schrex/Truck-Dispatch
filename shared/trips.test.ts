@@ -144,6 +144,25 @@ describe('Trips and matching on the 16 Nov day', () => {
     expect(short.miles.ok).toBe(false);
   });
 
+  it('builds the same Trips with miles blank when the visits have no odometers, as an xlsx export gives them', () => {
+    const noMeters = FIXTURE_VISITS.map((v) => ({ ...v, entryOdometer: null, exitOdometer: null }));
+    const d = buildTripDay({ places: FIXTURE_PLACES, visits: noMeters, assignments: scenario('two'), now: END_OF_DAY, dayOver: true });
+    expect(lines(d)).toEqual(lines(day('two')));
+    expect(d.trips.every((t) => t.miles === null)).toBe(true);
+    expect(d.truckDay).toMatchObject({ startMiles: null, endMiles: null });
+    expect([easternTime(d.truckDay.startAt!), easternTime(d.truckDay.endAt!)]).toEqual(['06:24', '16:03']);
+    expect(d.assignments.map((a) => a.loads)).toEqual([4, 2]);
+    expect(d.miles).toEqual({ trips: null, insidePlaces: null, day: null, ok: null });
+  });
+
+  it('leaves blank only the miles of a Trip whose visits miss an odometer', () => {
+    const visits = FIXTURE_VISITS.map((v, i) => (i === FIXTURE_VISITS.length - 2 ? { ...v, exitOdometer: null } : v));
+    const d = buildTripDay({ places: FIXTURE_PLACES, visits, assignments: scenario('two'), now: END_OF_DAY });
+    expect(lines(d)).toEqual(lines(day('two')));
+    expect(d.trips.at(-1)!.miles).toBeNull();
+    expect(d.trips[1].miles).toBe(3.39);
+  });
+
   it('with A1’s To empty, never counts a way back or the drive to the shop as a Load', () => {
     const d = day('blank-to');
     // A1's ways back (Plant or South to North) and the drives to the shop; Quarry → North is A2's real Load.
