@@ -33,6 +33,21 @@
     --input: 0 0% 88%;
     --ring: 48 100% 50%;
     --radius: 0.875rem;
+
+    /* Added on top of the Hub's tokens (nothing above changed): elevation and
+       motion, so every surface lifts and moves the same way. Shadows are
+       tinted with the foreground, never pure black, so they stay soft. */
+    --shadow-color: 0 0% 8%;
+    --shadow-xs: 0 1px 2px hsl(var(--shadow-color) / 0.05);
+    --shadow-sm: 0 1px 2px hsl(var(--shadow-color) / 0.04), 0 1px 3px hsl(var(--shadow-color) / 0.06);
+    --shadow-md: 0 2px 4px hsl(var(--shadow-color) / 0.04), 0 6px 16px -4px hsl(var(--shadow-color) / 0.10);
+    --shadow-lg: 0 4px 8px hsl(var(--shadow-color) / 0.04), 0 16px 32px -8px hsl(var(--shadow-color) / 0.14);
+    --shadow-glow: 0 0 0 3px hsl(var(--primary) / 0.35), 0 6px 18px -6px hsl(var(--primary) / 0.55);
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+    --duration-fast: 120ms;
+    --duration: 200ms;
+    --duration-slow: 320ms;
   }
 
   .dark {
@@ -71,11 +86,103 @@
   body {
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    /* Inter's disambiguated 1, l and I, and tabular figures, so times and Truck numbers line up. */
+    font-feature-settings: 'cv11', 'ss01', 'tnum';
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  ::selection {
+    background: hsl(var(--primary) / 0.45);
+    color: hsl(var(--foreground));
+  }
+
+  :focus-visible {
+    outline: none;
+  }
+
+  /* Motion is a courtesy, never needed to understand a change. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }
 
 @layer utilities {
+  /* An entrance: rises a few pixels and fades in. --i staggers a list (style={{ '--i': n }}). */
+  .animate-rise {
+    animation: rise var(--duration-slow) var(--ease-out) both;
+    animation-delay: calc(min(var(--i, 0), 12) * 35ms);
+  }
+
+  /* A panel opening under what opened it. */
+  .animate-unfold {
+    animation: unfold var(--duration) var(--ease-out) both;
+    transform-origin: top;
+  }
+
+  /* A surface that lifts on hover, for anything tappable that is a card. */
+  .lift {
+    transition:
+      transform var(--duration) var(--ease-out),
+      box-shadow var(--duration) var(--ease-out),
+      background-color var(--duration-fast) ease,
+      border-color var(--duration-fast) ease;
+  }
+  @media (hover: hover) {
+    .lift:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
+    }
+  }
+  .lift:active {
+    transform: translateY(0) scale(0.99);
+    transition-duration: var(--duration-fast);
+  }
+
+  /* The hi-vis stripe along the top of every page header. */
+  .hivis-rule {
+    height: 4px;
+    background-image: repeating-linear-gradient(135deg, hsl(var(--primary)) 0 10px, hsl(0 0% 8%) 10px 20px);
+  }
+
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
   .pattern-hivis {
     background-image: repeating-linear-gradient(135deg, hsl(var(--primary)) 0 12px, hsl(0 0% 8%) 12px 24px);
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes unfold {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scaleY(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
   }
 }

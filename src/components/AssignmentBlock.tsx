@@ -169,7 +169,7 @@ export function AssignmentBlock({
         {mark && (
           <>
             {!assignment.cancelledAt && SEPARATOR}
-            <span className={cn('rounded px-1.5 py-0.5 text-xs font-medium', mark.className)}>{mark.word}</span>
+            <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold leading-4', mark.className)}>{mark.word}</span>
           </>
         )}
       </span>
@@ -196,7 +196,7 @@ export function AssignmentBlock({
   // A corner button (Assign or Discard) sits in the frame's last row, so only a block that has one is taller.
   const cornered = assignable || discardable;
   const frame = cn(
-    'block h-full w-full rounded-md border bg-background px-3 py-2 text-left text-sm shadow-sm',
+    'block h-full w-full rounded-md border bg-background px-3 py-2.5 text-left text-sm shadow-xs',
     draft && 'border-dashed border-muted-foreground/50',
     cornered && 'pb-16',
     // Its words are struck through on their own; the frame is only greyed, so the Cancelled mark stays readable.
@@ -207,20 +207,24 @@ export function AssignmentBlock({
   );
   if (!onEdit)
     return discard ? (
-      <li className="relative h-full">
+      <li className="relative h-full animate-rise">
         <div className={frame}>{body}</div>
         {discard}
       </li>
     ) : (
-      <li className={frame}>{body}</li>
+      <li className={cn(frame, 'animate-rise')}>{body}</li>
     );
   return (
-    <li className="relative h-full">
+    <li className="relative h-full animate-rise">
       <button
         type="button"
         aria-label={`Edit ${words}${mark ? ` · ${mark.word}` : ''}`}
         aria-expanded={open}
-        className={cn(frame, 'flex flex-col items-stretch justify-start hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring', open && 'border-primary ring-1 ring-primary')}
+        className={cn(
+          frame,
+          'lift flex flex-col items-stretch justify-start hover:border-foreground/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          open && 'border-primary shadow-glow hover:border-primary',
+        )}
         onClick={() => onEdit(assignment)}
       >
         {body}

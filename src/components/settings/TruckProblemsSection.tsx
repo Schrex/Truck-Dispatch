@@ -36,7 +36,7 @@ export function TruckProblemsSection() {
   const open = problems?.filter((p) => !p.fixedAt) ?? [];
   const fixed = problems?.filter((p) => p.fixedAt) ?? [];
   return (
-    <section aria-labelledby="section-truck-problems" className="space-y-3 rounded-lg border bg-background p-4">
+    <section aria-labelledby="section-truck-problems" className="animate-rise space-y-3 rounded-lg border border-border/80 bg-background p-4 shadow-sm">
       <h2 id="section-truck-problems" className="font-display text-xl font-semibold uppercase tracking-wide">
         Truck problems
       </h2>
@@ -105,7 +105,9 @@ function OpenProblem({ problem, onFixed }: { problem: TruckProblem; onFixed: (fi
   }
 
   return (
-    <li aria-label={nameOf(problem)} className="space-y-2 py-2">
+    <li aria-label={nameOf(problem)} className="relative space-y-2 py-2 pl-4">
+      {/* The red dot of an open problem, as on the Board's lanes and Truck chips. */}
+      <span aria-hidden className="absolute left-0 top-[0.9rem] h-2 w-2 rounded-full bg-destructive shadow-[0_0_0_3px_hsl(var(--destructive)/0.15)]" />
       <div className="flex items-start justify-between gap-3">
         <Reported problem={problem} />
         {!fixing && (

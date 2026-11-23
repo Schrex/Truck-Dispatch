@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import type { BusinessDay, CheckIn as CheckInRead, Driver, DriverAssignment, DriverDay } from '../../shared/types';
 import { addDays, shortDate, weekdayName } from '../../shared/days';
@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/sonner';
 import { dismissAssignment, fetchBusinessDay, fetchCheckIns, fetchDriverDay, fetchList, fetchNextAssigned, Refused } from '@/lib/api';
 import { storedDriver, storeDriver } from '@/lib/deviceView';
+import { initials } from '@/lib/utils';
 
 /** A day as the page holds it: loading (undefined), failed (null), or as the Worker read it. */
 type Shown = DriverDay | null | undefined;
@@ -151,9 +152,22 @@ export function DriverPage() {
             {driversFailed && <p className="text-sm text-destructive">Could not load the Drivers. Reload the page to try again.</p>}
             {!drivers && !driversFailed && <Loading what="Drivers" />}
             <div className="grid gap-3 sm:grid-cols-2">
-              {drivers?.map((d) => (
-                <Button key={d.id} variant="outline" className="h-auto py-5 text-xl" onClick={() => choose(d.id)}>
-                  {d.name}
+              {drivers?.map((d, i) => (
+                <Button
+                  key={d.id}
+                  variant="outline"
+                  style={{ '--i': i } as CSSProperties}
+                  className="lift group h-auto animate-rise justify-start gap-4 rounded-lg bg-card px-4 py-4 text-xl shadow-sm"
+                  onClick={() => choose(d.id)}
+                >
+                  {/* The initials are drawn by CSS, so the button reads as his name alone. */}
+                  <span
+                    aria-hidden
+                    data-initials={initials(d.name)}
+                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary font-display text-lg font-semibold text-primary-foreground shadow-xs before:content-[attr(data-initials)]"
+                  />
+                  <span className="flex-1 text-left">{d.name}</span>
+                  <ChevronRight aria-hidden className="h-5 w-5 text-muted-foreground transition-transform duration-200 group-hover:translate-x-1" />
                 </Button>
               ))}
             </div>
@@ -172,7 +186,7 @@ export function DriverPage() {
               >
                 <ChevronLeft className="h-5 w-5" />
               </Button>
-              <div role="group" aria-label="Day" className="grid flex-1 grid-cols-3 rounded-md border bg-background p-0.5">
+              <div role="group" aria-label="Day" className="grid flex-1 grid-cols-3 gap-0.5 rounded-lg border bg-muted/60 p-1">
                 {TABS.map((tab) => {
                   const on = Boolean(date && today && tabFor(date, today) === tab);
                   return (
@@ -180,7 +194,7 @@ export function DriverPage() {
                       key={tab}
                       type="button"
                       size="lg"
-                      className="px-1 text-base font-medium tracking-tight"
+                      className={on ? 'px-1 text-base font-semibold tracking-tight shadow-sm' : 'px-1 text-base font-medium tracking-tight text-muted-foreground hover:bg-background/70'}
                       variant={on ? 'default' : 'ghost'}
                       aria-pressed={on}
                       disabled={!today}
@@ -224,7 +238,11 @@ export function DriverPage() {
               </>
             )}
             {nextAssigned && nextAssigned !== date && (
-              <button type="button" className="text-lg font-medium underline underline-offset-4" onClick={() => show(nextAssigned)}>
+              <button
+                type="button"
+                className="lift flex min-h-14 w-full animate-rise items-center justify-between gap-3 rounded-lg border border-primary/50 bg-primary/10 px-4 text-left text-lg font-medium"
+                onClick={() => show(nextAssigned)}
+              >
                 Next from Dave: {shortDate(nextAssigned)} →
               </button>
             )}
@@ -285,9 +303,9 @@ function DaySection({
       {shown === undefined && <Loading what="your day" />}
       {shown === null && <p className="text-destructive">Could not load this day. It tries again when you come back to the page.</p>}
       {shown && shown.assignments.length === 0 && (
-        <p className="rounded-lg border border-dashed bg-card p-5 text-lg text-muted-foreground">Nothing from Dave yet for {weekdayName(shown.date)}.</p>
+        <p className="animate-rise rounded-lg border border-dashed bg-card/60 p-6 text-center text-lg text-muted-foreground">Nothing from Dave yet for {weekdayName(shown.date)}.</p>
       )}
-      {shown?.assignments.map((assignment) => <DriverCard key={assignment.id} assignment={assignment} onDismiss={onDismiss} />)}
+      {shown?.assignments.map((assignment, i) => <DriverCard key={assignment.id} assignment={assignment} index={i} onDismiss={onDismiss} />)}
     </section>
   );
 }

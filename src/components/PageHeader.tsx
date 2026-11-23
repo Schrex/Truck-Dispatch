@@ -24,17 +24,19 @@ export function PageHeader({
   back?: ReactNode;
 }) {
   return (
-    <header className="border-b bg-background">
-      <div className="container py-6">
+    <header className="relative border-b bg-background shadow-xs">
+      {/* The Hub's hi-vis stripe, as on a truck's tailgate: the one decoration every page shares. */}
+      <div aria-hidden className="hivis-rule" />
+      <div className="container pb-6 pt-3">
         {back ?? (
-          <a href={HUB_HOME} className="-ml-2 inline-flex min-h-11 items-center px-2 text-sm text-muted-foreground hover:text-foreground">
+          <a href={HUB_HOME} className="-ml-2 inline-flex min-h-11 items-center rounded-md px-2 text-sm text-muted-foreground transition-colors hover:text-foreground">
             ← Hub
           </a>
         )}
-        <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <h1 className="font-display text-3xl font-semibold uppercase tracking-wide">{title}</h1>
-            <p className="text-sm text-muted-foreground">{subtitle}</p>
+        <div className="mt-1 flex flex-wrap items-end justify-between gap-4">
+          <div className="animate-rise">
+            <h1 className="font-display text-3xl font-semibold uppercase leading-none tracking-wide">{title}</h1>
+            <p className="mt-1.5 text-sm text-muted-foreground">{subtitle}</p>
           </div>
           {children && <div className="flex flex-wrap items-end gap-3">{children}</div>}
         </div>

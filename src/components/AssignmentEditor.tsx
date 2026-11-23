@@ -160,7 +160,7 @@ export function AssignmentEditor({
       })
       .join(' ');
     return (
-      <section aria-label="Open Assignment" className="space-y-4 rounded-md border bg-background p-4 shadow-sm">
+      <section aria-label="Open Assignment" className="animate-unfold space-y-4 rounded-md border border-primary/40 bg-background p-4 shadow-md">
         <p className={cn('text-base', cancelledText)}>{sentence}</p>
         {assignment.note && <p className={cn('whitespace-pre-line text-sm', cancelledText)}>{assignment.note}</p>}
         <p className="text-sm">Cancelled: the Driver is told it is off his day. Put it back to change it.</p>
@@ -183,7 +183,7 @@ export function AssignmentEditor({
     );
 
   return (
-    <section aria-label="Open Assignment" className="space-y-4 rounded-md border bg-background p-4 shadow-sm">
+    <section aria-label="Open Assignment" className="animate-unfold space-y-4 rounded-md border border-primary/40 bg-background p-4 shadow-md">
       <p className="flex flex-wrap items-center gap-x-2 gap-y-2 text-base">
         {parts.map((part) => {
           const value = assignment[part.key];

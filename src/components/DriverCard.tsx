@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { Loader2, X } from 'lucide-react';
 import type { AssignmentTripPart, DriverAssignment, SinceSent } from '../../shared/types';
 import { easternTime } from '../../shared/days';
@@ -64,9 +64,12 @@ function TripLine({ part }: { part: AssignmentTripPart | undefined }) {
  */
 export function DriverCard({
   assignment,
+  index = 0,
   onDismiss,
 }: {
   assignment: DriverAssignment;
+  /** Its place in his day, so the cards come in one after another. */
+  index?: number;
   /** Clears a cancelled card off his day; settles once the Worker has answered. */
   onDismiss?: (assignment: DriverAssignment) => Promise<void>;
 }) {
@@ -77,11 +80,23 @@ export function DriverCard({
   return (
     <article
       aria-label={materialName ?? 'Assignment'}
-      className={cn('rounded-lg border bg-card p-5 text-card-foreground shadow-sm', cancelledAt && 'border-destructive/40 bg-muted')}
+      style={{ '--i': index } as CSSProperties}
+      className={cn(
+        'relative animate-rise overflow-hidden rounded-lg border bg-card p-5 pl-6 text-card-foreground shadow-md',
+        cancelledAt && 'border-destructive/40 bg-muted shadow-none',
+      )}
     >
+      {/* The edge colour says at a glance what Dave did: yellow to go, amber Changed, green Added, red cancelled. */}
+      <span
+        aria-hidden
+        className={cn(
+          'absolute inset-y-0 left-0 w-1.5',
+          cancelledAt ? 'bg-destructive/70' : sinceSent === 'changed' ? 'bg-warning' : sinceSent === 'added' ? 'bg-success' : 'bg-primary',
+        )}
+      />
       {(mark || (cancelledAt && onDismiss)) && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          {mark && <p className={cn('inline-block rounded px-2 py-1.5 text-base font-semibold', mark.className)}>{mark.word}</p>}
+          {mark && <p className={cn('inline-block rounded-full px-3 py-1.5 text-base font-semibold shadow-xs', mark.className)}>{mark.word}</p>}
           {cancelledAt && onDismiss && <DismissButton onDismiss={() => onDismiss(assignment)} />}
         </div>
       )}

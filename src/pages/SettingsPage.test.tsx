@@ -149,6 +149,8 @@ type Title = 'Drivers' | 'Trucks' | 'Places' | 'Materials' | 'Jobs' | 'Foremen' 
 const settings = async () => {
   window.history.pushState(null, '', '/settings');
   render(<App />);
+  // The page's code loads on its own (App.tsx), then each list.
+  await screen.findByRole('heading', { name: 'Settings', level: 1 });
   await waitFor(() => expect(screen.queryAllByText(/^Loading/)).toEqual([]));
 };
 const section = (title: Title) => screen.getByRole('region', { name: title });

@@ -1,11 +1,12 @@
-import type { ReactNode } from 'react';
-import { Plus, User, UserX } from 'lucide-react';
+import type { CSSProperties, ReactNode } from 'react';
+import { Plus, UserX } from 'lucide-react';
 import type { Assignment, CheckIn, Driver, Place, Truck, TruckProblem } from '../../shared/types';
 import { clockTime } from '../../shared/days';
 import { AssignmentBlock } from '@/components/AssignmentBlock';
 import { LaneProblems, openOn } from '@/components/ProblemMark';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { cn, initials } from '@/lib/utils';
 
 interface Lane {
   key: string;
@@ -77,6 +78,27 @@ function truckToday(lane: Lane, checkIns: CheckIn[] | undefined): { id: string; 
   const checkIn = checkIns?.find((c) => c.driverId === lane.driverId);
   if (checkIn) return { id: checkIn.truckId, number: checkIn.truckNumber };
   return lane.usualTruck;
+}
+
+/**
+ * A lane's avatar: the Driver's initials on the Hub's yellow (greyed for a
+ * removed Driver), or a dashed ring for Unassigned. Decoration only: the lane's
+ * heading names it.
+ */
+function LaneAvatar({ name, removed }: { name: string | null; removed: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        'flex h-10 w-10 shrink-0 select-none items-center justify-center rounded-full font-display text-sm font-semibold tracking-wide',
+        !name && 'border-2 border-dashed border-muted-foreground/40 text-muted-foreground',
+        name && !removed && 'bg-primary text-primary-foreground shadow-xs ring-2 ring-background',
+        name && removed && 'bg-muted text-muted-foreground',
+      )}
+    >
+      {name ? initials(name) : <UserX className="h-4 w-4" />}
+    </span>
+  );
 }
 
 /** Where an open Assignment sits in its lane, so its editor offers only the moves it can make. */
@@ -151,7 +173,7 @@ export function Lanes({
   const jobSites = new Set((places ?? []).filter((p) => p.kind === 'job_site').map((p) => p.id));
   return (
     <div className="space-y-3">
-      {lanesOf(assignments, drivers, trucks).map((lane) => {
+      {lanesOf(assignments, drivers, trucks).map((lane, laneIndex) => {
         const about = [lane.removed && 'Removed', truckLine(lane, checkIns)].filter(Boolean).join(' · ');
         const name = lane.driverName ?? 'Unassigned';
         const openAt = lane.assignments.findIndex((assignment) => assignment.id === openId);
@@ -166,12 +188,19 @@ export function Lanes({
         );
         const waiting = onAssign && !lane.driverId && lane.assignments.some((assignment) => assignment.assignedAt === null && !assignment.cancelledAt);
         return (
-          <Card key={lane.key} role="article" aria-labelledby={`lane-${lane.key}`} className="space-y-3 p-4">
+          <Card
+            key={lane.key}
+            role="article"
+            aria-labelledby={`lane-${lane.key}`}
+            style={{ '--i': laneIndex } as CSSProperties}
+            className={cn('animate-rise space-y-3 p-4 transition-shadow duration-200', (openAt >= 0 || composingFor === lane.driverId) && 'shadow-md')}
+          >
             <div className="flex flex-col gap-3 md:flex-row md:items-start">
-              <div className="flex items-start justify-between gap-2 md:w-60 md:shrink-0">
-                <div>
-                  <h3 id={`lane-${lane.key}`} className="flex items-start gap-2 font-display text-lg font-semibold uppercase leading-tight tracking-wide">
-                    {lane.driverName ? <User className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" /> : <UserX className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />}
+              <div className="flex items-start justify-between gap-2 md:w-64 md:shrink-0 lg:w-72">
+                <div className="flex min-w-0 items-start gap-3">
+                  <LaneAvatar name={lane.driverName} removed={lane.removed} />
+                  <div className="min-w-0 pt-0.5">
+                  <h3 id={`lane-${lane.key}`} className="font-display text-lg font-semibold uppercase leading-tight tracking-wide">
                     {name}
                   </h3>
                   {truck && open.length > 0 ? (
@@ -182,6 +211,7 @@ export function Lanes({
                     aboutLine
                   )}
                   {waiting && <p className="text-sm text-muted-foreground">Pick a Driver to Assign</p>}
+                  </div>
                 </div>
                 {onAdd && !lane.removed && (
                   <Button
@@ -189,15 +219,18 @@ export function Lanes({
                     size="icon"
                     aria-label={`Add an Assignment for ${name}`}
                     aria-expanded={composingFor === lane.driverId}
-                    className="h-11 w-11 shrink-0 rounded-full"
+                    className={cn(
+                      'group h-11 w-11 shrink-0 rounded-full border-dashed hover:border-solid hover:border-primary hover:bg-primary hover:text-primary-foreground',
+                      composingFor === lane.driverId && 'border-solid border-primary bg-primary text-primary-foreground',
+                    )}
                     onClick={() => onAdd(lane.driverId)}
                   >
-                    <Plus className="h-5 w-5" />
+                    <Plus className={cn('h-5 w-5 transition-transform duration-200 ease-spring group-hover:rotate-90', composingFor === lane.driverId && 'rotate-45')} />
                   </Button>
                 )}
               </div>
               {lane.assignments.length === 0 ? (
-                <p className="py-2 text-sm text-muted-foreground md:flex-1">Nothing planned yet</p>
+                <p className="flex min-h-11 items-center rounded-md border border-dashed border-border px-3 text-sm text-muted-foreground md:flex-1">Nothing planned yet</p>
               ) : (
                 <ol className="grid gap-2 sm:grid-cols-2 md:flex-1 lg:grid-cols-3">
                   {lane.assignments.map((assignment, i) => (

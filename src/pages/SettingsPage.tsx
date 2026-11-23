@@ -151,7 +151,7 @@ export function SettingsPage() {
         <Button
           variant="ghost"
           size="sm"
-          className="h-11 w-11 rounded-full p-0"
+          className="h-11 w-9 rounded-full p-0 text-muted-foreground shadow-none hover:bg-background hover:text-foreground"
           aria-label={`Move ${name} ${by < 0 ? 'up' : 'down'}`}
           title={by < 0 ? 'Earlier in the list' : 'Later in the list'}
           onClick={() => move(spec, list, inUse, index, by)}
@@ -159,11 +159,12 @@ export function SettingsPage() {
           {by < 0 ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
         </Button>
       );
+      if (inUse.length < 2) return null;
       return (
-        <>
+        <span className="flex items-center border-l border-border/70 pr-1">
           {index > 0 && button(-1)}
           {index < inUse.length - 1 && button(1)}
-        </>
+        </span>
       );
     };
   };
