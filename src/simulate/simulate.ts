@@ -5,7 +5,7 @@
  * Truck log. Pure; nothing is saved and the Worker is not asked.
  */
 import type { Assignment } from '../../shared/types';
-import { buildTripDay, routeAt, type AssignmentTrips, type TripDay, type TripJob, type TruckLogColumn, type TruckLogTrip, type TruckLogUnplanned } from '../../shared/trips';
+import { buildTripDay, linkedAssignment, routeAt, type AssignmentTrips, type TripDay, type TripJob, type TruckLogColumn, type TruckLogTrip, type TruckLogUnplanned } from '../../shared/trips';
 import { REAL_DAY, easternIso, type PlannedAssignment, type Scenario } from './realDay';
 import { tripAnswers, type PlannedMadeAssignment, type UnplannedAnswer } from './answers';
 
@@ -85,7 +85,12 @@ export function simulateAt(scenario: Scenario, minutes: number, answers: Unplann
   // Dave answers the whole day's Unplanned work, so a made Assignment keeps its route whatever the clock shows.
   const wholeDay = answers.length === 0 ? [] : buildTripDay({ places: REAL_DAY.places, visits: REAL_DAY.visits, assignments: scenario.assignments, now: easternIso(REAL_DAY.date, '23:59:59'), dayOver: true }).unplanned;
   const answered = tripAnswers(answers, wholeDay, scenario.assignments.length);
-  const all = [...scenario.assignments, ...answered.made];
+  // A linked Assignment is rerouted from its Unplanned work's first Trip: shown on its new route, Changed from then.
+  const planned = scenario.assignments.map((a) => {
+    const link = answered.input.links?.find((l) => l.assignmentId === a.id);
+    return link ? linkedAssignment(a, link) : a;
+  });
+  const all = [...planned, ...answered.made];
   const tripDay = buildTripDay({
     places: REAL_DAY.places,
     visits: REAL_DAY.visits,

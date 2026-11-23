@@ -2,7 +2,7 @@
  * Dave's answers to the simulation's Unplanned work, as the page holds them
  * in memory, and how they become the Trip builder's inputs. Nothing is saved.
  */
-import type { MadeAssignment, UnplannedAnswers, UnplannedWork } from '../../shared/trips';
+import type { MadeAssignment, NotAHaul, UnplannedAnswers, UnplannedLink, UnplannedWork } from '../../shared/trips';
 
 /** "Make an Assignment": where the Truck loaded (one of the piece's Places) and what it hauled. */
 export interface MakeAnAssignment {
@@ -14,8 +14,24 @@ export interface MakeAnAssignment {
   materialName: string;
 }
 
-/** One answer to one piece of Unplanned work. #76 and #77 add their kinds to this union. */
-export type UnplannedAnswer = MakeAnAssignment;
+/** "Link to an Assignment": which of the Driver's Assignments that day it was, and where the Truck loaded. */
+export interface LinkToAnAssignment {
+  kind: 'link';
+  unplannedId: string;
+  assignmentId: string;
+  /** The Place where it loaded: the Assignment's Pick up from the piece's first Trip on. */
+  loadedAt: string;
+}
+
+/** "Not a haul": fuel, a repair, personal; the note is optional. */
+export interface NotAHaulAnswer {
+  kind: 'not-a-haul';
+  unplannedId: string;
+  note: string | null;
+}
+
+/** One answer to one piece of Unplanned work. #77 adds its kinds to this union. */
+export type UnplannedAnswer = MakeAnAssignment | LinkToAnAssignment | NotAHaulAnswer;
 
 /** A made Assignment as the simulation plans it: what the Trip builder matches, and its Material. */
 export type PlannedMadeAssignment = MadeAssignment & { materialName: string };
@@ -41,10 +57,21 @@ export function tripAnswers(
   plannedCount: number,
 ): { input: UnplannedAnswers; made: PlannedMadeAssignment[] } {
   const made: PlannedMadeAssignment[] = [];
+  const links: UnplannedLink[] = [];
+  const notHauls: NotAHaul[] = [];
   for (const answer of answers) {
-    if (answer.kind !== 'make') continue;
     const work = pieces.find((w) => w.id === answer.unplannedId);
     if (!work) continue;
+    if (answer.kind === 'not-a-haul') {
+      notHauls.push({ unplannedId: answer.unplannedId, note: answer.note });
+      continue;
+    }
+    if (answer.kind === 'link') {
+      // Its load Place as in Make an Assignment: From where it loaded, To where the piece went next.
+      links.push({ unplannedId: answer.unplannedId, assignmentId: answer.assignmentId, fromPlaceId: answer.loadedAt, toPlaceId: dropOff(work, answer.loadedAt) });
+      continue;
+    }
+    if (answer.kind !== 'make') continue;
     made.push({
       id: `made-${answer.unplannedId}`,
       label: `A${plannedCount + made.length + 1}`,
@@ -56,5 +83,5 @@ export function tripAnswers(
       materialName: answer.materialName,
     });
   }
-  return { input: { madeAssignments: made }, made };
+  return { input: { madeAssignments: made, links, notHauls }, made };
 }

@@ -156,6 +156,10 @@ export function SimulatePage() {
               }),
             }}
             materials={REAL_DAY.materials}
+            // A link names one of that Driver's Assignments that day, never the one made from this same piece.
+            assignments={day.assignments
+              .filter((a) => a.driverId === REAL_DAY.driver.id && a.date === REAL_DAY.date && a.id !== `made-${work.id}`)
+              .map((a) => ({ id: a.id, label: `${day.labels[a.id]} · ${a.fromPlaceName ?? '–'} → ${a.toPlaceName ?? '–'}` }))}
             onSave={(next) => {
               setAnswers((all) => [...all.filter((a) => a.unplannedId !== next.unplannedId), next]);
               setAnswering(null);
