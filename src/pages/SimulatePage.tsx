@@ -10,7 +10,7 @@ import { DriverView } from '@/simulate/DriverView';
 import { TripLog } from '@/simulate/TripLog';
 import { UnplannedAnswerFlow } from '@/simulate/UnplannedAnswerFlow';
 import type { UnplannedAnswer } from '@/simulate/answers';
-import { REAL_DAY } from '@/simulate/realDay';
+import { REAL_DAY, placeName } from '@/simulate/realDay';
 import { DAY_END, clockTime, simulateAt } from '@/simulate/simulate';
 import { easternTime } from '../../shared/days';
 
@@ -60,7 +60,6 @@ export function SimulatePage() {
   const { truckDay } = day.tripDay;
   /** "Who was driving?": more than one Driver fits and Dave has not picked yet. */
   const whoDrove = truckDay.driver === null && truckDay.driverCandidates.length > 1 ? truckDay.driverCandidates : null;
-  const placeName = (id: string | null, code: string) => REAL_DAY.places.find((p) => p.id === id)?.name ?? code;
   const answer = useCallback((unplannedId: string) => setAnswering(unplannedId), []);
   /** Truck 55's Unplanned work is on its Driver's lane; while "Who was driving?" is open, on each who fits. */
   const lanePieces = (driverId: string) =>
@@ -169,12 +168,12 @@ export function SimulatePage() {
               id: work.id,
               line: unplannedLine(shown),
               places: work.places.flatMap((p) => {
-                const place = REAL_DAY.places.find((x) => x.id === p.placeId);
-                return place ? [{ id: place.id, name: place.name }] : [];
+                const name = placeName(p.placeId);
+                return p.placeId && name ? [{ id: p.placeId, name }] : [];
               }),
               splits: work.trips.slice(1).map((t) => ({
                 at: t.leftAt,
-                label: `Split at ${easternTime(t.leftAt)} · ${placeName(t.fromPlaceId, t.fromCode)} → ${placeName(t.toPlaceId, t.toCode)}`,
+                label: `Split at ${easternTime(t.leftAt)} · ${placeName(t.fromPlaceId) ?? t.fromCode} → ${placeName(t.toPlaceId) ?? t.toCode}`,
               })),
             }}
             materials={REAL_DAY.materials}

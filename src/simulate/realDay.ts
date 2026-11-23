@@ -197,3 +197,6 @@ export const REAL_DAY = {
     },
   ] satisfies Scenario[] as Scenario[],
 };
+
+/** The name of one of the day's Places by its id; null for a geofence code with no Place (show the code instead). */
+export const placeName = (id: string | null): string | null => REAL_DAY.places.find((p) => p.id === id)?.name ?? null;

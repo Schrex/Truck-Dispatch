@@ -6,7 +6,7 @@
  */
 import type { Assignment, Driver } from '../../shared/types';
 import { buildTripDay, linkedAssignment, routeAt, type AssignmentTrips, type TripDay, type TripJob, type TruckLogColumn, type TruckLogTrip, type TruckLogUnplanned, type TruckLogWhichAssignment } from '../../shared/trips';
-import { REAL_DAY, easternIso, type PlannedAssignment, type Scenario } from './realDay';
+import { REAL_DAY, easternIso, placeName, type PlannedAssignment, type Scenario } from './realDay';
 import { tripAnswers, type PlannedMadeAssignment, type UnplannedAnswer } from './answers';
 
 /** The last minute of the day: the clock's end, when the day is over. */
@@ -33,7 +33,6 @@ export interface SimulatedDay {
   truckLog: { columns: TruckLogColumn[]; unplanned: TruckLogUnplanned[]; whichAssignment: TruckLogWhichAssignment[]; shopTrips: TruckLogTrip[] };
 }
 
-const placeName = (id: string | null) => REAL_DAY.places.find((p) => p.id === id)?.name ?? null;
 const jobName = (job: TripJob | null) => (job ? [job.jobNumber, job.name].filter(Boolean).join(' ') : null);
 
 /** One planned Assignment as the API sends it at `now`: its route as it was then, Changed once Dave changed it. */

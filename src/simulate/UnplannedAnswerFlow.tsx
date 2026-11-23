@@ -101,6 +101,11 @@ function ChipRow({
   );
 }
 
+/** "Where did he load?": one chip per Place of the Unplanned work, as Make an Assignment and Link to an Assignment both ask. */
+function LoadedAtRow({ work, loadedAt, onPick }: { work: AnswerableWork; loadedAt: string | null; onPick: (placeId: string | null) => void }) {
+  return <ChipRow label="Where did he load?" chips={work.places.map((p) => ({ id: p.id, label: p.name }))} picked={loadedAt} onPick={onPick} />;
+}
+
 /** "Make an Assignment": where he loaded (one tap per Place of the piece), and the Material, picked or typed. Both are required. */
 function MakeAnAssignmentQuestions({ work, materials, onReady }: WayProps) {
   const [loadedAt, setLoadedAt] = useState<string | null>(null);
@@ -112,7 +117,7 @@ function MakeAnAssignmentQuestions({ work, materials, onReady }: WayProps) {
   }, [onReady, work.id, loadedAt, materialName]);
   return (
     <>
-      <ChipRow label="Where did he load?" chips={work.places.map((p) => ({ id: p.id, label: p.name }))} picked={loadedAt} onPick={setLoadedAt} />
+      <LoadedAtRow work={work} loadedAt={loadedAt} onPick={setLoadedAt} />
       <ChipRow label="Material" chips={materials.map((m) => ({ id: m, label: m }))} picked={material} onPick={setMaterial} typed={typed} onTyped={setTyped} />
     </>
   );
@@ -149,7 +154,7 @@ function LinkQuestions({ work, assignments, driverId, onReady }: WayProps) {
   return (
     <>
       <ChipRow label="Which Assignment?" chips={offered} picked={assignmentId} onPick={setAssignmentId} />
-      <ChipRow label="Where did he load?" chips={work.places.map((p) => ({ id: p.id, label: p.name }))} picked={loadedAt} onPick={setLoadedAt} />
+      <LoadedAtRow work={work} loadedAt={loadedAt} onPick={setLoadedAt} />
     </>
   );
 }
