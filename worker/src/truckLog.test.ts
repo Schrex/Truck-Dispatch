@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { apiOn } from './testing/api';
-import { fleetRows, setUpTruck55 } from './testing/fleet';
+import { fleetRows, fleetXlsxRows, setUpTruck55 } from './testing/fleet';
 import { localD1 } from './testing/localD1';
 import { easternTime } from '../../shared/days';
 import type { Assignment, Place, TruckLogDay } from '../../shared/types';
@@ -76,6 +76,80 @@ describe('The Truck log of a stored day', () => {
     const loads = (id: string) => log.truckLog.columns.find((c) => c.id === id)?.loads;
     expect([loads(a1.id), loads(a2.id)]).toEqual([4, 2]);
     expect(log.labels).toEqual({ [a1.id]: 'A1', [a2.id]: 'A2' });
+  });
+});
+
+describe('The Truck log of Mon 16 Nov, a past day', () => {
+  it('runs 06:24 to 16:03 with miles blank, A1 4 Loads in 3.02 h, A2 2 Loads, and the shop drives, as of the latest Import', async () => {
+    const { truckId, a1, a2 } = await planMonday();
+    await importCut('2026-11-16-cut-1620.json');
+
+    const log = await readLog(truckId);
+    const day = log.tripDay.truckDay;
+    expect([easternTime(day.startAt!), easternTime(day.endAt!)]).toEqual(['06:24', '16:03']);
+    expect(day).toMatchObject({ startMiles: null, endMiles: null });
+    const column = (id: string) => log.truckLog.columns.find((c) => c.id === id)!;
+    expect(column(a1.id)).toMatchObject({ loads: 4, truckingHours: 3.02 });
+    expect(column(a2.id).loads).toBe(2);
+    expect(log.truckLog.shopTrips.map((t) => `${easternTime(t.leftAt)} ${t.from} → ${t.to}`)).toEqual([
+      '06:24 Shop → J25008 Los Flamboyanes',
+      '15:41 J25008 Los Flamboyanes → Shop',
+    ]);
+    expect(log.asOf).toBe(AFTER_1620);
+  });
+
+  it('builds the same day from the 15:02 JSON closed by the xlsx, which gives no odometers', async () => {
+    const { truckId, a1, a2 } = await planMonday();
+    await importCut('2026-11-16-1502.json', '2026-11-16T20:05:00.000Z');
+    const xlsx = '2026-11-16-EntryExitReport.xlsx';
+    const rows = await fleetXlsxRows(xlsx, 'MCK-55-17');
+    expect((await send('POST', '/api/fleet-imports', { fileName: xlsx, format: 'xlsx', rows }, { NOW: AFTER_1620 })).status).toBe(201);
+
+    const log = await readLog(truckId);
+    const day = log.tripDay.truckDay;
+    expect([easternTime(day.startAt!), easternTime(day.endAt!)]).toEqual(['06:24', '16:03']);
+    const lastTrip = log.tripDay.trips.at(-1)!;
+    expect(tripLine(log, lastTrip)).toBe('15:41 J25008 Los Flamboyanes → Shop');
+    expect(lastTrip.miles).toBeNull();
+    const loads = (id: string) => log.truckLog.columns.find((c) => c.id === id)?.loads;
+    expect([loads(a1.id), loads(a2.id)]).toEqual([4, 2]);
+  });
+
+  it('builds the day from the xlsx alone, every Trip with miles blank', async () => {
+    const { truckId, a1, a2 } = await planMonday();
+    const xlsx = '2026-11-16-EntryExitReport.xlsx';
+    const rows = await fleetXlsxRows(xlsx, 'MCK-55-17');
+    expect((await send('POST', '/api/fleet-imports', { fileName: xlsx, format: 'xlsx', rows }, { NOW: AFTER_1620 })).status).toBe(201);
+
+    const log = await readLog(truckId);
+    expect(log.tripDay.trips.every((t) => t.miles === null)).toBe(true);
+    expect([easternTime(log.tripDay.truckDay.startAt!), easternTime(log.tripDay.truckDay.endAt!)]).toEqual(['06:24', '16:03']);
+    const loads = (id: string) => log.truckLog.columns.find((c) => c.id === id)?.loads;
+    expect([loads(a1.id), loads(a2.id)]).toEqual([4, 2]);
+  });
+});
+
+describe('The end time of a stored day still going on', () => {
+  /** Monday 16 Nov, 13:10 and 16:25 US Eastern: today for the Worker. */
+  const AT_1310 = '2026-11-16T18:10:00.000Z';
+
+  it('has none with only the 13:05 cut stored, and appears once the 16:20 cut is imported', async () => {
+    const { truckId } = await planMonday();
+    await importCut('2026-11-16-cut-1305.json', AT_1310);
+    expect((await readLog(truckId, { NOW: AT_1310 })).tripDay.truckDay.endAt).toBeNull();
+
+    await importCut('2026-11-16-cut-1620.json', AFTER_1620);
+    const log = await readLog(truckId, { NOW: AFTER_1620 });
+    expect(log.dayOver).toBe(false);
+    expect(easternTime(log.tripDay.truckDay.endAt!)).toBe('16:03');
+  });
+
+  it('moves "as of" to a later drop of the 16:20 cut, though it changed nothing', async () => {
+    const { truckId } = await planMonday();
+    await importCut('2026-11-16-cut-1620.json', AFTER_1620);
+    const later = '2026-11-16T22:30:00.000Z';
+    await importCut('2026-11-16-cut-1620.json', later);
+    expect((await readLog(truckId)).asOf).toBe(later);
   });
 });
 
