@@ -42,7 +42,7 @@ A good test says what Dave or a Driver would see, or what the API answers, for a
 
 ## Environments
 
-Local (synthetic seed), a preview per PR, and staging, all on the Schrex Dev Cloudflare account behind Cloudflare Access, with synthetic data only. Production is not set up yet. Addresses, accounts, secrets and the PR → staging flow: [`../deployment.md`](../deployment.md).
+Local (synthetic seed), a preview per PR, and staging, all on the Schrex Dev Cloudflare account behind Cloudflare Access, with synthetic data only, except one real Truck's data on staging (ADR 0008). Production is not set up yet. Addresses, accounts, secrets and the PR → staging flow: [`../deployment.md`](../deployment.md).
 
 ## Not yet decided
 
