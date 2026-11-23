@@ -10,6 +10,7 @@ Start with [`specs/mission.md`](specs/mission.md) for why the project exists, th
 | [`specs/roadmap.md`](specs/roadmap.md) | Every phase cut into one-PR steps, with what is done, in review, to do and blocked |
 | [`specs/tech-stack.md`](specs/tech-stack.md) | Stack, tooling, how we test, and what is still undecided |
 | [`specs/phase-1-planning.md`](specs/phase-1-planning.md) | Phase 1 user stories (built): what the Board, Driver view and Settings had to do, and why |
+| [`specs/phase-2-check-in.md`](specs/phase-2-check-in.md) | Phase 2 user stories (agreed, not built): Check-in, the Inspection and Truck problems |
 
 ## How it works now
 

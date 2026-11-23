@@ -26,7 +26,7 @@ One pipeline with four steps. Each step fills part of the Truck log:
 
 - **Dave, the dispatcher.** He plans fast, changes plans all day, and sees what is happening without phoning anyone.
 - **The Drivers** (about 3 to 4, on about 6 Trucks). They know what to do and in what order, and they answer only what the app cannot work out for itself.
-- **Whoever uses the Truck log** (to confirm). The candidates are job costing, payroll, billing, the stone-invoice matching, and DOT inspection records.
+- **Whoever uses the Truck log** (to confirm). The candidates are job costing, payroll, billing, the stone-invoice matching, and DOT inspection records. Evidence: the paper **Daily Truck Log & Inspection** the Drivers fill in today has, per order, Customer name, Job name, Pickup, Dropoff, Material, # of loads, # of tons and Trucking hours, plus total hours, start and end miles, the inspection checklist and the Driver's signature. That points to billing customers and hours, alongside the inspection record. The app's Truck log replaces that paper.
 
 ## Principles
 
@@ -42,7 +42,7 @@ One pipeline with four steps. Each step fills part of the Truck log:
 
 - Billing, rates and invoicing, even though the Hub's old Dispatch page has them.
 - Drivers picking their own work: Dave assigns everything.
-- Grounding a Truck automatically. The app reports Truck problems but never takes a Truck out of service (to confirm with DOT compliance).
+- Grounding a Truck automatically. The app reports Truck problems but never takes a Truck out of service.
 - Slack or text messages.
 - Pushing the Truck log to HeavyJob or payroll. That is a later decision.
 
