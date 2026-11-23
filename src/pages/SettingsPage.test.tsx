@@ -2,6 +2,9 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../App';
+// The pages load lazily in the app (App.tsx); importing them here compiles them
+// before the first test, so a cold run never waits on that inside a test.
+import './SettingsPage';
 import type { TruckProblem } from '../../shared/types';
 
 /** When the Worker marks a problem fixed in these tests: Thursday 19 Nov 2026, 10:00 AM US Eastern. */
@@ -149,6 +152,8 @@ type Title = 'Drivers' | 'Trucks' | 'Places' | 'Materials' | 'Jobs' | 'Foremen' 
 const settings = async () => {
   window.history.pushState(null, '', '/settings');
   render(<App />);
+  // The page's code loads on its own (App.tsx), then each list.
+  await screen.findByRole('heading', { name: 'Settings', level: 1 });
   await waitFor(() => expect(screen.queryAllByText(/^Loading/)).toEqual([]));
 };
 const section = (title: Title) => screen.getByRole('region', { name: title });

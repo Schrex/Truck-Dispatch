@@ -20,3 +20,12 @@ export const loadsText = (loads: number) => `${loads} ${loads === 1 ? 'Load' : '
 
 /** How a cancelled Assignment's words look everywhere (its block, the open Assignment, the Driver's card): struck through and greyed. */
 export const cancelledText = 'text-muted-foreground line-through';
+
+/** "Sample Driver A" → "SA": the first letters of a name's first and last words, for its avatar. */
+export function initials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '?';
+  const first = words[0][0];
+  const last = words.length > 1 ? words[words.length - 1][0] : (words[0][1] ?? '');
+  return (first + last).toUpperCase();
+}

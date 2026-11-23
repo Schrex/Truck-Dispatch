@@ -100,7 +100,7 @@ These stories record what phase 1 had to do and why ("so that…"). They are kep
 64. As a Driver, I want a **Scheduler | Driver** switch in the header, so that I can get to my own view.
 65. As a Driver, I want to be asked "Who are you?" once with the active Drivers as large buttons, so that I can pick myself with gloves on.
 66. As a Driver, I want my phone to remember my name and the Driver view, so that it opens on my day every morning.
-67. As a Driver, I want a "← Drivers" button back to the list of Drivers, so that a shared phone can change hands.
+67. As a Driver, I want a way back to the list of Drivers (**Change**, beside my name under the title), so that a shared phone can change hands.
 68. As a Driver, I want Yesterday, Today and Tomorrow one tap away, ‹ › to step to any other day, weekends included, and "Next from Dave" to take me to the next day he has Sent me beyond tomorrow, so that I know what I am doing now and next even on a weekend before a Monday.
 69. As a Driver, I want my Assignments as large cards in Dave's order, each with Material, Pick up and Drop off, and the note, so that I can read them from the cab.
 70. As a Driver, I want a card to say "Take Truck 53 for this one" when Dave named a Truck, so that I know when to switch.

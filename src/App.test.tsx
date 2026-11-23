@@ -2,6 +2,11 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
+// The pages load lazily in the app (App.tsx); importing them here compiles them
+// before the first test, so a cold run never waits on that inside a test.
+import './pages/DriverPage';
+import './pages/SettingsPage';
+import './pages/SimulatePage';
 import { toast } from './components/ui/sonner';
 import { dayState, draftsOn, holidayName, sinceSent, weekDates, type DayTimes } from '../shared/days';
 
@@ -343,14 +348,16 @@ describe.each([
   it.each([
     ['Board', '/', 'Dispatch'],
     ['Settings', '/settings', 'Settings'],
-  ])('gives the %s page the Hub header: a "← Hub" link, an uppercase Oswald title and a subtitle, with no bottom nav', (_page, path, title) => {
+    ['Simulation', '/simulate', 'Simulation'],
+  ])('gives the %s page the Hub header: a "← Hub" link, an uppercase Oswald title and a subtitle, with no bottom nav', async (_page, path, title) => {
     open(`${prefix}${path}`);
-    expect(screen.getByRole('link', { name: '← Hub' }).getAttribute('href')).toBe('/');
+    expect((await screen.findByRole('link', { name: '← Hub' })).getAttribute('href')).toBe('/');
     const heading = screen.getByRole('heading', { level: 1, name: title });
     expect(heading.className).toContain('font-display');
     expect(heading.className).toContain('uppercase');
     expect(heading.nextElementSibling?.textContent).toBeTruthy();
-    expect(screen.queryByRole('navigation')).toBeNull();
+    // The Board's week strip is a navigation of its own; no other, and no bottom nav.
+    expect(screen.queryAllByRole('navigation').map((nav) => nav.getAttribute('aria-label'))).toEqual(path === '/' ? ['Week'] : []);
   });
 
   it.each([

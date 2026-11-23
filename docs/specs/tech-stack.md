@@ -49,3 +49,9 @@ Local (synthetic seed), a preview per PR, and staging, all on the Schrex Dev Clo
 - Sign-in and roles (waits for the Hub)
 - Where the Truck log goes once finished: HeavyJob, payroll or CSV only
 - Production account and its rollout
+
+## Look and feel
+
+- The Hub's tokens in `src/index.css` are unchanged; elevation (`--shadow-*`, `shadow-glow`) and motion (`--ease-out`, `--ease-spring`, `--duration-*`) tokens are added beside them, with utilities `animate-rise` (entrance, staggered by `--i`), `animate-unfold` (a panel opening), `lift` (hover lift on tappable cards) and `hivis-rule` (the stripe on every page header). Motion is turned off under `prefers-reduced-motion`.
+- The Board is in the first download; the Driver view, Settings and the Simulation are loaded on their own (`React.lazy` in `src/App.tsx`) and prefetched when the browser is idle.
+

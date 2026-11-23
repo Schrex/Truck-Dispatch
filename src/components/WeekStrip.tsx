@@ -20,6 +20,14 @@ export function tileParts(date: string, today: string | null, day: WeekDay | und
   return [dayLabel(date), nearby, holiday, state].filter((part): part is string => Boolean(part));
 }
 
+/** The dot in a tile's corner for its day's state, in the Board's colours for each; none for an empty day. */
+const STATE_DOT: Record<WeekDay['state'], string | null> = {
+  none: null,
+  draft: 'border-2 border-current opacity-60',
+  assigned: 'bg-success',
+  changed: 'bg-warning',
+};
+
 /**
  * The Daily Schedule's week strip, in the Board's header: a tile for each of
  * Monday to Friday and narrow ones for Saturday and Sunday, each saying its
@@ -93,14 +101,16 @@ export function WeekStrip({
           <ChevronRight className="h-4 w-4" />
         </Button>
       </div>
-      <ol className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+      <ol className="scrollbar-none -mx-1 flex snap-x gap-2 overflow-x-auto px-1 pb-2 pt-1">
         {weekDates(monday).map((day, index) => {
           const weekend = index >= 5;
           const chosen = day === date;
-          const parts = tileParts(day, today, shown?.find((d) => d.date === day));
+          const read = shown?.find((d) => d.date === day);
+          const parts = tileParts(day, today, read);
+          const dot = read ? STATE_DOT[read.state] : null;
           const [label, ...rest] = parts;
           return (
-            <li key={day} className={cn('shrink-0', weekend ? 'w-20' : 'min-w-[6.5rem] flex-1')}>
+            <li key={day} className={cn('shrink-0 snap-start', weekend ? 'w-20' : 'min-w-[6.5rem] flex-1')}>
               <button
                 type="button"
                 aria-label={parts.join(' · ')}
@@ -108,13 +118,14 @@ export function WeekStrip({
                 aria-current={day === today ? 'date' : undefined}
                 onClick={() => onShow(day)}
                 className={cn(
-                  'flex h-full min-h-[4.5rem] w-full flex-col items-start gap-0.5 rounded-md border px-3 py-2 text-left transition-colors',
+                  'lift relative flex h-full min-h-[4.5rem] w-full flex-col items-start gap-0.5 rounded-md border px-3 py-2 text-left',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-                  chosen ? 'border-primary bg-primary text-primary-foreground' : 'bg-background hover:bg-muted',
+                  chosen ? 'border-primary bg-primary text-primary-foreground shadow-glow' : 'bg-background shadow-xs hover:border-foreground/20',
                   // Today is marked quietly, so the chosen day's solid fill is the one signal of what is shown.
                   day === today && !chosen && 'ring-2 ring-inset ring-primary',
                 )}
               >
+                {dot && <span aria-hidden className={cn('absolute right-2.5 top-2.5 h-2.5 w-2.5 rounded-full', dot)} />}
                 <span className="text-sm font-semibold">{label}</span>
                 {rest.map((part) => (
                   <span key={part} className={cn('truncate text-xs', chosen ? 'text-primary-foreground/90' : 'text-muted-foreground')}>

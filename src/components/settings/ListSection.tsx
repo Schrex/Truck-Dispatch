@@ -32,7 +32,7 @@ export function ListSection({
   const label = (entry: Row) => String(entry[spec.name.key]);
 
   return (
-    <section aria-labelledby={headingId} className="flex-1 space-y-3 rounded-lg border bg-background p-4">
+    <section aria-labelledby={headingId} className="flex-1 animate-rise space-y-3 rounded-lg border border-border/80 bg-background p-4 shadow-sm">
       <div className="flex items-center justify-between gap-3">
         <h2 id={headingId} className="font-display text-xl font-semibold uppercase tracking-wide">
           {spec.title}
@@ -49,15 +49,20 @@ export function ListSection({
       )}
       {entries && inUse.length === 0 && <p className="text-sm text-muted-foreground">No {spec.title} in use.</p>}
       {inUse.length > 0 && (
-        <ul aria-label={spec.title} className="flex flex-wrap gap-x-4 gap-y-2">
+        <ul aria-label={spec.title} className="flex flex-wrap gap-2">
           {inUse.map((entry, index) => {
             const detail = spec.detail?.(entry as never, nameOf);
             return (
-              <li key={entry.id} aria-label={label(entry)} className="flex items-center gap-0.5">
+              // The chip and its ▲▼ share one pill, so it is plain which entry the arrows move.
+              <li
+                key={entry.id}
+                aria-label={label(entry)}
+                className="flex items-center rounded-full border bg-surface shadow-xs transition-[box-shadow,border-color] duration-200 hover:border-foreground/20 hover:shadow-sm"
+              >
                 <button
                   type="button"
                   onClick={() => onOpen(entry)}
-                  className="flex min-h-11 items-center gap-2 rounded-full border bg-surface px-4 py-2 text-sm font-medium hover:bg-accent"
+                  className="flex min-h-11 items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.98]"
                 >
                   {label(entry)}
                   {detail && <span className="text-xs font-normal text-muted-foreground">{detail}</span>}

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 import { SimulatePage } from './SimulatePage';
 
 afterEach(() => {
@@ -48,10 +49,12 @@ const tripLog = () =>
 
 describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => {
   it('shows nothing but the clock, the scenario picker and the views', () => {
-    render(<SimulatePage />);
+    render(<SimulatePage />, { wrapper: MemoryRouter });
     expect(screen.getAllByRole('slider').map((s) => s.getAttribute('aria-label'))).toEqual(['Clock']);
     expect(screen.getAllByRole('combobox').map((s) => s.getAttribute('aria-label'))).toEqual(['Scenario']);
     expect(screen.getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['Play the day']);
+    // Its way back is the Board button, as from Settings; "← Hub" top left, as on every page.
+    expect(screen.getAllByRole('link').map((l) => l.textContent?.trim())).toEqual(['← Hub', 'Board']);
     expect(within(screen.getByRole('combobox', { name: 'Scenario' })).getAllByRole('option').map((o) => o.textContent)).toEqual([
       'As planned',
       'The other way round',
@@ -63,33 +66,33 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
   });
 
   it('opens at end of day: Randy’s lane with Truck 55, A1 4 Loads Done since 08:24, A2 2 Loads Done', () => {
-    render(<SimulatePage />);
+    render(<SimulatePage />, { wrapper: MemoryRouter });
     expect(screen.getByText('end of day')).toBeTruthy();
     expect(within(scheduler()).getByRole('article', { name: 'Randy' }).querySelector('[data-lane-about]')?.textContent).toBe('Truck 55');
     expect(randy()).toEqual([`${A1} · 4 Loads · Done · since 08:24`, `${A2} · 2 Loads · Done · since 11:30`]);
   });
 
   it('at 10:02 shows A1 with 2 Loads and Now, and nothing new on A2', () => {
-    render(<SimulatePage />);
+    render(<SimulatePage />, { wrapper: MemoryRouter });
     setClock(10 * 60 + 2);
     expect(screen.getByText('10:02')).toBeTruthy();
     expect(randy()).toEqual([`${A1} · 2 Loads · Now · since 08:24`, A2]);
   });
 
   it('before the Truck leaves the shop, looks like today’s board', () => {
-    render(<SimulatePage />);
+    render(<SimulatePage />, { wrapper: MemoryRouter });
     setClock(6 * 60);
     expect(randy()).toEqual([A1, A2]);
   });
 
   it('the other way round gives A1 3 Loads', () => {
-    render(<SimulatePage />);
+    render(<SimulatePage />, { wrapper: MemoryRouter });
     choose('other-way');
     expect(randy()[0]).toBe('First · Villager → J25008 Los Flamboyanes · Fill · Truck 55 (his own) · 3 Loads · Done · since 08:24');
   });
 
   it('the reroute at 11:20 gives A1 5 Loads, counting the ones before it, and shows A1 as it was before 11:20', () => {
-    render(<SimulatePage />);
+    render(<SimulatePage />, { wrapper: MemoryRouter });
     choose('reroute');
     expect(randy()[0]).toBe('First · Changed · J25008 Los Flamboyanes → J611 Bishop Kearney · Fill · Truck 55 (his own) · 5 Loads · Done · since 08:24');
     setClock(11 * 60);
@@ -101,20 +104,20 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
     const CARD_A2 = '1&2 stonePick upWalworth DolomiteDrop offJ25008 Los Flamboyanes';
 
     it('at end of day shows A1 with 4 Loads, last 11:25, and A2 with 2 Loads, last 13:54', () => {
-      render(<SimulatePage />);
+      render(<SimulatePage />, { wrapper: MemoryRouter });
       expect(within(driverView()).getAllByRole('article').map((c) => c.getAttribute('aria-label'))).toEqual(['Fill', '1&2 stone']);
       expect(cards()).toEqual([`4 Loads · last 11:25${CARD_A1}`, `2 Loads · last 13:54${CARD_A2}`]);
     });
 
     it('at 10:02 shows A1 with 2 Loads, marked Now, and nothing new on A2', () => {
-      render(<SimulatePage />);
+      render(<SimulatePage />, { wrapper: MemoryRouter });
       setClock(10 * 60 + 2);
       expect(cards()[0]).toBe(`Now2 Loads · last 09:46${CARD_A1}`);
       expect(cards()[1]).toBe(CARD_A2);
     });
 
     it('before the Truck leaves the shop, shows the cards as his phone does today', () => {
-      render(<SimulatePage />);
+      render(<SimulatePage />, { wrapper: MemoryRouter });
       setClock(6 * 60);
       expect(cards()).toEqual([CARD_A1, CARD_A2]);
     });
@@ -122,7 +125,7 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
 
   it('plays the day in 10-minute steps, the rate the Worker pulls Fleet', () => {
     vi.useFakeTimers();
-    render(<SimulatePage />);
+    render(<SimulatePage />, { wrapper: MemoryRouter });
     setClock(10 * 60);
     fireEvent.click(screen.getByRole('button', { name: 'Play the day' }));
     act(() => {
@@ -134,7 +137,7 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
 
   describe('Truck log header', () => {
     it('at end of day reads like the paper, filled in: Truck, date, times, miles, Driver, Total hours', () => {
-      render(<SimulatePage />);
+      render(<SimulatePage />, { wrapper: MemoryRouter });
       expect(truckLog()).toEqual({
         Truck: '55 (MCK-55-17)',
         Date: 'Mon 16 Nov 2026',
@@ -148,19 +151,19 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
     });
 
     it('at 10:02 shows what is known by then: started 06:19, no end time, end miles or Total hours yet', () => {
-      render(<SimulatePage />);
+      render(<SimulatePage />, { wrapper: MemoryRouter });
       setClock(10 * 60 + 2);
       expect(truckLog()).toMatchObject({ 'Start time': '06:19', 'End time': '', 'Start miles': '258,050.6', 'End miles': '', Driver: 'Randy', 'Total hours': '' });
     });
 
     it('after ignition off, before the next morning’s reading: end time but no end miles', () => {
-      render(<SimulatePage />);
+      render(<SimulatePage />, { wrapper: MemoryRouter });
       setClock(20 * 60);
       expect(truckLog()).toMatchObject({ 'End time': '16:12', 'End miles': '', 'Total hours': '9.88' });
     });
 
     it('shows end miles from 22:12, when that evening’s reading was taken', () => {
-      render(<SimulatePage />);
+      render(<SimulatePage />, { wrapper: MemoryRouter });
       setClock(22 * 60 + 11);
       expect(truckLog()['End miles']).toBe('');
       setClock(22 * 60 + 12);
@@ -170,7 +173,7 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
 
   describe('Truck log columns: one per Assignment, and the Trips with no Assignment', () => {
     it('at end of day: A1 and A2 as Assignment 1 and 2, tons from Tickets, and the 14:15 Bishop Kearney Trip for Dave', () => {
-      render(<SimulatePage />);
+      render(<SimulatePage />, { wrapper: MemoryRouter });
       expect(columns()).toEqual([
         {
           Job: 'J25008 Los Flamboyanes',
@@ -195,7 +198,7 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
     });
 
     it('with the reroute at 11:20 the Bishop Kearney Trip counts on A1, and no Trip is left for Dave', () => {
-      render(<SimulatePage />);
+      render(<SimulatePage />, { wrapper: MemoryRouter });
       choose('reroute');
       expect(columns()[0]).toMatchObject({ Job: 'J611 Bishop Kearney', 'Drop off': 'J611 Bishop Kearney', '# of loads': '5' });
       expect(forDave()).toEqual([]);
@@ -203,7 +206,7 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
     });
 
     it('at 10:02 shows what is known by then: A1 2 loads and its hours so far, A2 nothing yet', () => {
-      render(<SimulatePage />);
+      render(<SimulatePage />, { wrapper: MemoryRouter });
       setClock(10 * 60 + 2);
       expect(columns().map((o) => [o['# of loads'], o['Trucking hours']])).toEqual([
         ['2', '1.59'],
@@ -214,7 +217,7 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
   });
 
   it('logs every Trip the Truck made, down to the last drive from the job site back to the shop', () => {
-    render(<SimulatePage />);
+    render(<SimulatePage />, { wrapper: MemoryRouter });
     const rows = tripLog();
     expect(rows[0].slice(0, 2)).toEqual(['06:24', 'Shop → J25008 Los Flamboyanes']);
     expect(rows.at(-1)!.slice(0, 5)).toEqual(['15:41', 'J25008 Los Flamboyanes → Shop', '18.39', 'empty', '–']);
@@ -224,7 +227,7 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
   });
 
   it('logs only the Trips known at the clock’s time, and follows the scenario', () => {
-    render(<SimulatePage />);
+    render(<SimulatePage />, { wrapper: MemoryRouter });
     setClock(10 * 60 + 2);
     expect(tripLog().map((r) => r[0])).toEqual(['06:24', '08:24', '08:43', '09:35', '09:50']);
     setClock(6 * 60);

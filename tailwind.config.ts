@@ -34,6 +34,22 @@ export default {
         popover: { DEFAULT: 'hsl(var(--popover))', foreground: 'hsl(var(--popover-foreground))' },
         card: { DEFAULT: 'hsl(var(--card))', foreground: 'hsl(var(--card-foreground))' },
       },
+      // Added on top of the Hub's theme: elevation and motion from src/index.css.
+      boxShadow: {
+        xs: 'var(--shadow-xs)',
+        sm: 'var(--shadow-sm)',
+        DEFAULT: 'var(--shadow-sm)',
+        md: 'var(--shadow-md)',
+        lg: 'var(--shadow-lg)',
+        glow: 'var(--shadow-glow)',
+      },
+      transitionTimingFunction: {
+        out: 'var(--ease-out)',
+        spring: 'var(--ease-spring)',
+      },
+      transitionDuration: {
+        DEFAULT: '200ms',
+      },
       borderRadius: {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 4px)',

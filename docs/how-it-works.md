@@ -6,7 +6,7 @@ What the app does as built, page by page. Words in capitals are defined in [`GLO
 
 ### Lanes
 - Opens on the next **Working day** (US Eastern; on a Friday, Monday).
-- One lane per Driver (name and usual Truck; a removed Driver only on a day he has work), and an Unassigned lane last.
+- One lane per Driver (his initials in a yellow circle, name and usual Truck; a removed Driver only on a day he has work), and an Unassigned lane last.
 - **Check-ins (today only):** when the day on screen is today, each Driver's lane shows his check-in in place of his usual Truck: "Truck 24 · checked in 6:42" (his latest Inspection; US Eastern, 24-hour clock), adding "· needs repair" when that Inspection had a Needs repair item, or "Not checked in" until he has. Two Drivers checked in to one Truck both show it. The Board reads the check-ins again when the page regains the focus; if they cannot be read, the lanes show the usual Truck. On any other day the lanes show the usual Truck as before.
 - **Open Truck problems (today only):** on today a lane gets a red mark beside its Truck line when the Driver's Truck has an open Truck problem: the Truck he checked in to, or his usual Truck before he checks in. Hovering the mark shows the problems' notes; tapping it lists them under the line (tapping again puts them away). The Board reads the open problems again when the page regains the focus, so one marked fixed in Settings loses its mark; if they cannot be read, the marks stay as they were. No lane mark on any other day.
 - Each lane shows that day's **Assignments** as blocks in order, reading "From → To" (or the note), marked First (the first that is not cancelled) and Then.
@@ -46,18 +46,18 @@ What the app does as built, page by page. Words in capitals are defined in [`GLO
 
 ### Week strip
 - A tile for each day Monday to Friday and narrow Saturday and Sunday tiles; today's says Today and the next day's Tomorrow; the day on screen is filled and today outlined.
-- Each tile shows the day's state and a Holiday's name: "2 drafts" while it holds Drafts that are not cancelled (Unassigned ones included), otherwise Assigned, or Changed once any Assigned one is Changed, cancelled or Added, or "–" for nothing.
+- Each tile shows the day's state and a Holiday's name: "2 drafts" while it holds Drafts that are not cancelled (Unassigned ones included), otherwise Assigned, or Changed once any Assigned one is Changed, cancelled or Added, or "–" for nothing. A dot in the tile's corner repeats the state at a glance: a hollow ring for drafts, green for Assigned, amber for Changed, none for nothing.
 - Tapping a tile shows that day; the pager ("Nov 16 to Nov 22") moves a week at a time keeping the weekday.
 - The strip reads the states again after any change on the Board and when the page regains the focus (if the week cannot be read, it says so under the tiles, which still show their days), and scrolls sideways on a phone.
 
 ## Driver view (`/driver`)
 
 - **Scheduler | Driver** in the header switches to it. The first time it asks "Who are you?" with the active Drivers as large buttons; the device remembers the Driver and the view in its browser storage (nothing is saved in the database), so it opens on his day.
-- **← Drivers** (top left) goes back to "Who are you?"; **Scheduler** switches back.
+- Under the title his initials and name, with **Change**, which goes back to "Who are you?" (top left is "← Hub", as on every page); **Scheduler** switches back.
 - It shows one of his days at a time, opening on Today: **Yesterday | Today | Tomorrow** are one tap (calendar days, so on a Friday, Tomorrow is Saturday), and **‹ ›** step one calendar day at a time, weekends included.
 - When Dave has Assigned him work beyond tomorrow (not cancelled), **Next from Dave: Mon, Nov 23 →** goes there.
 - He sees only his Assigned Assignments, never his Drafts; a day with none says "Nothing from Dave yet for Monday."
-- Otherwise his Assignments are large cards in Dave's order with the Material, Pick up, Drop off, the Foreman (when there is one) and the note, and "Take Truck 53 for this one" when a Truck is named.
+- Otherwise his Assignments are large cards in Dave's order, each with a coloured left edge (yellow, amber when Changed, green when Added, red when cancelled), with the Material, Pick up, Drop off, the Foreman (when there is one) and the note, and "Take Truck 53 for this one" when a Truck is named.
 - A card can also show what the Truck did on it (phase 3): "4 Loads · last 11:25" (its Loads and when the last one arrived), and **Now** on the Assignment he is on now. Only when the Assignment carries a Trip part (`trips`) with at least one Trip; the Worker does not send one yet, so his cards look as above. The Simulation (`/simulate`) shows it on Randy's real day.
 - Marks: "Changed by Dave" with what each field was when it was Assigned ("was Cobblestone"), "Added by Dave" (Assigned on its own day, or handed over from another Driver), or struck through and "Cancelled by Dave". A cancelled card has **Dismiss**, which clears it off his day (the Board is unchanged); Put back on the Board shows it to him again. Given to another Driver after it was Assigned, it shows Cancelled to the first and Added to the second.
 - It reads today, the day shown and his next Assigned day again whenever the page regains the focus; Today moves on with the clock, a picked day stays.
@@ -73,6 +73,8 @@ What the app does as built, page by page. Words in capitals are defined in [`GLO
 - An Inspection is never changed or deleted (ADR 0006). Until Drivers sign in through the Hub, whoever picked the name on the phone is trusted, so Inspections are tried on staging, not used as the real record.
 
 ## Simulation (`/simulate`)
+
+**Board** (top right) goes back to the Board, as from Settings.
 
 Phase 3 run on one real day: Truck 55 (MCK-55-17), driven by Randy on Mon 16 Nov 2026, on the real HCSS Fleet data. The Trip builder (`shared/trips.ts`) works out everything below from what the Worker would know at the clock's time. Nothing is saved and the Worker is not asked.
 

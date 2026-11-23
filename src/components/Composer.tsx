@@ -335,7 +335,7 @@ export function Composer({
       aria-label={`New Assignment for ${driverName ?? 'Unassigned'}`}
       onSubmit={save}
       noValidate
-      className="space-y-4 rounded-md border bg-background p-4 shadow-sm"
+      className="animate-unfold space-y-4 rounded-md border border-primary/40 bg-background p-4 shadow-md"
     >
       <ChipRow label="Pick up" chips={placeChips} {...slotRow('from')} />
       <ChipRow label="Drop off" chips={placeChips} {...slotRow('to')} />
