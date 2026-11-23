@@ -9,6 +9,8 @@ import { ORDERED_LISTS, PLACE_KINDS, type ListName } from '../../shared/types';
  *   GET   api/<list>                    active entries, by display name
  *   GET   api/<list>?include=inactive   every entry
  *   POST  api/<list>                    add an entry          → 201 { <one>: entry }
+ *                                       or, when a removed entry has that name, bring it
+ *                                       back with the fields sent → 200 { <one>: entry, broughtBack: true }
  *   PATCH api/<list>/<id>               change any of its fields, including active
  *   PUT   api/<list>/order              Dave's own order of the whole list (ordered lists only)
  *
@@ -243,7 +245,7 @@ async function read(env: Env, list: ListName, includeInactive: boolean): Promise
   return json({ [list]: results.map((row) => entry(list, row)) });
 }
 
-/** Adds an entry (id null) or changes the given fields of one. */
+/** Adds an entry (id null), or brings back the removed one with its name, or changes the given fields of one. */
 async function save(request: Request, env: Env, list: ListName, id: string | null): Promise<Response> {
   const spec = LISTS[list];
   if (id !== null && !(await exists(env, list, id))) return json({ error: 'not_found' }, 404);
@@ -253,14 +255,22 @@ async function save(request: Request, env: Env, list: ListName, id: string | nul
 
   const errors: Record<string, string> = {};
   const values: Record<string, string | number | null> = {};
+  /** The removed entry this add brings back, when it has the name sent. */
+  let revived: string | null = null;
 
   if (adding || spec.name.key in body) {
     const name = text(body[spec.name.key]);
     if (!name) errors[spec.name.key] = spec.name.missing;
     else if (name.length > TEXT_LIMIT) errors[spec.name.key] = `Keep it to ${TEXT_LIMIT} characters or fewer.`;
-    else if (await env.DB.prepare(`SELECT 1 FROM ${spec.table} WHERE ${spec.name.column} = ? COLLATE NOCASE AND id IS NOT ?`).bind(name, id).first()) {
-      errors[spec.name.key] = spec.name.taken;
-    } else values[spec.name.column] = name;
+    else {
+      const named = await entryNamed(env, list, name);
+      if (named && named.id !== id && (named.active || !adding)) errors[spec.name.key] = spec.name.taken;
+      else {
+        values[spec.name.column] = name;
+        // Adding a removed entry's name brings that entry back instead (as typing it on an Assignment does).
+        if (adding && named) revived = named.id;
+      }
+    }
   }
 
   for (const field of spec.fields) {
@@ -300,10 +310,12 @@ async function save(request: Request, env: Env, list: ListName, id: string | nul
 
   if (Object.keys(errors).length > 0) return refuse(errors);
 
+  // Brought back in use, with the fields sent; the ones left out stay as they were.
+  if (revived) values.active = 1;
   const columns = Object.keys(values);
-  const savedId = id ?? crypto.randomUUID();
+  const savedId = id ?? revived ?? crypto.randomUUID();
   try {
-    if (adding) {
+    if (adding && !revived) {
       // A new entry goes last, in the same batch, so it is never saved without its place.
       await env.DB.batch([
         env.DB.prepare(`INSERT INTO ${spec.table} (id, ${columns.join(', ')}) VALUES (?, ${columns.map(() => '?').join(', ')})`).bind(savedId, ...Object.values(values)),
@@ -326,7 +338,7 @@ async function save(request: Request, env: Env, list: ListName, id: string | nul
     throw error;
   }
   const saved = await env.DB.prepare(`${select(list)} WHERE id = ?`).bind(savedId).first<Record<string, unknown>>();
-  return json({ [spec.one]: saved && entry(list, saved) }, adding ? 201 : 200);
+  return json({ [spec.one]: saved && entry(list, saved), ...(revived && { broughtBack: true }) }, adding && !revived ? 201 : 200);
 }
 
 const ORDER_REFUSED = 'Send the entries of the list in order, each once.';

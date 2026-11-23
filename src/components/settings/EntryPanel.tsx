@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Check, Loader2 } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Loader2 } from 'lucide-react';
 import type { ListName } from '../../../shared/types';
 import { Field } from '@/components/Field';
 import { ListPicker } from '@/components/ListPicker';
@@ -8,15 +8,12 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { toast } from '@/components/ui/sonner';
 import { addEntry, changeEntry, FieldErrors } from '@/lib/api';
 import { choicesOf, LIST_TITLES } from '@/lib/lists';
 import type { FormValues, ListField, Row, SectionSpec } from './spec';
 
-/** How long typing has to pause before it is saved, so a word is one save rather than one per letter. */
-const TYPING_PAUSE_MS = 400;
-
 type Form = FormValues;
-type Status = 'idle' | 'saving' | 'saved' | 'failed';
 
 /** What a field's control shows for a saved value: a choice's value may be shown as another one; a switch is on or off. */
 function shown(field: ListField<ListName> | null, value: unknown): string | boolean | null {
@@ -25,11 +22,15 @@ function shown(field: ListField<ListName> | null, value: unknown): string | bool
   return field?.kind === 'choice' && saved && field.shownAs?.[saved] ? field.shownAs[saved] : saved;
 }
 
+/** A text value as it is saved: trimmed, empty as nothing. */
+const tidy = (value: string | boolean | null) => (typeof value === 'string' ? value.trim() || null : value);
+
 /**
- * Edits one entry, saving each field as Dave changes it: text once typing
- * pauses (or the panel closes), a pick at once. A new entry (entry null) is
- * added once it has a name, then changed like any other. Remove asks first
- * and closes the panel. Nothing is ever deleted.
+ * Adds or edits one entry. Nothing is saved until Dave taps Save, which saves
+ * what he changed and closes the panel; Cancel, Esc or a tap outside closes it
+ * and drops the changes. Adding the name of a removed entry brings that entry
+ * back. Remove asks first, drops any unsaved changes and closes the panel.
+ * Nothing is ever deleted.
  */
 export function EntryPanel({
   spec,
@@ -56,129 +57,103 @@ export function EntryPanel({
   const keys = [nameKey, ...spec.fields.map((f) => f.key)];
   const fieldOf = (key: string) => spec.fields.find((f) => f.key === key) ?? null;
   const [form, setForm] = useState<Form>(() => Object.fromEntries(keys.map((key) => [key, entry ? shown(fieldOf(key), entry[key]) : null])));
-  const [saved, setSaved] = useState<Row | null>(entry);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [status, setStatus] = useState<Status>('idle');
+  const [saving, setSaving] = useState(false);
+  const [failed, setFailed] = useState(false);
   const [asking, setAsking] = useState(false);
 
-  // Saves run one after another, each reading the latest form and entry, so a
-  // new entry is added once before any change to it.
-  const formRef = useRef(form);
-  const savedRef = useRef(saved);
-  const chain = useRef<Promise<void>>(Promise.resolve());
-  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  function set(key: string, value: string | boolean | null) {
+    setForm((now) => ({ ...now, [key]: value }));
+    setErrors(({ [key]: _gone, ...rest }) => rest);
+    setFailed(false);
+  }
 
-  const keep = (row: Row) => {
-    // A field the panel is not asking for can still change with another one
-    // (a Place that stops being a job site loses its usual Foreman): take the
-    // saved value, so it is right if the field is asked for again.
-    const hidden = spec.fields.filter((f) => f.shownWhen && !f.shownWhen(formRef.current));
-    if (hidden.some((f) => formRef.current[f.key] !== shown(f, row[f.key]))) {
-      formRef.current = { ...formRef.current, ...Object.fromEntries(hidden.map((f) => [f.key, shown(f, row[f.key])])) };
-      setForm(formRef.current);
+  /**
+   * What Save sends: for a new entry everything filled in; for a saved one only
+   * what differs from it. A field the panel is not asking for is left to the
+   * Worker (a Place that stops being a job site loses its usual Foreman there).
+   */
+  function changes(): Record<string, unknown> {
+    const asked = [nameKey, ...spec.fields.filter((f) => !f.shownWhen || f.shownWhen(form)).map((f) => f.key)];
+    const sent = asked.map((key) => [key, tidy(form[key])] as const);
+    if (!entry) return Object.fromEntries(sent.filter(([key, value]) => key === nameKey || value));
+    return Object.fromEntries(sent.filter(([key, value]) => value !== tidy(shown(fieldOf(key), entry[key]))));
+  }
+
+  /** Runs one save, showing a refusal by its fields and a failure in the panel; answers whether it was saved. */
+  async function run(write: () => Promise<void>): Promise<boolean> {
+    setSaving(true);
+    setFailed(false);
+    try {
+      await write();
+      return true;
+    } catch (error) {
+      if (error instanceof FieldErrors) setErrors(error.fields);
+      else setFailed(true);
+      return false;
+    } finally {
+      setSaving(false);
     }
-    savedRef.current = row;
-    setSaved(row);
-    onSaved(row);
-  };
+  }
 
-  /** Queues a save; fields null saves the given key's current value. */
-  function save(body: Record<string, unknown> | string) {
-    chain.current = chain.current.then(async () => {
-      const current = savedRef.current;
-      let fields: Record<string, unknown>;
-      if (typeof body === 'string') {
-        if (!current) {
-          // A new entry is added with everything filled in so far, once it has a name.
-          if (!String(formRef.current[nameKey] ?? '').trim()) return;
-          fields = Object.fromEntries(Object.entries(formRef.current).filter(([, value]) => value));
-        } else fields = { [body]: formRef.current[body] };
+  async function save() {
+    const fields = changes();
+    if (entry && Object.keys(fields).length === 0) return onClose();
+    const saved = await run(async () => {
+      if (entry) {
+        const row = (await changeEntry(spec.list, entry.id, fields as never)) as unknown as Row;
+        onSaved(row);
+        toast.success(`${String(row[nameKey])} saved`);
       } else {
-        if (!current) return;
-        fields = body;
-      }
-      setStatus('saving');
-      try {
-        keep((current ? await changeEntry(spec.list, current.id, fields as never) : await addEntry(spec.list, fields as never)) as unknown as Row);
-        setStatus('saved');
-      } catch (error) {
-        if (error instanceof FieldErrors) {
-          setErrors((now) => ({ ...now, ...error.fields }));
-          setStatus('idle');
-        } else setStatus('failed');
+        const { entry: added, broughtBack } = await addEntry(spec.list, fields as never);
+        const row = added as unknown as Row;
+        onSaved(row);
+        toast.success(`${String(row[nameKey])} ${broughtBack ? 'brought back' : 'added'}`);
       }
     });
-    return chain.current;
+    if (saved) onClose();
   }
 
-  /** Saves every field still waiting for typing to pause. */
-  function flush() {
-    for (const [key, timer] of timers.current) {
-      clearTimeout(timer);
-      void save(key);
-    }
-    timers.current.clear();
+  async function remove(saved: Row) {
+    setAsking(false);
+    const removed = await run(async () => {
+      onSaved((await changeEntry(spec.list, saved.id, { active: false } as never)) as unknown as Row);
+      toast.success(`${String(saved[nameKey])} removed`);
+    });
+    if (removed) onClose();
   }
 
-  useEffect(() => () => flush(), []);
-
-  function set(key: string, value: string | boolean | null, { typing }: { typing: boolean }) {
-    formRef.current = { ...formRef.current, [key]: value };
-    setForm(formRef.current);
-    setErrors(({ [key]: _gone, ...rest }) => rest);
-    clearTimeout(timers.current.get(key));
-    timers.current.delete(key);
-    if (!typing) void save(key);
-    else
-      timers.current.set(
-        key,
-        setTimeout(() => {
-          timers.current.delete(key);
-          void save(key);
-        }, TYPING_PAUSE_MS),
-      );
-  }
-
-  function close() {
-    flush();
-    onClose();
-  }
-
-  async function setActive(active: boolean) {
-    flush();
-    await save({ active });
-  }
-
-  const title = saved ? String(saved[nameKey]) : `New ${spec.noun}`;
+  const title = entry ? String(entry[nameKey]) : `New ${spec.noun}`;
   return (
-    <Dialog open onOpenChange={(open) => !open && close()}>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle className="font-display text-xl uppercase tracking-wide">{title}</DialogTitle>
           <DialogDescription>
-            {saved
-              ? `${spec.noun}${saved.active ? '' : ', removed'}. Changes save as you type; ${spec.renamed ?? 'a new name shows on every Assignment that uses it.'}`
-              : `A new ${spec.noun}, saved once it has a ${spec.name.label.toLowerCase()}.`}
+            {entry
+              ? `${spec.noun}. Nothing changes until you tap Save; ${spec.renamed ?? 'a new name shows on every Assignment that uses it.'}`
+              : `A new ${spec.noun}. Nothing is added until you tap Save.`}
           </DialogDescription>
         </DialogHeader>
-        {/* A form so Enter saves at once, and so each picker has its native control. */}
+        {/* A form so Enter saves, and so each picker has its native control. */}
         <form
+          id={`entry-${spec.list}`}
           className="grid gap-4"
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
-            flush();
+            void save();
           }}
         >
           <Field id={nameKey} label={spec.name.label} error={errors[nameKey]}>
-            <Input id={nameKey} required value={String(form[nameKey] ?? '')} onChange={(e) => set(nameKey, e.target.value, { typing: true })} />
+            <Input id={nameKey} required value={String(form[nameKey] ?? '')} onChange={(e) => set(nameKey, e.target.value)} />
           </Field>
           {spec.fields.filter((field) => !field.shownWhen || field.shownWhen(form)).map((field) => {
             if (field.kind === 'switch')
               return (
                 <div key={field.key} className="space-y-1">
                   <div className="flex items-center gap-3">
-                    <Switch id={field.key} checked={form[field.key] === true} onCheckedChange={(on) => set(field.key, on, { typing: false })} />
+                    <Switch id={field.key} checked={form[field.key] === true} onCheckedChange={(on) => set(field.key, on)} />
                     <Label htmlFor={field.key}>{field.label}</Label>
                   </div>
                   <p className="text-xs text-muted-foreground">{field.hint}</p>
@@ -189,11 +164,11 @@ export function EntryPanel({
                   )}
                 </div>
               );
-            const failed = field.kind === 'pick' && unloaded.includes(field.list) ? LIST_TITLES[field.list] : null;
+            const unloadedList = field.kind === 'pick' && unloaded.includes(field.list) ? LIST_TITLES[field.list] : null;
             return (
-              <Field key={field.key} id={field.key} label={field.label} optional error={errors[field.key] ?? (failed ? `Could not load the ${failed}.` : undefined)}>
+              <Field key={field.key} id={field.key} label={field.label} optional error={errors[field.key] ?? (unloadedList ? `Could not load the ${unloadedList}.` : undefined)}>
                 {field.kind === 'text' ? (
-                  <Input id={field.key} value={String(form[field.key] ?? '')} onChange={(e) => set(field.key, e.target.value, { typing: true })} />
+                  <Input id={field.key} value={String(form[field.key] ?? '')} onChange={(e) => set(field.key, e.target.value)} />
                 ) : (
                   <ListPicker
                     id={field.key}
@@ -205,65 +180,43 @@ export function EntryPanel({
                         : choicesOf(field.list, (others[field.list] as never) ?? null)
                     }
                     value={(form[field.key] as string | null) ?? null}
-                    onChange={(value) => set(field.key, value, { typing: false })}
-                    failed={Boolean(failed)}
+                    onChange={(value) => set(field.key, value)}
+                    failed={Boolean(unloadedList)}
                   />
                 )}
               </Field>
             );
           })}
-          {saved && spec.status && <p className="text-sm font-medium">{spec.status(saved as never)}</p>}
+          {entry && spec.status && <p className="text-sm font-medium">{spec.status(entry as never)}</p>}
           {children}
-          <SaveStatus status={status} />
+          {failed && (
+            <p className="text-sm text-destructive" role="alert">
+              Could not save. Check the connection and try again.
+            </p>
+          )}
         </form>
         <DialogFooter className="gap-2 sm:justify-between">
-          {saved?.active && (
-            <Button type="button" variant="outline" className="text-destructive" onClick={() => setAsking(true)}>
+          {/* Remove keeps to the left, away from Save, so neither is tapped for the other. */}
+          {entry?.active ? (
+            <Button type="button" variant="outline" className="text-destructive" disabled={saving} onClick={() => setAsking(true)}>
               Remove
             </Button>
+          ) : (
+            <span />
           )}
-          <Button type="button" onClick={close}>
-            Done
-          </Button>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row">
+            <Button type="button" variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" form={`entry-${spec.list}`} disabled={saving}>
+              {saving && <Loader2 className="h-4 w-4 animate-spin" />} Save
+            </Button>
+          </div>
         </DialogFooter>
-        {asking && saved && (
-          <ConfirmRemove
-            spec={spec}
-            entry={saved}
-            onKeep={() => setAsking(false)}
-            onRemove={async () => {
-              setAsking(false);
-              await setActive(false);
-              if (savedRef.current && !savedRef.current.active) onClose();
-            }}
-          />
-        )}
+        {asking && entry && <ConfirmRemove spec={spec} entry={entry} onKeep={() => setAsking(false)} onRemove={() => remove(entry)} />}
       </DialogContent>
     </Dialog>
   );
-}
-
-/** Says whether the latest change is saved, so Dave never wonders. */
-function SaveStatus({ status }: { status: Status }) {
-  if (status === 'saving')
-    return (
-      <p className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" /> Saving…
-      </p>
-    );
-  if (status === 'saved')
-    return (
-      <p className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Check className="h-4 w-4" /> Saved
-      </p>
-    );
-  if (status === 'failed')
-    return (
-      <p className="text-sm text-destructive" role="alert">
-        Could not save. Check the connection and try again.
-      </p>
-    );
-  return null;
 }
 
 /** Asks before removing an entry, with the list's own warning (a Driver's later days) once the Worker answers. */

@@ -38,9 +38,14 @@ export async function fetchList<L extends ListName>(list: L, { includeInactive =
   return body[list];
 }
 
-/** Adds an entry to a list. There is no delete: an entry is made inactive with changeEntry. */
-export async function addEntry<L extends ListName>(list: L, fields: EntryFields<L>): Promise<Lists[L]> {
-  return Object.values(await request<Record<string, Lists[L]>>(`api/${list}`, json('POST', fields)))[0];
+/**
+ * Adds an entry to a list. When a removed entry already has that name, the
+ * Worker brings it back instead, with the fields sent (broughtBack). There is
+ * no delete: an entry is made inactive with changeEntry.
+ */
+export async function addEntry<L extends ListName>(list: L, fields: EntryFields<L>): Promise<{ entry: Lists[L]; broughtBack: boolean }> {
+  const { broughtBack, ...one } = await request<Record<string, Lists[L]> & { broughtBack?: boolean }>(`api/${list}`, json('POST', fields));
+  return { entry: Object.values(one)[0] as Lists[L], broughtBack: broughtBack === true };
 }
 
 /** Changes only the given fields of an entry, e.g. its name or { active: false }. */
