@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { Button } from '@/components/ui/button';
+import { SegmentedToggle } from '@/components/SegmentedToggle';
 import { storeView, type View } from '@/lib/deviceView';
 
 /** Each view, its word on the toggle and the page it opens. */
@@ -15,23 +15,14 @@ const VIEWS: { view: View; label: string; to: string }[] = [
 export function ViewToggle({ current }: { current: View }) {
   const navigate = useNavigate();
   return (
-    <div role="group" aria-label="View" className="inline-flex items-center gap-0.5 rounded-lg border bg-muted/60 p-1">
-      {VIEWS.map(({ view, label, to }) => (
-        <Button
-          key={view}
-          type="button"
-          size="sm"
-          className={view === current ? 'h-11 px-4 text-sm shadow-sm' : 'h-11 px-4 text-sm text-muted-foreground hover:bg-background/70'}
-          variant={view === current ? 'default' : 'ghost'}
-          aria-pressed={view === current}
-          onClick={() => {
-            storeView(view);
-            navigate(to);
-          }}
-        >
-          {label}
-        </Button>
-      ))}
-    </div>
+    <SegmentedToggle
+      ariaLabel="View"
+      options={VIEWS.map(({ view, label }) => ({ value: view, label }))}
+      value={current}
+      onChange={(view) => {
+        storeView(view);
+        navigate(VIEWS.find((v) => v.view === view)!.to);
+      }}
+    />
   );
 }

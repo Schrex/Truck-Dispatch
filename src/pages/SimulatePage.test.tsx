@@ -31,12 +31,19 @@ const columns = () =>
   within(screen.getByRole('region', { name: 'Truck log' }))
     .getAllByRole('group', { name: /^Assignment \d/ })
     .map((col) => Object.fromEntries([...col.querySelectorAll('dt')].map((dt) => [dt.textContent, dt.nextElementSibling?.textContent])));
-/** The Truck log's names for its columns, in order: Dave's Assignments, then the unverified extra jobs. */
+/** The Truck log's names for its Assignment columns, in Dave's order. */
 const columnNames = () =>
   within(screen.getByRole('region', { name: 'Truck log' }))
     .getAllByRole('group', { name: /^Assignment \d/ })
     .map((col) => col.getAttribute('aria-label'));
 /** The drives to and from the shop, as listed under the columns. */
+/** The Truck log's Unplanned work boxes, after the columns: what each reads. */
+const unplannedLog = () =>
+  within(screen.getByRole('region', { name: 'Truck log' }))
+    .queryAllByRole('group', { name: /^Unplanned work/ })
+    .map((box) => box.querySelector('p')?.textContent);
+/** What Randy's lane says about his Unplanned work, after his blocks; null when it says nothing. */
+const laneUnplanned = () => within(within(scheduler()).getByRole('article', { name: 'Randy' })).queryByText(/Unplanned work$/)?.textContent ?? null;
 const shopLog = () =>
   within(within(screen.getByRole('region', { name: 'Truck log' })).getByRole('group', { name: 'To and from the shop' }))
     .queryAllByRole('listitem')
@@ -57,13 +64,17 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
     render(<SimulatePage />, { wrapper: MemoryRouter });
     expect(screen.getAllByRole('slider').map((s) => s.getAttribute('aria-label'))).toEqual(['Clock']);
     expect(screen.getAllByRole('combobox').map((s) => s.getAttribute('aria-label'))).toEqual(['Scenario']);
-    expect(screen.getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['Play the day']);
+    // And the Unplanned work's, to answer it from Randy's lane or from the Truck log.
+    expect(screen.getAllByRole('button').map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual(['Play the day', '1 Unplanned work', 'Answer']);
     // Its way back is the Board button, as from Settings; "← Hub" top left, as on every page.
     expect(screen.getAllByRole('link').map((l) => l.textContent?.trim())).toEqual(['← Hub', 'Board']);
     expect(within(screen.getByRole('combobox', { name: 'Scenario' })).getAllByRole('option').map((o) => o.textContent)).toEqual([
       'As planned',
       'The other way round',
       'Reroute at 11:20',
+      'Made up: Unplanned work to split',
+      'Made up: Sam on Truck 55 too',
+      'Made up: two the same',
     ]);
     expect(screen.getAllByRole('table').map((t) => t.getAttribute('aria-label'))).toEqual(['Trips']);
     expect(document.querySelector('input[type=file]')).toBeNull();
@@ -176,8 +187,8 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
     });
   });
 
-  describe('Truck log columns: one per Assignment, one per unverified extra job, and the drives to and from the shop', () => {
-    it('at end of day: A1 and A2 as Assignment 1 and 2, tons from Tickets, and the Bishop Kearney stop as Assignment 3, unverified, for Dave', () => {
+  describe('Truck log columns: one per Assignment, then the Unplanned work, and the drives to and from the shop', () => {
+    it('at end of day: A1 and A2 as Assignment 1 and 2, tons from Tickets, and no column for the Bishop Kearney stop', () => {
       render(<SimulatePage />, { wrapper: MemoryRouter });
       expect(columns()).toEqual([
         {
@@ -198,17 +209,8 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
           '# of tons': 'from Tickets',
           'Trucking hours': '2.40',
         },
-        {
-          Job: 'J611 Bishop Kearney',
-          'Pick up': 'J25008 Los Flamboyanes',
-          'Drop off': 'J611 Bishop Kearney',
-          Material: 'Unknown · Dave decides',
-          '# of loads': 'Unknown · Dave decides',
-          '# of tons': 'from Tickets',
-          'Trucking hours': '0.46',
-        },
       ]);
-      expect(columnNames()).toEqual(['Assignment 1', 'Assignment 2', 'Assignment 3 · unverified']);
+      expect(columnNames()).toEqual(['Assignment 1', 'Assignment 2']);
     });
 
     it('at end of day logs the drive out of the shop in the morning and the drive back to it', () => {
@@ -223,7 +225,7 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
       expect(within(screen.getByRole('group', { name: 'To and from the shop' })).getByText('None yet')).toBeTruthy();
     });
 
-    it('with the reroute at 11:20 the Bishop Kearney Trip counts on A1, so there is no unverified column', () => {
+    it('with the reroute at 11:20 the Bishop Kearney Trip counts on A1', () => {
       render(<SimulatePage />, { wrapper: MemoryRouter });
       choose('reroute');
       expect(columns()[0]).toMatchObject({ Job: 'J611 Bishop Kearney', 'Drop off': 'J611 Bishop Kearney', '# of loads': '5' });
@@ -238,6 +240,478 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
         ['0', ''],
       ]);
       expect(columnNames()).toEqual(['Assignment 1', 'Assignment 2']);
+    });
+  });
+
+  describe('Unplanned work: the drive to Bishop Kearney and back, which Dave never Assigned', () => {
+    it('at end of day: an amber box after Dave’s columns with its Places and times, and "1 Unplanned work" after Randy’s blocks', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      expect(unplannedLog()).toEqual(['J25008 Los Flamboyanes ⇄ J611 Bishop Kearney · out 14:15, back 14:33 · 0.46 h']);
+      expect(within(screen.getByRole('group', { name: 'Unplanned work' })).queryByText(/Pick up|Drop off/)).toBeNull();
+      expect(laneUnplanned()).toBe('1 Unplanned work');
+      // His blocks are as before: the marker is not one of them.
+      expect(randy()).toEqual([`${A1} · 4 Loads · Done · since 08:24`, `${A2} · 2 Loads · Done · since 11:30`]);
+    });
+
+    it('with the reroute at 11:20 there is none: no box, nothing on the lane', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      choose('reroute');
+      expect(unplannedLog()).toEqual([]);
+      expect(laneUnplanned()).toBeNull();
+    });
+
+    it('before 14:23 there is none; from then it grows as the Trips are written', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      setClock(14 * 60 + 22);
+      expect(unplannedLog()).toEqual([]);
+      expect(laneUnplanned()).toBeNull();
+      setClock(14 * 60 + 25);
+      expect(unplannedLog()).toEqual(['J25008 Los Flamboyanes ⇄ J611 Bishop Kearney · out 14:15 · 0.14 h']);
+      expect(laneUnplanned()).toBe('1 Unplanned work');
+      setClock(14 * 60 + 45);
+      expect(unplannedLog()).toEqual(['J25008 Los Flamboyanes ⇄ J611 Bishop Kearney · out 14:15, back 14:33 · 0.46 h']);
+    });
+
+    it('in the Trip log both Trips are for Dave and neither is an Assignment’s', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      const rows = tripLog();
+      expect(rows.filter((r) => r[0] === '14:15' || r[0] === '14:33').map((r) => [r[0], r[3], r[4]])).toEqual([
+        ['14:15', 'for Dave', '–'],
+        ['14:33', 'for Dave', '–'],
+      ]);
+    });
+  });
+
+  describe('Which Assignment?: two Assignments the same (made up: A2 and A3 both Walworth → J25008)', () => {
+    /** The Truck log's "Which Assignment?" questions, as each reads. */
+    const ties = () =>
+      within(screen.getByRole('region', { name: 'Truck log' }))
+        .queryAllByRole('group', { name: 'Which Assignment?' })
+        .flatMap((box) => within(box).queryAllByRole('listitem').map((li) => li.textContent));
+
+    it('the Truck log asks "Which Assignment? A2 or A3" for each Trip both fit, and none of it is Unplanned work', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      choose('two-the-same');
+      expect(ties()).toEqual([
+        'Which Assignment? A2 or A3 · 11:30 Villager → Walworth Dolomite',
+        'Which Assignment? A2 or A3 · 12:08 Walworth Dolomite → J25008 Los Flamboyanes',
+        'Which Assignment? A2 or A3 · 12:54 J25008 Los Flamboyanes → Walworth Dolomite',
+        'Which Assignment? A2 or A3 · 13:29 Walworth Dolomite → J25008 Los Flamboyanes',
+      ]);
+      // Only the drive to Bishop Kearney and back is Unplanned work, as planned.
+      expect(unplannedLog()).toEqual(['J25008 Los Flamboyanes ⇄ J611 Bishop Kearney · out 14:15, back 14:33 · 0.46 h']);
+    });
+
+    it('as planned there is no tie, so no question', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      expect(ties()).toEqual([]);
+    });
+
+    it('only asks about Trips known at the clock’s time', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      choose('two-the-same');
+      setClock(12 * 60 + 50);
+      expect(ties()).toEqual(['Which Assignment? A2 or A3 · 11:30 Villager → Walworth Dolomite', 'Which Assignment? A2 or A3 · 12:08 Walworth Dolomite → J25008 Los Flamboyanes']);
+    });
+  });
+
+  describe('Make an Assignment: Dave answers the Unplanned work', () => {
+    const answer = () => screen.getByRole('dialog', { name: 'Unplanned work' });
+    const tap = (name: string, inside: HTMLElement = answer()) => fireEvent.click(within(inside).getByRole('button', { name }));
+    const row = (name: string) => within(answer()).getByRole('group', { name });
+    const save = () => within(answer()).getByRole('button', { name: 'Save' }) as HTMLButtonElement;
+    /** Open the answer from the Truck log's Unplanned work box, and choose Make an Assignment. */
+    const openFromTruckLog = () => {
+      tap('Answer', screen.getByRole('group', { name: 'Unplanned work' }));
+      tap('Make an Assignment');
+    };
+    const A3_COLUMN = {
+      Job: 'J25008 Los Flamboyanes',
+      'Pick up': 'J611 Bishop Kearney',
+      'Drop off': 'J25008 Los Flamboyanes',
+      Material: 'Top soil',
+      '# of loads': '1',
+      '# of tons': 'from Tickets',
+      'Trucking hours': '0.46',
+    };
+
+    it('asks where he loaded, one tap per Place of the piece, and the Material from the list or typed', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      openFromTruckLog();
+      expect(within(answer()).getByText('J25008 Los Flamboyanes ⇄ J611 Bishop Kearney · out 14:15, back 14:33 · 0.46 h')).toBeTruthy();
+      expect(within(row('Where did he load?')).getAllByRole('button').map((b) => b.textContent)).toEqual(['J25008 Los Flamboyanes', 'J611 Bishop Kearney']);
+      expect(within(row('Material')).getAllByRole('button').map((b) => b.textContent)).toEqual(['Fill', '1&2 stone', 'Top soil', 'Or type it']);
+    });
+
+    it('as planned, "loaded at J611 Bishop Kearney" and "Top soil" make Assignment 3, From the Truck, and the Unplanned work is gone', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      openFromTruckLog();
+      tap('J611 Bishop Kearney');
+      tap('Top soil');
+      fireEvent.click(save());
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(unplannedLog()).toEqual([]);
+      expect(laneUnplanned()).toBeNull();
+      expect(columnNames()).toEqual(['Assignment 1', 'Assignment 2', 'Assignment 3 · From the Truck']);
+      expect(columns()[2]).toEqual(A3_COLUMN);
+      // Assigned, not Added: on the lane it is marked From the Truck and nothing else.
+      expect(randy()[2]).toBe('Then · From the Truck · J611 Bishop Kearney → J25008 Los Flamboyanes · Top soil · Truck 55 (his own) · 1 Load · Done · since 14:15');
+      expect(within(scheduler()).queryByText('Added')).toBeNull();
+      // Randy gets no notice: it is not on his phone.
+      expect(cards()).toHaveLength(2);
+    });
+
+    it('after that answer the Trip log reads 14:15 empty, to its pickup, and 14:33 the Load, both A3’s', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      openFromTruckLog();
+      tap('J611 Bishop Kearney');
+      tap('Top soil');
+      fireEvent.click(save());
+      expect(tripLog().filter((r) => r[0] === '14:15' || r[0] === '14:33').map((r) => [r[0], r[3], r[4], r[5]])).toEqual([
+        ['14:15', 'empty', 'A3', 'Going to the Assignment’s pickup'],
+        ['14:33', 'load', 'A3', 'From and To match the Assignment'],
+      ]);
+    });
+
+    it('"loaded at J25008", from the lane, gives the opposite route, and 14:15 becomes the Load', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      tap('1 Unplanned work', scheduler());
+      tap('Make an Assignment');
+      tap('J25008 Los Flamboyanes');
+      tap('Top soil');
+      fireEvent.click(save());
+      expect(columns()[2]).toMatchObject({ Job: 'J611 Bishop Kearney', 'Pick up': 'J25008 Los Flamboyanes', 'Drop off': 'J611 Bishop Kearney', '# of loads': '1' });
+      expect(tripLog().filter((r) => r[0] === '14:15' || r[0] === '14:33').map((r) => [r[0], r[3], r[4]])).toEqual([
+        ['14:15', 'load', 'A3'],
+        ['14:33', 'empty', 'A3'],
+      ]);
+    });
+
+    it('cannot be saved without both the load Place and the Material', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      openFromTruckLog();
+      expect(save().disabled).toBe(true);
+      tap('J611 Bishop Kearney');
+      expect(save().disabled).toBe(true);
+      tap('J611 Bishop Kearney');
+      tap('Top soil');
+      expect(save().disabled).toBe(true);
+      tap('Or type it');
+      expect(save().disabled).toBe(true);
+      tap('J25008 Los Flamboyanes');
+      fireEvent.change(within(answer()).getByRole('textbox', { name: 'Material, typed' }), { target: { value: '  ' } });
+      expect(save().disabled).toBe(true);
+      fireEvent.change(within(answer()).getByRole('textbox', { name: 'Material, typed' }), { target: { value: 'Mulch' } });
+      expect(save().disabled).toBe(false);
+      fireEvent.click(save());
+      expect(columns()[2]).toMatchObject({ 'Pick up': 'J25008 Los Flamboyanes', Material: 'Mulch' });
+    });
+
+    it('Cancel leaves the Unplanned work as it was', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      openFromTruckLog();
+      tap('J611 Bishop Kearney');
+      tap('Cancel');
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(unplannedLog()).toHaveLength(1);
+      expect(columnNames()).toEqual(['Assignment 1', 'Assignment 2']);
+    });
+
+    it('changing the scenario resets the answer', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      openFromTruckLog();
+      tap('J611 Bishop Kearney');
+      tap('Top soil');
+      fireEvent.click(save());
+      choose('other-way');
+      choose('planned');
+      expect(columnNames()).toEqual(['Assignment 1', 'Assignment 2']);
+      expect(unplannedLog()).toEqual(['J25008 Los Flamboyanes ⇄ J611 Bishop Kearney · out 14:15, back 14:33 · 0.46 h']);
+    });
+
+    it('with one Driver who fits, never asks who was driving', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      tap('Answer', screen.getByRole('group', { name: 'Unplanned work' }));
+      expect(within(answer()).queryByRole('group', { name: 'Who was driving?' })).toBeNull();
+      expect(within(answer()).getByRole('button', { name: 'Make an Assignment' })).toBeTruthy();
+    });
+  });
+
+  describe('Split: a run that held two hauls (a made-up day)', () => {
+    const answer = () => screen.getByRole('dialog', { name: 'Unplanned work' });
+    const tap = (name: string, inside: HTMLElement = answer()) => fireEvent.click(within(inside).getByRole('button', { name }));
+    const save = () => fireEvent.click(within(answer()).getByRole('button', { name: 'Save' }));
+    const WHOLE = 'J25008 Los Flamboyanes ⇄ J611 Bishop Kearney ⇄ Villager · out 09:20, back 10:10 · 1.08 h';
+    const FIRST = 'J25008 Los Flamboyanes ⇄ J611 Bishop Kearney · out 09:20 · 0.17 h';
+    const SECOND = 'J611 Bishop Kearney ⇄ Villager ⇄ J25008 Los Flamboyanes · out 09:45, back 10:10 · 0.67 h';
+    const split = () => {
+      tap('Answer', screen.getByRole('group', { name: 'Unplanned work' }));
+      tap('Split at 09:45 · J611 Bishop Kearney → Villager');
+    };
+
+    it('takes J25008 → J611 → Villager → J25008 as one piece, and offers a split at each Trip after the first', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      choose('split');
+      expect(unplannedLog()).toEqual([WHOLE]);
+      tap('Answer', screen.getByRole('group', { name: 'Unplanned work' }));
+      expect(within(within(answer()).getByRole('group', { name: 'Split this Unplanned work at a Trip' })).getAllByRole('button').map((b) => b.textContent)).toEqual([
+        'Split at 09:45 · J611 Bishop Kearney → Villager',
+        'Split at 10:10 · Villager → J25008 Los Flamboyanes',
+      ]);
+    });
+
+    it('split at J611 → Villager, makes two pieces of Unplanned work, each answered on its own', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      choose('split');
+      split();
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(unplannedLog()).toEqual([FIRST, SECOND]);
+      expect(laneUnplanned()).toBe('2 Unplanned work');
+      // A piece of one Trip has nothing to split.
+      tap('Answer', screen.getByRole('group', { name: 'Unplanned work 1' }));
+      expect(within(answer()).queryByRole('group', { name: 'Split this Unplanned work at a Trip' })).toBeNull();
+    });
+
+    it('answering each part as its own Assignment gives each its own Loads and Trucking hours', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      choose('split');
+      split();
+      tap('Answer', screen.getByRole('group', { name: 'Unplanned work 1' }));
+      tap('Make an Assignment');
+      tap('J25008 Los Flamboyanes');
+      tap('Top soil');
+      save();
+      expect(unplannedLog()).toEqual([SECOND]);
+      tap('Answer', screen.getByRole('group', { name: 'Unplanned work' }));
+      tap('Make an Assignment');
+      tap('Villager');
+      tap('Fill');
+      save();
+      expect(unplannedLog()).toEqual([]);
+      expect(columnNames()).toEqual(['Assignment 1', 'Assignment 2 · From the Truck', 'Assignment 3 · From the Truck']);
+      expect(columns().slice(1)).toEqual([
+        { Job: 'J611 Bishop Kearney', 'Pick up': 'J25008 Los Flamboyanes', 'Drop off': 'J611 Bishop Kearney', Material: 'Top soil', '# of loads': '1', '# of tons': 'from Tickets', 'Trucking hours': '0.17' },
+        { Job: 'J25008 Los Flamboyanes', 'Pick up': 'Villager', 'Drop off': 'J25008 Los Flamboyanes', Material: 'Fill', '# of loads': '1', '# of tons': 'from Tickets', 'Trucking hours': '0.67' },
+      ]);
+      // The planned Assignment keeps its own Trips only.
+      expect(columns()[0]).toMatchObject({ 'Pick up': 'Walworth Dolomite', '# of loads': '2', 'Trucking hours': '1.88' });
+    });
+
+    it('from Randy’s lane, opens his first piece still to answer: after a split and the first part answered, the second', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      choose('split');
+      split();
+      tap('2 Unplanned work', scheduler());
+      expect(within(answer()).getByText(FIRST)).toBeTruthy();
+      tap('Not a haul');
+      save();
+      tap('1 Unplanned work', scheduler());
+      expect(within(answer()).getByText(SECOND)).toBeTruthy();
+    });
+
+    it('the second part linked to the Assignment made from the first: it is rerouted there and counts both parts’ Loads', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      choose('split');
+      split();
+      tap('Answer', screen.getByRole('group', { name: 'Unplanned work 1' }));
+      tap('Make an Assignment');
+      tap('J25008 Los Flamboyanes');
+      tap('Top soil');
+      save();
+      tap('Answer', screen.getByRole('group', { name: 'Unplanned work' }));
+      tap('Link to an Assignment');
+      tap('A2 · J25008 Los Flamboyanes → J611 Bishop Kearney');
+      tap('Villager');
+      save();
+      expect(unplannedLog()).toEqual([]);
+      expect(columnNames()).toEqual(['Assignment 1', 'Assignment 2 · From the Truck']);
+      expect(columns()[1]).toMatchObject({ 'Pick up': 'Villager', 'Drop off': 'J25008 Los Flamboyanes', '# of loads': '2', 'Trucking hours': '1.08' });
+      expect(tripLog().filter((r) => ['09:20', '09:45', '10:10'].includes(r[0]!)).map((r) => [r[0], r[3], r[4]])).toEqual([
+        ['09:20', 'load', 'A2'],
+        ['09:45', 'empty', 'A2'],
+        ['10:10', 'load', 'A2'],
+      ]);
+      // Made afterwards, so never Added or Changed: on the lane it is marked From the Truck and nothing else.
+      expect(randy()[1]).toMatch(/^Then · From the Truck · Villager → J25008 Los Flamboyanes · Top soil · /);
+    });
+
+    it('from the lane, skips a piece Dave already answered that its answer did not wholly explain', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      choose('split');
+      tap('Answer', screen.getByRole('group', { name: 'Unplanned work' }));
+      tap('Split at 10:10 · Villager → J25008 Los Flamboyanes');
+      // Loaded at Villager: the made Assignment takes the drive there (09:45), not the drive to J611 before it (09:20).
+      tap('Answer', screen.getByRole('group', { name: 'Unplanned work 1' }));
+      tap('Make an Assignment');
+      tap('Villager');
+      tap('Fill');
+      save();
+      expect(unplannedLog().map((line) => line?.match(/out \d\d:\d\d/)?.[0])).toEqual(['out 09:20', 'out 10:10']);
+      tap('2 Unplanned work', scheduler());
+      expect(within(answer()).getByText(/out 10:10/)).toBeTruthy();
+    });
+  });
+
+  describe('Driver first: two Drivers’ Assignments name Truck 55 (made up: Sam)', () => {
+    const answer = () => screen.getByRole('dialog', { name: 'Unplanned work' });
+    const tap = (name: string, inside: HTMLElement = answer()) => fireEvent.click(within(inside).getByRole('button', { name }));
+    const lane = (driver: string) =>
+      within(within(scheduler()).getByRole('article', { name: driver }))
+        .queryAllByRole('listitem')
+        .map((block) => block.textContent);
+
+    it('the Truck log asks "Who was driving?", and answering asks it first, before how Dave answers', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      choose('two-drivers');
+      expect(truckLog().Driver).toBe('Who was driving?');
+      tap('Answer', screen.getByRole('group', { name: 'Unplanned work' }));
+      expect(within(within(answer()).getByRole('group', { name: 'Who was driving?' })).getAllByRole('button').map((b) => b.textContent)).toEqual(['Randy', 'Sam']);
+      expect(within(answer()).queryByRole('button', { name: 'Make an Assignment' })).toBeNull();
+      tap('Sam');
+      expect(within(answer()).getByRole('button', { name: 'Make an Assignment' })).toBeTruthy();
+    });
+
+    it('the made Assignment belongs to the Driver picked, and the Truck log header then shows that Driver', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      choose('two-drivers');
+      expect(lane('Sam')).toHaveLength(1);
+      tap('Answer', screen.getByRole('group', { name: 'Unplanned work' }));
+      tap('Sam');
+      tap('Make an Assignment');
+      tap('J611 Bishop Kearney');
+      tap('Top soil');
+      fireEvent.click(within(answer()).getByRole('button', { name: 'Save' }));
+      expect(lane('Randy')).toHaveLength(1);
+      expect(lane('Sam')).toHaveLength(2);
+      expect(lane('Sam')[1]).toMatch(/^Then · From the Truck · J611 Bishop Kearney → J25008 Los Flamboyanes · Top soil · Truck 55 · 1 Load/);
+      expect(truckLog().Driver).toBe('Sam');
+      expect(columns()[2]).toMatchObject({ 'Pick up': 'J611 Bishop Kearney', '# of loads': '1', 'Trucking hours': '0.46' });
+    });
+
+    it('Link offers only the picked Driver’s Assignments, and linking answers "Who was driving?" too', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      choose('two-drivers');
+      tap('Answer', screen.getByRole('group', { name: 'Unplanned work' }));
+      const offered = () => within(within(answer()).getByRole('group', { name: 'Which Assignment?' })).getAllByRole('button').map((b) => b.textContent);
+      tap('Sam');
+      tap('Link to an Assignment');
+      expect(offered()).toEqual(['A2 · Walworth Dolomite → J25008 Los Flamboyanes']);
+      tap('A2 · Walworth Dolomite → J25008 Los Flamboyanes');
+      // Another Driver: his Assignments instead, and nothing picked.
+      tap('Randy');
+      expect(offered()).toEqual(['A1 · J25008 Los Flamboyanes → Villager']);
+      expect(within(answer()).getByRole('button', { name: 'A1 · J25008 Los Flamboyanes → Villager' }).getAttribute('aria-pressed')).toBe('false');
+      tap('Sam');
+      tap('A2 · Walworth Dolomite → J25008 Los Flamboyanes');
+      tap('J611 Bishop Kearney');
+      fireEvent.click(within(answer()).getByRole('button', { name: 'Save' }));
+      expect(unplannedLog()).toEqual([]);
+      expect(truckLog().Driver).toBe('Sam');
+    });
+
+    it('"Not a haul" keeps the Driver picked too, so the Truck log stops asking', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      choose('two-drivers');
+      tap('Answer', screen.getByRole('group', { name: 'Unplanned work' }));
+      tap('Sam');
+      tap('Not a haul');
+      fireEvent.click(within(answer()).getByRole('button', { name: 'Save' }));
+      expect(unplannedLog()).toEqual([]);
+      expect(truckLog().Driver).toBe('Sam');
+    });
+  });
+
+  describe('Link to an Assignment and Not a haul: the other answers', () => {
+    const answer = () => screen.getByRole('dialog', { name: 'Unplanned work' });
+    const tap = (name: string, inside: HTMLElement = answer()) => fireEvent.click(within(inside).getByRole('button', { name }));
+    const row = (name: string) => within(answer()).getByRole('group', { name });
+    const save = () => within(answer()).getByRole('button', { name: 'Save' }) as HTMLButtonElement;
+    const open = (way: string) => {
+      tap('Answer', screen.getByRole('group', { name: 'Unplanned work' }));
+      tap(way);
+    };
+    const run = () => tripLog().filter((r) => r[0] === '14:15' || r[0] === '14:33');
+
+    it('offers all three ways', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      tap('Answer', screen.getByRole('group', { name: 'Unplanned work' }));
+      expect(within(row('How does Dave answer?')).getAllByRole('button').map((b) => b.textContent)).toEqual([
+        'Make an Assignment',
+        'Link to an Assignment',
+        'Not a haul',
+      ]);
+    });
+
+    it('the three ways are a segmented toggle: tapping the chosen one again keeps it chosen', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      tap('Answer', screen.getByRole('group', { name: 'Unplanned work' }));
+      tap('Not a haul');
+      tap('Not a haul');
+      expect(within(row('How does Dave answer?')).getByRole('button', { name: 'Not a haul' }).getAttribute('aria-pressed')).toBe('true');
+      expect(save().disabled).toBe(false);
+    });
+
+    it('linking offers only Randy’s Assignments on 16 Nov, and asks where he loaded', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      open('Link to an Assignment');
+      expect(within(row('Which Assignment?')).getAllByRole('button').map((b) => b.textContent)).toEqual([
+        'A1 · J25008 Los Flamboyanes → Villager',
+        'A2 · Walworth Dolomite → J25008 Los Flamboyanes',
+      ]);
+      expect(within(row('Where did he load?')).getAllByRole('button').map((b) => b.textContent)).toEqual(['J25008 Los Flamboyanes', 'J611 Bishop Kearney']);
+      expect(save().disabled).toBe(true);
+      tap('A2 · Walworth Dolomite → J25008 Los Flamboyanes');
+      expect(save().disabled).toBe(true);
+    });
+
+    it('as planned, linked to A2 loaded at J611: A2 is rerouted at 14:15, shows Changed, has 3 Loads and runs 11:30 to 14:43', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      open('Link to an Assignment');
+      tap('A2 · Walworth Dolomite → J25008 Los Flamboyanes');
+      tap('J611 Bishop Kearney');
+      fireEvent.click(save());
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(unplannedLog()).toEqual([]);
+      expect(laneUnplanned()).toBeNull();
+      expect(randy()).toEqual([
+        `${A1} · 4 Loads · Done · since 08:24`,
+        'Then · Changed · J611 Bishop Kearney → J25008 Los Flamboyanes · 1&2 stone · Truck 55 (his own) · 3 Loads · Done · since 11:30',
+      ]);
+      expect(columnNames()).toEqual(['Assignment 1', 'Assignment 2']);
+      expect(columns()[1]).toMatchObject({ 'Pick up': 'J611 Bishop Kearney', 'Drop off': 'J25008 Los Flamboyanes', '# of loads': '3', 'Trucking hours': '3.21' });
+      expect(run().map((r) => [r[0], r[3], r[4]])).toEqual([
+        ['14:15', 'empty', 'A2'],
+        ['14:33', 'load', 'A2'],
+      ]);
+      // Before 14:15 A2 is as Dave planned it.
+      setClock(14 * 60);
+      expect(randy()[1]).toBe(`${A2} · 2 Loads · Now · since 11:30`);
+    });
+
+    it('after "Not a haul" with the note "fuel": no Unplanned work, both Trips marked not a haul, and Total hours still 9.88', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      open('Not a haul');
+      expect(save().disabled).toBe(false);
+      fireEvent.change(within(answer()).getByRole('textbox', { name: 'Note' }), { target: { value: 'fuel' } });
+      fireEvent.click(save());
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(unplannedLog()).toEqual([]);
+      expect(laneUnplanned()).toBeNull();
+      expect(run().map((r) => [r[0], r[3], r[4], r[5]])).toEqual([
+        ['14:15', 'not a haul', '–', 'Not a haul: fuel'],
+        ['14:33', 'not a haul', '–', 'Not a haul: fuel'],
+      ]);
+      expect(truckLog()['Total hours']).toBe('9.88');
+      expect(columnNames()).toEqual(['Assignment 1', 'Assignment 2']);
+      expect(randy()).toEqual([`${A1} · 4 Loads · Done · since 08:24`, `${A2} · 2 Loads · Done · since 11:30`]);
+    });
+
+    it('"Not a haul" saves with no note', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      open('Not a haul');
+      fireEvent.click(save());
+      expect(unplannedLog()).toEqual([]);
+      expect(run().map((r) => r[5])).toEqual(['Not a haul', 'Not a haul']);
     });
   });
 

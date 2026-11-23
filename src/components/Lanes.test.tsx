@@ -216,6 +216,32 @@ describe('Lanes', () => {
   });
 });
 
+describe('Unplanned work on a lane', () => {
+  it('shows "1 Unplanned work" after the Driver’s Assignments, in his lane only', () => {
+    render(<Lanes assignments={[assignment({ ...a, toPlaceName: 'Sample Site North' })]} drivers={drivers} trucks={trucks} unplanned={{ 'drv-a': 1 }} />);
+    const [laneA, laneB] = screen.getAllByRole('article');
+    const marker = within(laneA).getByText('1 Unplanned work');
+    // After the blocks, and not one of them.
+    expect(within(laneA).getAllByRole('listitem')).toHaveLength(1);
+    expect(within(laneA).getByRole('list').compareDocumentPosition(marker) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(laneB).queryByText(/Unplanned work/)).toBeNull();
+  });
+
+  it('shows it in place of "Nothing planned yet" when the Driver has no Assignments that day', () => {
+    render(<Lanes assignments={[]} drivers={drivers} trucks={trucks} unplanned={{ 'drv-b': 2 }} />);
+    const laneB = screen.getAllByRole('article')[1];
+    expect(within(laneB).getByText('2 Unplanned work')).toBeTruthy();
+    expect(within(laneB).queryByText('Nothing planned yet')).toBeNull();
+  });
+
+  it('leaves the lane exactly as it is when there is none', () => {
+    const day = [assignment({ ...a, toPlaceName: 'Sample Site North' })];
+    const { container: without } = render(<Lanes assignments={day} drivers={drivers} trucks={trucks} />);
+    const { container: none } = render(<Lanes assignments={day} drivers={drivers} trucks={trucks} unplanned={{ 'drv-a': 0 }} />);
+    expect(none.innerHTML).toBe(without.innerHTML);
+  });
+});
+
 describe('AssignmentBlock', () => {
   const block = (fields: Partial<Assignment>, first = true, jobSites?: ReadonlySet<string>) => {
     render(

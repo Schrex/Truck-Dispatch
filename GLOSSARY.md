@@ -25,6 +25,9 @@ _Avoid_: edited, updated
 **Added**:
 An Assignment that Dave Assigned on its own day, or that was given to a Driver from another Driver after it was Assigned. The Driver sees it marked "Added by Dave". Work Assigned before its day is never Added.
 
+**From the Truck**:
+An Assignment Dave made afterwards from Unplanned work, saying where it loaded and the Material. It is Assigned at once, never Added, and its Driver gets no notice. The rules count only the Trips of that Unplanned work for it.
+
 **Working day**:
 A weekday that is not one of the six Holidays (New Year's Day, Memorial Day, Independence Day, Labor Day, Thanksgiving, Christmas), the same as the Daily Schedule's. The board opens on the next one. Weekends and Holidays can still be planned.
 
@@ -84,6 +87,10 @@ _Avoid_: run, leg
 **Load**:
 A Trip carrying material from a pickup Place to a drop Place. Counted from the Truck and tickets, never entered by Dave.
 _Avoid_: run
+
+**Unplanned work**:
+Trips in a row that a Truck made and no Assignment explains, taken as one piece of work for Dave to answer: make an Assignment for it, link it to an Assignment, or say it was not a haul. The Truck cannot tell which way material went, so where it was loaded is Dave's to say.
+_Avoid_: extra job, side job, unassigned trip, Trips with no Assignment
 
 **Material**:
 What a Load carries, e.g. 2" minus, CR2, dirt, topsoil, stone.

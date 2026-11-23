@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { easternTime } from './days';
-import { buildTripDay, matchTrip, routeAt, type TripAssignment } from './trips';
+import { buildTripDay, matchTrip, routeAt, type MadeAssignment, type TripAssignment } from './trips';
 import { FIXTURE_METER, FIXTURE_PARKED_AT_JOB, FIXTURE_PLACES, FIXTURE_SCENARIOS, FIXTURE_VISITS } from './trips.fixture';
 
 const END_OF_DAY = '2026-11-17T04:59:00Z';
@@ -36,7 +36,7 @@ describe('Cleaning the raw Fleet visits', () => {
 });
 
 describe('Trips and matching on the 16 Nov day', () => {
-  it('makes 15 Trips: 4 Loads on A1, 2 on A2, the South stop and the way back from it for Dave', () => {
+  it('makes 15 Trips: 4 Loads on A1, 2 on A2, and the South stop and the drive back from it for Dave', () => {
     expect(lines(day('two'))).toEqual([
       '06:24 SHOP → J1001 North empty -',
       '08:24 J1001 North → PLANT load a1',
@@ -65,7 +65,7 @@ describe('Trips and matching on the 16 Nov day', () => {
   it('gives each Assignment its Trip part: Loads, Done, since, last Load, Trucking hours, tons from Tickets', () => {
     const [a1, a2] = day('two').assignments;
     // A1 runs from leaving North at 08:24 to arriving at the Plant with its last Load at 11:25 (3 h 1 min):
-    // the way back from South is part of the South stop, for Dave, not a drive to A1's pickup.
+    // the drive back from South is the Unplanned work's, not a drive to A1's pickup.
     expect(a1).toEqual({
       assignmentId: 'a1',
       job: null,
@@ -100,27 +100,35 @@ describe('Trips and matching on the 16 Nov day', () => {
     expect(jobOf([plantToSouth])).toEqual([null]);
   });
 
-  it('lists the written Trips no Assignment explains: the South stop and the way back from it', () => {
-    expect(day('two').unexplained.map((t) => `${easternTime(t.leftAt)} ${t.fromCode} → ${t.toCode}`)).toEqual([
+  it('makes the South stop and the drive back from it one piece of Unplanned work: its Places and times, never a Pick up or Drop off', () => {
+    const d = day('two');
+    expect(d.unplanned).toHaveLength(1);
+    const [work] = d.unplanned;
+    expect(work.id).toBe(work.trips[0].leftAt);
+    expect(work.trips.map((t) => `${easternTime(t.leftAt)} ${t.fromCode} → ${t.toCode}`)).toEqual([
       '14:15 J1001 North → J1002 South',
       '14:33 J1002 South → J1001 North',
     ]);
-    expect(day('two').trips[13].match.reason).toBe('The way back from a Trip no Assignment explains; Dave answers both');
-  });
-
-  it('makes the South stop and its way back one unverified extra job, from leaving North to being back there', () => {
-    const [job] = day('two').unverified;
-    expect(day('two').unverified).toHaveLength(1);
-    expect(job).toMatchObject({ fromCode: 'J1001 North', toCode: 'J1002 South', fromPlaceId: 'plc-north', toPlaceId: 'plc-south' });
-    expect(job.trips.map((t) => easternTime(t.leftAt))).toEqual(['14:15', '14:33']);
+    // Where it went, in order, each once: North ⇄ South. No From, no To, no Job.
+    expect(work.places).toEqual([
+      { placeId: 'plc-north', code: 'J1001 North' },
+      { placeId: 'plc-south', code: 'J1002 South' },
+    ]);
+    expect(work).not.toHaveProperty('fromPlaceId');
+    expect(work).not.toHaveProperty('job');
     // 14:15:43 to 14:43:31.
-    expect(job.truckingHours).toBe(0.46);
+    expect([easternTime(work.leftAt), easternTime(work.arrivedAt), work.truckingHours]).toEqual(['14:15', '14:43', 0.46]);
+    // The drive back to North would fit A1 as a drive to its pickup (rule 4); it is the Unplanned work's, so it is nobody's.
+    expect(work.trips.every((t) => t.match.kind === null && t.match.assignmentId === null)).toBe(true);
+    expect(d.whichAssignment).toEqual([]);
   });
 
-  it('keeps a Trip back that matches an Assignment’s route: only an empty guess goes to Dave with the stop', () => {
+  it('keeps a Trip back that matches an Assignment’s route: only an empty guess joins the Unplanned work', () => {
     const southToNorth = { ...scenario('two')[0], id: 'a3', label: 'A3', fromPlaceId: 'plc-south', toPlaceId: 'plc-north' };
     const d = buildTripDay({ places: FIXTURE_PLACES, visits: FIXTURE_VISITS, assignments: [...scenario('two'), southToNorth], now: END_OF_DAY });
     expect(d.trips[13].match).toMatchObject({ kind: 'load', assignmentId: 'a3', rule: 1 });
+    // A3 explains 14:15 too, as its way back (rule 2), so there is no Unplanned work at all.
+    expect(d.unplanned).toEqual([]);
   });
 
   it('lists the drives to and from the shop: leaving in the morning, getting back at the end of the day', () => {
@@ -152,10 +160,171 @@ describe('Trips and matching on the 16 Nov day', () => {
     expect(d.assignments[0].loads).toBe(5);
   });
 
-  it('leaves a Trip for Dave when two Assignments fit at the same rule', () => {
+  it('asks "Which Assignment?" when two Assignments fit a Trip at the same rule, naming both', () => {
     const d = day('ambiguous');
-    expect(d.trips[1].match).toMatchObject({ kind: null, assignmentId: null, rule: 1 });
+    expect(d.trips[1].match).toMatchObject({ kind: null, assignmentId: null, rule: 1, candidates: ['a1', 'a3'] });
     expect(d.trips[1].match.reason).toMatch(/2 Assignments fit \(A1, A3\)/);
+    // A1 and A3 both run North → Plant: each Load and each way back is a question, from 08:24 to 11:14, and the drive back to North at 14:33.
+    expect(d.whichAssignment.map((q) => `${easternTime(q.trip.leftAt)} ${q.trip.fromCode} → ${q.trip.toCode} ${q.candidates.join('/')}`)).toEqual([
+      '08:24 J1001 North → PLANT a1/a3',
+      '08:43 PLANT → J1001 North a1/a3',
+      '09:35 J1001 North → PLANT a1/a3',
+      '09:50 PLANT → J1001 North a1/a3',
+      '10:27 J1001 North → PLANT a1/a3',
+      '10:41 PLANT → J1001 North a1/a3',
+      '11:14 J1001 North → PLANT a1/a3',
+      '14:33 J1002 South → J1001 North a1/a3',
+    ]);
+    expect(d.whichAssignment[0].id).toBe(d.whichAssignment[0].trip.leftAt);
+  });
+
+  it('never takes a tie as Unplanned work, not even a drive back into it: on two the same, only the drive to South is', () => {
+    const d = day('ambiguous');
+    // 14:33 South → North goes to both A1's and A3's pickup (rule 4): a tie, so "Which Assignment?", not the piece's way back.
+    expect(d.unplanned.map((w) => w.trips.map((t) => easternTime(t.leftAt)))).toEqual([['14:15']]);
+  });
+
+  it('makes a run of three Trips nothing fits one piece: A1 cancelled at 10:10, its last three Trips to and from the Plant', () => {
+    const [a1, a2] = scenario('two');
+    const d = buildTripDay({
+      places: FIXTURE_PLACES,
+      visits: FIXTURE_VISITS,
+      assignments: [{ ...a1, cancelledAt: '2026-11-16T15:10:00Z' }, a2],
+      now: END_OF_DAY,
+    });
+    expect(d.unplanned.map((w) => w.trips.map((t) => `${easternTime(t.leftAt)} ${t.fromCode} → ${t.toCode}`))).toEqual([
+      ['10:27 J1001 North → PLANT', '10:41 PLANT → J1001 North', '11:14 J1001 North → PLANT'],
+      ['14:15 J1001 North → J1002 South', '14:33 J1002 South → J1001 North'],
+    ]);
+    expect(d.unplanned[0].places.map((p) => p.code)).toEqual(['J1001 North', 'PLANT']);
+    // The drive on to the Quarry fits A2 (to its pickup) and goes somewhere the piece had not been: A2's.
+    expect(lines(d)[8]).toBe('11:30 PLANT → QUARRY empty a2');
+    // A1 keeps its Trips before it was cancelled: 08:24 to back at North at 10:00.
+    expect(d.assignments[0]).toMatchObject({ loads: 2, truckingHours: 1.59 });
+  });
+});
+
+describe('Make an Assignment: an answer to Unplanned work', () => {
+  const [a1, a2] = scenario('two');
+  const cancelled = [{ ...a1, cancelledAt: '2026-11-16T15:10:00Z' }, a2];
+  const plantRun = '2026-11-16T15:27:50Z';
+
+  it('claims only the Trips of the Unplanned work it answers, never earlier ones on the same route', () => {
+    // A1 cancelled at 10:10: 10:27–11:25 to and from the Plant is Unplanned work. Dave says it loaded at the Plant.
+    // Plant → North is the route of A1's ways back at 08:43 and 09:50; they stay A1's.
+    expect(day('two').unplanned.map((w) => w.id)).not.toContain(plantRun);
+    const before = buildTripDay({ places: FIXTURE_PLACES, visits: FIXTURE_VISITS, assignments: cancelled, now: END_OF_DAY });
+    expect(before.unplanned[0].id).toBe(plantRun);
+    const d = buildTripDay({
+      places: FIXTURE_PLACES,
+      visits: FIXTURE_VISITS,
+      assignments: cancelled,
+      now: END_OF_DAY,
+      answers: {
+        madeAssignments: [{ id: 'a3', label: 'A3', fromPlaceId: 'plc-plant', toPlaceId: 'plc-north', cancelledAt: null, changes: [], unplannedId: plantRun }],
+      },
+    });
+    expect(lines(d).slice(1, 8)).toEqual([
+      '08:24 J1001 North → PLANT load a1',
+      '08:43 PLANT → J1001 North empty a1',
+      '09:35 J1001 North → PLANT load a1',
+      '09:50 PLANT → J1001 North empty a1',
+      '10:27 J1001 North → PLANT empty a3',
+      '10:41 PLANT → J1001 North load a3',
+      '11:14 J1001 North → PLANT empty a3',
+    ]);
+    expect(d.assignments.map((a) => [a.assignmentId, a.loads, a.empties])).toEqual([
+      ['a1', 2, 2],
+      ['a2', 2, 2],
+      ['a3', 1, 2],
+    ]);
+    // The South stop is still Unplanned work.
+    expect(d.unplanned.map((w) => easternTime(w.leftAt))).toEqual(['14:15']);
+  });
+
+  it('leaves Unplanned work it does not answer as it is', () => {
+    const d = buildTripDay({
+      places: FIXTURE_PLACES,
+      visits: FIXTURE_VISITS,
+      assignments: scenario('two'),
+      now: END_OF_DAY,
+      answers: { madeAssignments: [{ id: 'a3', label: 'A3', fromPlaceId: 'plc-south', toPlaceId: 'plc-north', cancelledAt: null, changes: [], unplannedId: plantRun }] },
+    });
+    expect(d.unplanned).toHaveLength(1);
+    expect(d.assignments[2]).toMatchObject({ assignmentId: 'a3', loads: 0, status: 'none' });
+  });
+});
+
+describe('Split: one run that held two hauls', () => {
+  const [a1, a2] = scenario('two');
+  const cancelled = [{ ...a1, cancelledAt: '2026-11-16T15:10:00Z' }, a2];
+  const at = (splits: string[], madeAssignments: MadeAssignment[] = []) =>
+    buildTripDay({ places: FIXTURE_PLACES, visits: FIXTURE_VISITS, assignments: cancelled, now: END_OF_DAY, answers: { splits, madeAssignments } });
+  const pieces = (d: ReturnType<typeof at>) => d.unplanned.map((w) => w.trips.map((t) => `${easternTime(t.leftAt)} ${t.fromCode} → ${t.toCode}`));
+  /** 10:41, Plant → North: the second Trip of the run to and from the Plant. */
+  const second = at([]).unplanned[0].trips[1].leftAt;
+
+  it('splits a run at the Trip Dave taps: two pieces, the second starting at that Trip and named by it', () => {
+    const d = at([second]);
+    expect(pieces(d)).toEqual([
+      ['10:27 J1001 North → PLANT'],
+      ['10:41 PLANT → J1001 North', '11:14 J1001 North → PLANT'],
+      ['14:15 J1001 North → J1002 South', '14:33 J1002 South → J1001 North'],
+    ]);
+    expect(d.unplanned[1]).toMatchObject({ id: second, places: [{ code: 'PLANT' }, { code: 'J1001 North' }] });
+  });
+
+  it('ignores a split at a run’s first Trip or at a Trip in no run', () => {
+    const d = at(['2026-11-16T15:27:50Z', '2026-11-16T13:24:26Z']);
+    expect(pieces(d)).toEqual(pieces(at([])));
+  });
+
+  it('answers each part on its own: each made Assignment claims only its own part’s Trips', () => {
+    const made = (id: string, from: string, to: string, unplannedId: string): MadeAssignment => ({ id, label: id.toUpperCase(), fromPlaceId: from, toPlaceId: to, cancelledAt: null, changes: [], unplannedId });
+    const d = at([second], [made('a3', 'plc-north', 'plc-plant', '2026-11-16T15:27:50Z'), made('a4', 'plc-plant', 'plc-north', second)]);
+    expect(lines(d).slice(5, 8)).toEqual(['10:27 J1001 North → PLANT load a3', '10:41 PLANT → J1001 North load a4', '11:14 J1001 North → PLANT empty a4']);
+    expect(d.assignments.slice(2).map((a) => [a.assignmentId, a.loads, a.empties, a.truckingHours])).toEqual([
+      ['a3', 1, 0, 0.17],
+      ['a4', 1, 1, 0.74],
+    ]);
+  });
+});
+
+describe('Link to an Assignment and Not a haul: answers to Unplanned work', () => {
+  const [a1, a2] = scenario('two');
+  const cancelled = [{ ...a1, cancelledAt: '2026-11-16T15:10:00Z' }, a2];
+  const plantRun = '2026-11-16T15:27:50Z';
+  const answered = (answers: Parameters<typeof buildTripDay>[0]['answers']) =>
+    buildTripDay({ places: FIXTURE_PLACES, visits: FIXTURE_VISITS, assignments: cancelled, now: END_OF_DAY, answers });
+
+  it('a link reroutes the Assignment only for its own piece: A2 gains the Plant run’s Load and keeps its Quarry Loads after it', () => {
+    // Linked to A2 loaded at the Plant (Plant → North from 10:27). A2's Quarry → North Loads come after it and stay A2's;
+    // A1's ways back on Plant → North before it stay A1's.
+    const d = answered({ links: [{ unplannedId: plantRun, assignmentId: 'a2', fromPlaceId: 'plc-plant', toPlaceId: 'plc-north' }] });
+    expect(lines(d).slice(2, 8)).toEqual([
+      '08:43 PLANT → J1001 North empty a1',
+      '09:35 J1001 North → PLANT load a1',
+      '09:50 PLANT → J1001 North empty a1',
+      '10:27 J1001 North → PLANT empty a2',
+      '10:41 PLANT → J1001 North load a2',
+      '11:14 J1001 North → PLANT empty a2',
+    ]);
+    expect(d.assignments.map((a) => [a.assignmentId, a.loads])).toEqual([
+      ['a1', 2],
+      ['a2', 3],
+    ]);
+    expect(d.unplanned.map((w) => easternTime(w.leftAt))).toEqual(['14:15']);
+  });
+
+  it('Not a haul takes its piece’s Trips out of Unplanned work and gives them to no Assignment', () => {
+    const d = answered({ notAHauls: [{ unplannedId: plantRun, note: null }] });
+    expect(lines(d).slice(5, 8)).toEqual([
+      '10:27 J1001 North → PLANT not_a_haul -',
+      '10:41 PLANT → J1001 North not_a_haul -',
+      '11:14 J1001 North → PLANT not_a_haul -',
+    ]);
+    expect(d.unplanned.map((w) => easternTime(w.leftAt))).toEqual(['14:15']);
+    expect(d.assignments.map((a) => a.loads)).toEqual([2, 2]);
   });
 });
 

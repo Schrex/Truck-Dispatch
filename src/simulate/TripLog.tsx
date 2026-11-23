@@ -1,4 +1,4 @@
-import type { Trip, TripPlace } from '../../shared/trips';
+import { NOT_A_HAUL, type Trip, type TripPlace } from '../../shared/trips';
 import { easternTime } from '../../shared/days';
 import { EmptyBox } from '@/components/States';
 import { cn } from '@/lib/utils';
@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 const KIND: Record<string, { label: string; style: string }> = {
   load: { label: 'load', style: 'bg-primary text-primary-foreground' },
   empty: { label: 'empty', style: 'bg-muted text-muted-foreground' },
+  [NOT_A_HAUL]: { label: 'not a haul', style: 'bg-muted text-muted-foreground italic' },
   null: { label: 'for Dave', style: 'bg-warning/25 text-foreground' },
   waiting: { label: 'waiting', style: 'border text-muted-foreground' },
 };
