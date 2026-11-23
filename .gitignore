@@ -163,3 +163,7 @@ vite.config.ts.timestamp-*
 
 # Personal Claude Code settings
 .claude/settings.local.json
+
+# Playwright (bun run e2e): results and reports
+test-results/
+playwright-report/

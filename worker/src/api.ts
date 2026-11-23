@@ -1,10 +1,12 @@
 import type { Env } from './app';
 import { clock } from './clock';
 import { json, readJson, refuse, text } from './http';
+import { handleInspections } from './inspections';
+import { handleTruckProblems } from './truckProblems';
 import { exists, handleList, isList, listOrder } from './lists';
 import { checkTyped, saveLinked, typedIn, type Typed } from './typedNames';
 import { addDays, dayState, draftsOn, holidayName, isCalendarDate, mondayOf, sinceSent, weekDates } from '../../shared/days';
-import type { Assignment, BusinessDay, CopiedDay, Day, DriverAssignment, DriverDay, ListName, NewAssignment, TypedNames, Was, Week } from '../../shared/types';
+import { NOTE_LIMIT, type Assignment, type BusinessDay, type CopiedDay, type Day, type DriverAssignment, type DriverDay, type ListName, type NewAssignment, type TypedNames, type Was, type Week } from '../../shared/types';
 
 /** The JSON API under /api/ (or /truck-dispatch/api/). */
 export async function handleApi(request: Request, env: Env, route: string, query: URLSearchParams): Promise<Response> {
@@ -62,6 +64,12 @@ export async function handleApi(request: Request, env: Env, route: string, query
     if (reading) return readWeek(env, decodeURIComponent(weekOf[1]));
     return json({ error: 'method_not_allowed' }, 405, { Allow: 'GET, HEAD' });
   }
+
+  const checkingIn = await handleInspections(request, env, route, query);
+  if (checkingIn) return checkingIn;
+
+  const problems = await handleTruckProblems(request, env, route, query);
+  if (problems) return problems;
 
   const [list, entryId, ...rest] = route.split('/');
   if (isList(list) && rest.length === 0) return handleList(request, env, list, entryId, query);
@@ -734,8 +742,6 @@ async function checkFields(env: Env, body: Partial<NewAssignment & TypedNames>):
   });
   return errors;
 }
-
-const NOTE_LIMIT = 1000;
 
 /** Field name to a plain message, for each reference or note that is not text, or a note too long. */
 function validate(body: Partial<NewAssignment>): Record<string, string> {

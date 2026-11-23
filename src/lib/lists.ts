@@ -8,6 +8,7 @@ const DISPLAY: { [L in ListName]: (entry: Lists[L]) => string } = {
   places: (place) => place.shortName,
   materials: (material) => material.name,
   foremen: (foreman) => foreman.name,
+  'inspection-items': (item) => item.label,
 };
 
 /** Each list's name in words, e.g. for a message that it could not load. */
@@ -18,6 +19,7 @@ export const LIST_TITLES: Record<ListName, string> = {
   places: 'Places',
   materials: 'Materials',
   foremen: 'Foremen',
+  'inspection-items': 'Inspection checklist',
 };
 
 /** A Place's kind in words. Shop and yard stay apart in the data but read as one. */
