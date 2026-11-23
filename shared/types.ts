@@ -126,6 +126,12 @@ export interface NewAssignment {
 }
 
 /**
+ * What the page sends to add an Assignment. With `alsoDriverIds` the same
+ * Assignment is also made for each of those Drivers, one each, all or none.
+ */
+export type AddAssignment = NewAssignment & TypedNames & { alsoDriverIds?: string[] };
+
+/**
  * What the page sends to change an Assignment: only the fields to change (one
  * left out stays as it is, an empty one is cleared), typed names included.
  * Never its day, which is fixed.

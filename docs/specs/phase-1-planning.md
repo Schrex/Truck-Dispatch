@@ -39,7 +39,7 @@ These stories record what phase 1 had to do and why ("so that…"). They are kep
 23. As Dave, I want a sentence preview ("Randy hauls 2" minus from Villager to TIUNY (Brody)"), so that I can check what I am about to save.
 24. As Dave, I want Save allowed with only the day, so that I can jot down work before I know the details.
 25. As Dave, I want the new Assignment placed last in its lane, so that adding work never reshuffles the day.
-26. As Dave, I want the composer to fold when I Save and the next **+** to start with the last Places and Material I picked, until I close it, so that the lane is tidy and giving the same haul to a second Driver is a few taps.
+26. As Dave, I want the composer to fold when I Save and every **+** to open a blank one, so that the lane is tidy and one Driver's work is never carried into the next Driver's by mistake. To give the same haul to several Drivers, I pick them in "Who?" and Save once: each gets his own Draft.
 27. As Dave, I want "Close" to drop what I typed without saving, so that I can back out.
 
 ### Changing an Assignment

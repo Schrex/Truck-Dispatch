@@ -3,7 +3,7 @@ import { clock } from './clock';
 import { json, readJson, refuse, text } from './http';
 import { handleInspections } from './inspections';
 import { handleTruckProblems } from './truckProblems';
-import { exists, handleList, isList, listOrder } from './lists';
+import { exists, handleList, isActive, isList, listOrder } from './lists';
 import { checkTyped, saveLinked, typedIn, type Typed } from './typedNames';
 import { addDays, dayState, draftsOn, holidayName, isCalendarDate, mondayOf, sinceSent, weekDates } from '../../shared/days';
 import { NOTE_LIMIT, type Assignment, type BusinessDay, type CopiedDay, type Day, type DriverAssignment, type DriverDay, type ListName, type NewAssignment, type TypedNames, type Was, type Week } from '../../shared/types';
@@ -400,19 +400,26 @@ async function copyOnto(env: Env, from: string, to: string): Promise<Response> {
   return json({ from, to, assignments: results.map(marked) } satisfies CopiedDay, 201);
 }
 
+/**
+ * Adds one Assignment, or the same one for several Drivers: `alsoDriverIds`
+ * names the others, each getting his own, last in his lane. All are saved in
+ * one batch, so either every Driver has his or none does.
+ */
 async function addAssignment(request: Request, env: Env): Promise<Response> {
   const read = await readAssignment(request, env);
   if (read instanceof Response) return read;
 
-  const id = crypto.randomUUID();
   const now = clock(env).now.toISOString();
   const columns = ['id', ...SAVED_COLUMNS, 'created_at', 'updated_at'];
+  const made = [read.driverId, ...read.alsoDriverIds].map((driverId) => ({ id: crypto.randomUUID(), driverId }));
   // Last in its lane, so adding work never reshuffles the day.
   await saveLinked(env, read.typed, (typed) =>
-    env.DB.prepare(
-      `INSERT INTO assignments (${columns.join(', ')}, position) VALUES (${columns.map(() => '?').join(', ')}, ${LAST_IN_LANE})`,
-    ).bind(id, ...savedValues({ ...read, ...typed }), now, now, read.date, read.driverId, id));
-  return json({ assignment: await findAssignment(env, id) }, 201);
+    made.map(({ id, driverId }) =>
+      env.DB.prepare(
+        `INSERT INTO assignments (${columns.join(', ')}, position) VALUES (${columns.map(() => '?').join(', ')}, ${LAST_IN_LANE})`,
+      ).bind(id, ...savedValues({ ...read, ...typed, driverId }), now, now, read.date, driverId, id)));
+  const assignments = await Promise.all(made.map(({ id }) => findAssignment(env, id)));
+  return json({ assignment: assignments[0], assignments }, 201);
 }
 
 /**
@@ -705,7 +712,7 @@ void everyFieldDeclared;
  * An Assignment as a request sends it, checked and tidied. A Place or Material
  * it typed by name is linked only when it is saved (see saveLinked).
  */
-type ReadAssignment = { date: string; note: string | null; typed: Typed[] } & Record<ReferenceKey, string | null>;
+type ReadAssignment = { date: string; note: string | null; typed: Typed[]; alsoDriverIds: string[] } & Record<ReferenceKey, string | null>;
 
 /** The columns adding an Assignment saves, in the order savedValues gives them. */
 const SAVED_COLUMNS = ['date', ...REFERENCES.map((r) => r.column), 'note'];
@@ -727,15 +734,30 @@ function savedValues(read: ReadAssignment): (string | null)[] {
 
 /** The Assignment a request sends, checked and tidied, or the response refusing it. */
 async function readAssignment(request: Request, env: Env): Promise<ReadAssignment | Response> {
-  const body = await readJson<Partial<NewAssignment & TypedNames>>(request);
+  const body = await readJson<Partial<NewAssignment & TypedNames> & { alsoDriverIds?: unknown }>(request);
   if (body instanceof Response) return body;
 
   const errors = await checkFields(env, body);
   if (!isCalendarDate(body.date)) errors.date = PICK_DATE;
   else if (isPast(env, body.date)) errors.date = PAST_DAY.date;
+  const also = await readAlso(env, body.alsoDriverIds, text(body.driverId) || null);
+  if (typeof also === 'string') errors.alsoDriverIds = also;
   if (Object.keys(errors).length > 0) return refuse(errors);
   const ids = Object.fromEntries(REFERENCES.map((r) => [r.key, text(body[r.key]) || null])) as Record<ReferenceKey, string | null>;
-  return { date: body.date as string, ...ids, note: text(body.note) || null, typed: typedIn(body) };
+  return { date: body.date as string, ...ids, note: text(body.note) || null, typed: typedIn(body), alsoDriverIds: also as string[] };
+}
+
+/**
+ * The other Drivers a new Assignment is also made for, or the message refusing
+ * them: each an active Driver, named once, and only beside a first Driver.
+ */
+async function readAlso(env: Env, sent: unknown, driverId: string | null): Promise<string[] | string> {
+  if (sent == null) return [];
+  if (!Array.isArray(sent) || !sent.every((id): id is string => typeof id === 'string' && id.trim() !== '')) return 'Pick the Drivers from the list.';
+  if (sent.length === 0) return [];
+  if (!driverId || new Set([driverId, ...sent]).size !== sent.length + 1) return 'Pick each Driver once.';
+  const active = await Promise.all(sent.map((id) => isActive(env, 'drivers', id)));
+  return active.every(Boolean) ? sent : 'One of these Drivers was removed. Pick the Drivers again.';
 }
 
 /**

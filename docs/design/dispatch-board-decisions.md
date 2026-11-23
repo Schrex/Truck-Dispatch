@@ -47,7 +47,7 @@ Sources: the "Trucking page · 5 design mocks" export, page **Final · scheduler
 
 ### After trying it on staging (22 Nov)
 - **Send stays the gate.** Randy's Monday did not show because it was still a Draft. The Board now says so on a Draft day. (Since ADR 0005 the gate is each Assignment's Assign, and Drafts look dashed on the Board.)
-- **The composer folds on Save** but keeps the Places and Material for the next **+**.
+- **The composer folds on Save and every + opens blank.** It first kept the Places and Material for the next **+**, so the same haul could go to a second Driver; Dave found one Driver's work turning up in the next Driver's composer. The same haul for several Drivers is now picked in "Who?" and saved in one go, one Draft each. The lane's own Driver cannot be dropped there, so a lane's **+** always adds to that lane.
 - **Settings says nothing about HCSS on a Truck.** Its code and id stay in the data for Trips later. A Place still shows "On the truck map" (open question).
 - **First** is the first Assignment that is not cancelled, and the day's count leaves cancelled ones out.
 
