@@ -6,6 +6,8 @@ import { ListPicker } from '@/components/ListPicker';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { addEntry, changeEntry, FieldErrors } from '@/lib/api';
 import { choicesOf, LIST_TITLES } from '@/lib/lists';
 import type { FormValues, ListField, Row, SectionSpec } from './spec';
@@ -16,8 +18,9 @@ const TYPING_PAUSE_MS = 400;
 type Form = FormValues;
 type Status = 'idle' | 'saving' | 'saved' | 'failed';
 
-/** What a field's control shows for a saved value: a choice's value may be shown as another one. */
-function shown(field: ListField<ListName> | null, value: unknown): string | null {
+/** What a field's control shows for a saved value: a choice's value may be shown as another one; a switch is on or off. */
+function shown(field: ListField<ListName> | null, value: unknown): string | boolean | null {
+  if (field?.kind === 'switch') return value === true;
   const saved = (value as string | null) ?? null;
   return field?.kind === 'choice' && saved && field.shownAs?.[saved] ? field.shownAs[saved] : saved;
 }
@@ -87,7 +90,7 @@ export function EntryPanel({
       if (typeof body === 'string') {
         if (!current) {
           // A new entry is added with everything filled in so far, once it has a name.
-          if (!formRef.current[nameKey]?.trim()) return;
+          if (!String(formRef.current[nameKey] ?? '').trim()) return;
           fields = Object.fromEntries(Object.entries(formRef.current).filter(([, value]) => value));
         } else fields = { [body]: formRef.current[body] };
       } else {
@@ -119,7 +122,7 @@ export function EntryPanel({
 
   useEffect(() => () => flush(), []);
 
-  function set(key: string, value: string | null, { typing }: { typing: boolean }) {
+  function set(key: string, value: string | boolean | null, { typing }: { typing: boolean }) {
     formRef.current = { ...formRef.current, [key]: value };
     setForm(formRef.current);
     setErrors(({ [key]: _gone, ...rest }) => rest);
@@ -154,7 +157,7 @@ export function EntryPanel({
           <DialogTitle className="font-display text-xl uppercase tracking-wide">{title}</DialogTitle>
           <DialogDescription>
             {saved
-              ? `${spec.noun}${saved.active ? '' : ', removed'}. Changes save as you type; a new name shows on every Assignment that uses it.`
+              ? `${spec.noun}${saved.active ? '' : ', removed'}. Changes save as you type; ${spec.renamed ?? 'a new name shows on every Assignment that uses it.'}`
               : `A new ${spec.noun}, saved once it has a ${spec.name.label.toLowerCase()}.`}
           </DialogDescription>
         </DialogHeader>
@@ -168,14 +171,29 @@ export function EntryPanel({
           }}
         >
           <Field id={nameKey} label={spec.name.label} error={errors[nameKey]}>
-            <Input id={nameKey} required value={form[nameKey] ?? ''} onChange={(e) => set(nameKey, e.target.value, { typing: true })} />
+            <Input id={nameKey} required value={String(form[nameKey] ?? '')} onChange={(e) => set(nameKey, e.target.value, { typing: true })} />
           </Field>
           {spec.fields.filter((field) => !field.shownWhen || field.shownWhen(form)).map((field) => {
+            if (field.kind === 'switch')
+              return (
+                <div key={field.key} className="space-y-1">
+                  <div className="flex items-center gap-3">
+                    <Switch id={field.key} checked={form[field.key] === true} onCheckedChange={(on) => set(field.key, on, { typing: false })} />
+                    <Label htmlFor={field.key}>{field.label}</Label>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{field.hint}</p>
+                  {errors[field.key] && (
+                    <p className="text-xs text-destructive" role="alert">
+                      {errors[field.key]}
+                    </p>
+                  )}
+                </div>
+              );
             const failed = field.kind === 'pick' && unloaded.includes(field.list) ? LIST_TITLES[field.list] : null;
             return (
               <Field key={field.key} id={field.key} label={field.label} optional error={errors[field.key] ?? (failed ? `Could not load the ${failed}.` : undefined)}>
                 {field.kind === 'text' ? (
-                  <Input id={field.key} value={form[field.key] ?? ''} onChange={(e) => set(field.key, e.target.value, { typing: true })} />
+                  <Input id={field.key} value={String(form[field.key] ?? '')} onChange={(e) => set(field.key, e.target.value, { typing: true })} />
                 ) : (
                   <ListPicker
                     id={field.key}
@@ -186,7 +204,7 @@ export function EntryPanel({
                         ? field.choices.map((c) => ({ id: c.value, label: c.label, active: true }))
                         : choicesOf(field.list, (others[field.list] as never) ?? null)
                     }
-                    value={form[field.key] ?? null}
+                    value={(form[field.key] as string | null) ?? null}
                     onChange={(value) => set(field.key, value, { typing: false })}
                     failed={Boolean(failed)}
                   />

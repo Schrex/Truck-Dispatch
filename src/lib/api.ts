@@ -1,4 +1,4 @@
-import type { Assignment, AssignmentChange, BusinessDay, ChangedAssignment, CopiedDay, Day, DriverDay, EntryFields, ListName, Lists, NewAssignment, OrderedList, TypedNames, WeekDay } from '../../shared/types';
+import type { Assignment, AssignmentChange, BusinessDay, ChangedAssignment, CheckIn, CheckIns, CopiedDay, Day, DriverDay, Inspection, NewInspection, EntryFields, ListName, Lists, NewAssignment, OrderedList, TruckProblem, TypedNames, WeekDay } from '../../shared/types';
 import { basePath } from './basePath';
 
 // Every call starts at the base path the page was reached under: /api/...
@@ -161,4 +161,40 @@ export async function fetchNextAssigned(driverId: string): Promise<string | null
  */
 export function fetchDriverDay(driverId: string, date: string): Promise<DriverDay> {
   return request<DriverDay>(`api/drivers/${encodeURIComponent(driverId)}/days/${encodeURIComponent(date)}`);
+}
+
+/** Each Driver's check-in on a day: his latest Inspection that day, its Truck, time and whether it needs repair. */
+export async function fetchCheckIns(date: string): Promise<CheckIn[]> {
+  return (await request<CheckIns>(`api/check-ins?date=${encodeURIComponent(date)}`)).checkIns;
+}
+
+/**
+ * Finish: saves an Inspection for today, checking the Driver in to its Truck.
+ * Sent again with the same id (a retry after a lost reply), it answers the one
+ * already saved and saves nothing.
+ */
+export async function addInspection(inspection: NewInspection): Promise<Inspection> {
+  return (await request<{ inspection: Inspection }>('api/inspections', json('POST', inspection))).inspection;
+}
+
+/**
+ * Every Truck problem: open ones first, then fixed ones, each newest first.
+ * With open, only the open ones; with truckId, only that Truck's.
+ */
+export async function fetchTruckProblems(only: { open?: boolean; truckId?: string } = {}): Promise<TruckProblem[]> {
+  const query = new URLSearchParams();
+  if (only.open) query.set('open', '1');
+  if (only.truckId) query.set('truckId', only.truckId);
+  const search = query.toString();
+  return (await request<{ problems: TruckProblem[] }>(`api/truck-problems${search ? `?${search}` : ''}`)).problems;
+}
+
+/** Mark fixed: closes a Truck problem, with how it was fixed if Dave says. One already fixed is answered as it is. */
+export async function fixTruckProblem(id: string, note?: string): Promise<TruckProblem> {
+  return (await request<{ problem: TruckProblem }>(`api/truck-problems/${encodeURIComponent(id)}/fix`, json('POST', note ? { note } : {}))).problem;
+}
+
+/** Report a problem: a Driver reports one during the day on the Truck of his latest check-in today. */
+export async function reportTruckProblem(report: { driverId: string; truckId: string; text: string }): Promise<TruckProblem> {
+  return (await request<{ problem: TruckProblem }>('api/truck-problems', json('POST', report))).problem;
 }

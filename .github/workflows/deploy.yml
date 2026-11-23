@@ -94,6 +94,12 @@ jobs:
       - name: Migrate the staging database
         run: bunx wrangler d1 migrations apply truck-dispatch-staging --remote --config "$CONFIG"
 
+      # Reference data every environment needs (production too): the
+      # Inspection checklist's starting items. Only adds missing rows, so
+      # Dave's renames and reorders are kept.
+      - name: Seed the Inspection checklist
+        run: bunx wrangler d1 execute truck-dispatch-staging --remote --config "$CONFIG" --file seed/inspection-items.sql
+
       # Only adds missing synthetic rows, so data added while testing is kept.
       - name: Seed synthetic data
         run: bunx wrangler d1 execute truck-dispatch-staging --remote --config "$CONFIG" --file seed/fixture.sql

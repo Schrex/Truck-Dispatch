@@ -2,15 +2,25 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../App';
+import type { TruckProblem } from '../../shared/types';
+
+/** When the Worker marks a problem fixed in these tests: Thursday 19 Nov 2026, 10:00 AM US Eastern. */
+const FIXED_AT = '2026-11-19T15:00:00.000Z';
+/** An open Truck problem on Truck 21 from Sample Driver A's Inspection at 6:42 on Thursday 19 Nov, unless given otherwise. */
+const problem = (fields: Partial<TruckProblem>): TruckProblem => ({
+  id: 'tp', truckId: 'trk-21', truckNumber: '21', reportedByDriverId: 'drv-a', reportedByName: 'Sample Driver A', reportedAt: '2026-11-19T11:42:00.000Z',
+  text: 'Something', inspectionId: 'insp-x', fixedAt: null, fixedNote: null, ...fields,
+});
 
 /**
  * The list API as Settings sees it: every list keeps what is added and
  * changed, refuses a name already used (ignoring case) and has no delete. A
  * Driver answers how many later days hold his Assignments. Drivers, Places and
- * Materials take a whole new order, the ids first to last, the rest after.
+ * Materials and the Inspection checklist take a whole new order, the ids
+ * first to last, the rest after.
  */
 type Entry = Record<string, unknown> & { id: string; active: boolean };
-const NAME: Record<string, string> = { drivers: 'name', trucks: 'number', jobs: 'name', places: 'shortName', materials: 'name', foremen: 'name' };
+const NAME: Record<string, string> = { drivers: 'name', trucks: 'number', jobs: 'name', places: 'shortName', materials: 'name', foremen: 'name', 'inspection-items': 'label' };
 let lists: Record<string, Entry[]>;
 const sent: { method: string; path: string; body: unknown }[] = [];
 /** A list whose GET fails, if any. */
@@ -19,13 +29,29 @@ let failing: string | null = null;
 let saveFails = false;
 /** Each Driver's later days with Assignments, as the Worker would count them. */
 let laterDays: Record<string, number>;
+/** The Truck problems, in the Worker's order: open first, then fixed, newest first. Fixing one moves it to the top of the fixed ones. */
+let problems: TruckProblem[];
 
 const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = new URL(String(input), 'https://td.example');
   const answer = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
   const later = /\/api\/drivers\/([^/]+)\/later-days$/.exec(url.pathname);
   if (later) return answer({ laterDays: laterDays[later[1]] ?? 0 });
-  const [, list, id] = /\/api\/(drivers|trucks|jobs|places|materials|foremen)(?:\/([^/]+))?$/.exec(url.pathname) ?? [];
+  if (url.pathname.endsWith('/api/truck-problems')) {
+    return failing === 'truck-problems' ? answer({ error: 'oops' }, 500) : answer({ problems });
+  }
+  const fixing = /\/api\/truck-problems\/([^/]+)\/fix$/.exec(url.pathname);
+  if (fixing && init?.method === 'POST') {
+    const body = JSON.parse(String(init.body));
+    sent.push({ method: 'POST', path: url.pathname, body });
+    if (saveFails) return answer({ error: 'oops' }, 500);
+    const problem = problems.find((p) => p.id === fixing[1]);
+    if (!problem) return answer({ error: 'not_found' }, 404);
+    const closed = problem.fixedAt ? problem : { ...problem, fixedAt: FIXED_AT, fixedNote: (body.note ?? '').trim() || null };
+    problems = [...problems.filter((p) => p.id !== closed.id && !p.fixedAt), closed, ...problems.filter((p) => p.id !== closed.id && p.fixedAt)];
+    return answer({ problem: closed });
+  }
+  const [, list, id] = /\/api\/(drivers|trucks|jobs|places|materials|foremen|inspection-items)(?:\/([^/]+))?$/.exec(url.pathname) ?? [];
   if (!list) return answer({ error: 'not_found' }, 404);
   const method = init?.method ?? 'GET';
   if (method === 'GET' && list === failing) return answer({ error: 'oops' }, 500);
@@ -36,7 +62,7 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   const body = JSON.parse(String(init?.body));
   sent.push({ method, path: url.pathname, body });
   if (saveFails) return answer({ error: 'oops' }, 500);
-  if (method === 'PUT' && id === 'order' && ['drivers', 'places', 'materials'].includes(list)) {
+  if (method === 'PUT' && id === 'order' && ['drivers', 'places', 'materials', 'inspection-items'].includes(list)) {
     const rank = (e: Entry) => ((body.order as string[]).indexOf(e.id) + 1 || Infinity);
     lists[list] = [...entries].sort((a, b) => rank(a) - rank(b));
     return answer({ [list]: lists[list] });
@@ -91,20 +117,33 @@ beforeEach(() => {
       { id: 'frm-a', name: 'Sample Foreman A', active: true },
       { id: 'frm-x', name: 'Sample Foreman X', active: false },
     ],
+    'inspection-items': [
+      { id: 'insp-01', label: 'Dump box clean', optional: false, active: true },
+      { id: 'insp-07', label: 'Lights', optional: false, active: true },
+      { id: 'insp-11', label: 'Air tank (drain)', optional: true, active: true },
+      { id: 'insp-x', label: 'Sample Old Item', optional: false, active: false },
+    ],
   };
   sent.length = 0;
   failing = null;
   saveFails = false;
   laterDays = {};
+  problems = [
+    problem({ id: 'tp-3', truckId: 'trk-24', truckNumber: '24', reportedByDriverId: 'drv-c', reportedByName: 'Sample Driver C', reportedAt: '2026-11-19T12:30:00.000Z', text: 'Tarp ripped' }),
+    problem({ id: 'tp-1', text: 'Left marker out' }),
+    problem({ id: 'tp-0', reportedAt: '2026-11-17T21:05:00.000Z', text: 'Flap torn', fixedAt: '2026-11-18T14:00:00.000Z', fixedNote: 'New flap' }),
+  ];
   api.mockClear();
   vi.stubGlobal('fetch', api);
+  // Every browser has it; jsdom does not, and the Optional switch measures itself with it.
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
 });
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
 
-type Title = 'Drivers' | 'Trucks' | 'Places' | 'Materials' | 'Jobs' | 'Foremen';
+type Title = 'Drivers' | 'Trucks' | 'Places' | 'Materials' | 'Jobs' | 'Foremen' | 'Inspection checklist';
 
 /** Opens Settings and waits until every section has its chips. */
 const settings = async () => {
@@ -139,10 +178,12 @@ describe('Settings', () => {
     expect(screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent)).toEqual([
       'Drivers',
       'Trucks',
+      'Truck problems',
       'Places',
       'Materials',
       'Jobs',
       'Foremen',
+      'Inspection checklist',
     ]);
     expect(screen.queryByRole('tab')).toBeNull();
   });
@@ -166,6 +207,11 @@ describe('Settings', () => {
     expect(chips('Materials', 'removed')).toEqual(['Sample Old Fill']);
     expect(chips('Foremen')).toEqual(['Sample Foreman A']);
     expect(chips('Foremen', 'removed')).toEqual(['Sample Foreman X']);
+
+    expect(chips('Inspection checklist')).toEqual(['Dump box clean', 'Lights', 'Air tank (drain)']);
+    expect(chip('Inspection checklist', 'Air tank (drain)').textContent).toContain('Optional');
+    expect(chip('Inspection checklist', 'Lights').textContent).not.toContain('Optional');
+    expect(chips('Inspection checklist', 'removed')).toEqual(['Sample Old Item']);
   });
 
   it('says so when a list cannot be loaded, and still shows the others', async () => {
@@ -319,6 +365,40 @@ describe('Settings', () => {
     });
   });
 
+  describe('an Inspection item', () => {
+    const optional = (panel: HTMLElement) => within(panel).getByRole('switch', { name: 'Optional' });
+
+    it('is marked optional, and back, at once, and the chip says so', async () => {
+      await settings();
+      const panel = open('Inspection checklist', 'Lights');
+      expect(optional(panel).getAttribute('aria-checked')).toBe('false');
+      expect(within(panel).getByText(/new wording is used from the next Inspection on/)).toBeTruthy();
+      fireEvent.click(optional(panel));
+      await waitFor(() => expect(sent).toEqual([{ method: 'PATCH', path: '/api/inspection-items/insp-07', body: { optional: true } }]));
+      expect(optional(panel).getAttribute('aria-checked')).toBe('true');
+      done(panel);
+      expect(chip('Inspection checklist', 'Lights').textContent).toContain('Optional');
+
+      const again = open('Inspection checklist', 'Lights');
+      expect(optional(again).getAttribute('aria-checked')).toBe('true');
+      fireEvent.click(optional(again));
+      await waitFor(() => expect(sent).toHaveLength(2));
+      expect(sent[1].body).toEqual({ optional: false });
+      done(again);
+      expect(chip('Inspection checklist', 'Lights').textContent).not.toContain('Optional');
+    });
+
+    it('is added optional when marked so before it has its wording', async () => {
+      await settings();
+      const panel = add('Inspection checklist', 'Inspection item');
+      fireEvent.click(optional(panel));
+      type(panel, 'Item', 'Horn');
+      await waitFor(() => expect(sent).toEqual([{ method: 'POST', path: '/api/inspection-items', body: { label: 'Horn', optional: true } }]));
+      done(panel);
+      expect(chips('Inspection checklist').at(-1)).toBe('Horn');
+    });
+  });
+
   describe('+ Add', () => {
     it.each([
       ['Drivers', 'Driver', 'Name', 'Sample Driver D', '/api/drivers', { name: 'Sample Driver D' }],
@@ -327,6 +407,7 @@ describe('Settings', () => {
       ['Materials', 'Material', 'Name', 'Sample Fill', '/api/materials', { name: 'Sample Fill' }],
       ['Jobs', 'Job', 'Name', 'Sample Job East', '/api/jobs', { name: 'Sample Job East' }],
       ['Foremen', 'Foreman', 'Name', 'Sample Foreman D', '/api/foremen', { name: 'Sample Foreman D' }],
+      ['Inspection checklist', 'Inspection item', 'Item', 'Horn', '/api/inspection-items', { label: 'Horn' }],
     ] as const)('adds to %s once a name is typed, last in the section', async (title, noun, label, name, path, body) => {
       await settings();
       const panel = add(title, noun);
@@ -409,6 +490,21 @@ describe('Settings', () => {
     });
   });
 
+  describe('a removed Inspection item', () => {
+    it('is removed after asking, listed apart, and comes back last', async () => {
+      await settings();
+      fireEvent.click(within(open('Inspection checklist', 'Dump box clean')).getByRole('button', { name: 'Remove' }));
+      fireEvent.click(within(screen.getByRole('alertdialog', { name: 'Remove Dump box clean?' })).getByRole('button', { name: 'Remove' }));
+      await waitFor(() => expect(chips('Inspection checklist', 'removed')).toEqual(['Dump box clean', 'Sample Old Item']));
+      fireEvent.click(within(chip('Inspection checklist', 'Dump box clean')).getByRole('button', { name: 'Bring back' }));
+      await waitFor(() => expect(chips('Inspection checklist')).toEqual(['Lights', 'Air tank (drain)', 'Dump box clean']));
+      expect(sent).toEqual([
+        { method: 'PATCH', path: '/api/inspection-items/insp-01', body: { active: false } },
+        { method: 'PATCH', path: '/api/inspection-items/insp-01', body: { active: true } },
+      ]);
+    });
+  });
+
   describe('a removed entry', () => {
     it('comes back with one tap', async () => {
       await settings();
@@ -432,6 +528,13 @@ describe('Settings', () => {
   describe('Dave\'s own order', () => {
     const move = (title: Title, name: string, way: 'up' | 'down') =>
       fireEvent.click(within(chip(title, name)).getByRole('button', { name: `Move ${name} ${way}` }));
+
+    it('moves an Inspection item one place with ▲▼, saving the whole checklist\'s order', async () => {
+      await settings();
+      move('Inspection checklist', 'Air tank (drain)', 'up');
+      expect(chips('Inspection checklist')).toEqual(['Dump box clean', 'Air tank (drain)', 'Lights']);
+      await waitFor(() => expect(sent).toEqual([{ method: 'PUT', path: '/api/inspection-items/order', body: { order: ['insp-01', 'insp-11', 'insp-07'] } }]));
+    });
 
     it('moves a Driver, Place or Material one place with ▲▼, saving the whole list\'s order in one request', async () => {
       await settings();
@@ -479,6 +582,86 @@ describe('Settings', () => {
       expect(chips('Drivers')).toEqual(['Sample Driver A', 'Sample Driver C']);
       fireEvent.click(within(chip('Drivers', 'Sample Driver X')).getByRole('button', { name: 'Bring back' }));
       await waitFor(() => expect(chips('Drivers')).toEqual(['Sample Driver A', 'Sample Driver C', 'Sample Driver X']));
+    });
+  });
+
+  describe('Truck problems', () => {
+    const problemsSection = () => screen.getByRole('region', { name: 'Truck problems' });
+    /** Each problem's line in the Open or Fixed list, as it reads. */
+    const lines = (which: 'Open' | 'Fixed') => {
+      const list = within(problemsSection()).queryByRole('list', { name: `${which} Truck problems` });
+      return list ? within(list).getAllByRole('listitem').map((item) => item.textContent) : [];
+    };
+    const item = (name: string) => within(problemsSection()).getByRole('listitem', { name });
+
+    it('lists open ones first, then fixed ones, each with its Truck, note, reporter and time, under Trucks', async () => {
+      await settings();
+      const headings = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
+      expect(headings.indexOf('Truck problems')).toBe(headings.indexOf('Trucks') + 1);
+      expect(lines('Open')).toEqual([
+        'Truck 24Tarp rippedSample Driver C · Thu, Nov 19 7:30 Mark fixed',
+        'Truck 21Left marker outSample Driver A · Thu, Nov 19 6:42 Mark fixed',
+      ]);
+      expect(lines('Fixed')).toEqual(['Truck 21Flap tornSample Driver A · Tue, Nov 17 16:05Fixed Wed, Nov 18 9:00 · New flap']);
+    });
+
+    it('marks one a Driver reported during the day, rather than from an Inspection', async () => {
+      problems = [problem({ id: 'tp-4', reportedAt: '2026-11-19T16:05:00.000Z', text: 'Hydraulics leaking', inspectionId: null }), ...problems];
+      await settings();
+      expect(lines('Open')[0]).toBe('Truck 21Hydraulics leakingSample Driver A · Thu, Nov 19 11:05 · reported during the day Mark fixed');
+      expect(lines('Open')[1]).toBe('Truck 24Tarp rippedSample Driver C · Thu, Nov 19 7:30 Mark fixed');
+    });
+
+    it('says when none are open, and when they cannot be loaded', async () => {
+      problems = problems.filter((p) => p.fixedAt);
+      await settings();
+      expect(within(problemsSection()).getByText('No open Truck problems.')).toBeTruthy();
+      expect(lines('Fixed')).toHaveLength(1);
+      cleanup();
+
+      failing = 'truck-problems';
+      await settings();
+      expect(within(problemsSection()).getByText('Could not load the Truck problems. Reload the page to try again.')).toBeTruthy();
+    });
+
+    it('Mark fixed takes an optional note, closes the problem and keeps it, listed first among the fixed', async () => {
+      await settings();
+      fireEvent.click(within(item('Truck 21: Left marker out')).getByRole('button', { name: 'Mark fixed' }));
+      type(item('Truck 21: Left marker out'), 'How it was fixed (optional)', 'New bulb');
+      fireEvent.click(within(item('Truck 21: Left marker out')).getByRole('button', { name: 'Save' }));
+      await waitFor(() => expect(lines('Open')).toEqual(['Truck 24Tarp rippedSample Driver C · Thu, Nov 19 7:30 Mark fixed']));
+      expect(sent).toEqual([{ method: 'POST', path: '/api/truck-problems/tp-1/fix', body: { note: 'New bulb' } }]);
+      expect(lines('Fixed')).toEqual([
+        'Truck 21Left marker outSample Driver A · Thu, Nov 19 6:42Fixed Thu, Nov 19 10:00 · New bulb',
+        'Truck 21Flap tornSample Driver A · Tue, Nov 17 16:05Fixed Wed, Nov 18 9:00 · New flap',
+      ]);
+    });
+
+    it('marks one fixed with no note, and Cancel leaves it open', async () => {
+      await settings();
+      fireEvent.click(within(item('Truck 24: Tarp ripped')).getByRole('button', { name: 'Mark fixed' }));
+      fireEvent.click(within(item('Truck 24: Tarp ripped')).getByRole('button', { name: 'Cancel' }));
+      expect(within(item('Truck 24: Tarp ripped')).queryByRole('textbox')).toBeNull();
+      expect(sent).toEqual([]);
+
+      fireEvent.click(within(item('Truck 24: Tarp ripped')).getByRole('button', { name: 'Mark fixed' }));
+      fireEvent.click(within(item('Truck 24: Tarp ripped')).getByRole('button', { name: 'Save' }));
+      await waitFor(() => expect(lines('Fixed')[0]).toBe('Truck 24Tarp rippedSample Driver C · Thu, Nov 19 7:30Fixed Thu, Nov 19 10:00'));
+      expect(sent).toEqual([{ method: 'POST', path: '/api/truck-problems/tp-3/fix', body: {} }]);
+    });
+
+    it('says so and leaves it open when it cannot be marked fixed', async () => {
+      saveFails = true;
+      await settings();
+      fireEvent.click(within(item('Truck 21: Left marker out')).getByRole('button', { name: 'Mark fixed' }));
+      fireEvent.click(within(item('Truck 21: Left marker out')).getByRole('button', { name: 'Save' }));
+      expect(await screen.findByText('Could not mark Truck 21: Left marker out fixed')).toBeTruthy();
+      expect(lines('Open')).toHaveLength(2);
+    });
+
+    it('offers no way for Dave to add one', async () => {
+      await settings();
+      expect(within(problemsSection()).queryByRole('button', { name: /Add/ })).toBeNull();
     });
   });
 });

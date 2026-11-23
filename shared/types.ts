@@ -68,6 +68,19 @@ export interface Foreman {
 }
 
 /**
+ * One line of the Inspection checklist ("Lights"), kept in Settings. A Driver
+ * may leave an optional item unanswered.
+ */
+export interface InspectionItem {
+  id: string;
+  label: string;
+  optional: boolean;
+  /** Dave's own place for it in the list, 1 first; null for none (after the ordered ones, by label). Set only by a reorder. */
+  sortOrder: number | null;
+  active: boolean;
+}
+
+/**
  * The lists Settings edits and the Board picks from, by their API route
  * (GET, POST api/<list>; PATCH api/<list>/<id>). Nothing is ever deleted.
  */
@@ -78,6 +91,7 @@ export interface Lists {
   places: Place;
   materials: Material;
   foremen: Foreman;
+  'inspection-items': InspectionItem;
 }
 export type ListName = keyof Lists;
 
@@ -89,7 +103,7 @@ export type ListName = keyof Lists;
 export type EntryFields<L extends ListName> = Partial<Omit<Lists[L], 'id' | 'onTruckMap' | 'sortOrder'>>;
 
 /** The lists Dave puts in his own order. */
-export const ORDERED_LISTS = ['drivers', 'places', 'materials'] as const satisfies readonly ListName[];
+export const ORDERED_LISTS = ['drivers', 'places', 'materials', 'inspection-items'] as const satisfies readonly ListName[];
 export type OrderedList = (typeof ORDERED_LISTS)[number];
 
 /** Today and tomorrow in US Eastern time, and the next Working day after today, which the board opens on (GET api/today). */
@@ -256,6 +270,99 @@ export interface WeekDay {
 /** A week's seven days, Monday to Sunday (GET api/weeks/:monday). */
 export interface Week {
   days: WeekDay[];
+}
+
+/** The most characters a note may have: an Assignment's, an Inspection's, a Truck problem's or a fix's. */
+export const NOTE_LIMIT = 1000;
+
+/** How a Driver answers one Inspection item: OK, Needs repair or N/A. */
+export const INSPECTION_ANSWERS = ['ok', 'repair', 'na'] as const;
+export type InspectionAnswerKind = (typeof INSPECTION_ANSWERS)[number];
+
+/**
+ * A finished Inspection as the phone sends it (POST api/inspections). The
+ * phone makes the id (a UUID) when the Driver starts, so a retried Finish
+ * is recognised. The date is the Worker's today; `date`, when sent, must be it.
+ * The Driver comes from the body until Drivers sign in through the Hub (ADR 0006).
+ */
+export interface NewInspection {
+  id: string;
+  date?: string;
+  driverId: string;
+  truckId: string;
+  answers: { itemId: string; answer: InspectionAnswerKind; repairNote?: string | null }[];
+  otherNotes?: string | null;
+}
+
+/** One item of a saved Inspection, with the item's wording as it was then. */
+export interface InspectionAnswer {
+  /** Its place in the Inspection, from 0, in the checklist's order then. */
+  position: number;
+  itemId: string;
+  label: string;
+  answer: InspectionAnswerKind;
+  repairNote: string | null;
+}
+
+/**
+ * A saved Inspection: the official record of the Truck's condition, never
+ * changed or deleted (ADR 0006). It needs repair when any answer is Needs repair.
+ */
+export interface Inspection {
+  id: string;
+  date: string;
+  driverId: string;
+  driverName: string;
+  truckId: string;
+  truckNumber: string;
+  /** When the Driver finished it, by the Worker's clock: an ISO 8601 moment in UTC. */
+  doneAt: string;
+  otherNotes: string | null;
+  needsRepair: boolean;
+  answers: InspectionAnswer[];
+  /** The Truck problems it opened, one per Needs repair answer, in the same order. */
+  problems: TruckProblem[];
+}
+
+/** A Driver's check-in on a day: his latest Inspection that day, its Truck and time. */
+export interface CheckIn {
+  driverId: string;
+  driverName: string;
+  truckId: string;
+  truckNumber: string;
+  inspectionId: string;
+  doneAt: string;
+  needsRepair: boolean;
+}
+
+/** Each Driver's check-in on a day (GET api/check-ins?date=), in the Drivers' order; one not checked in is left out. */
+export interface CheckIns {
+  date: string;
+  checkIns: CheckIn[];
+}
+
+/**
+ * Something wrong with a Truck, reported by a Driver with a note (GLOSSARY.md).
+ * Open until Dave marks it fixed; kept forever after, with when and how.
+ * A Truck with an open problem can still be checked in to and driven.
+ */
+export interface TruckProblem {
+  id: string;
+  truckId: string;
+  truckNumber: string;
+  /** The reporting Driver; always one for now (only Drivers report problems). */
+  reportedByDriverId: string | null;
+  reportedByName: string | null;
+  /** When it was reported, by the Worker's clock: an ISO 8601 moment in UTC. */
+  reportedAt: string;
+  /** What is wrong, in the Driver's words. */
+  text: string;
+  /** The Inspection it came from (a Needs repair answer), if any. */
+  inspectionId: string | null;
+  /** When Dave marked it fixed (ISO 8601, UTC); null while open. */
+  fixedAt: string | null;
+  /** How it was fixed, if Dave said. */
+  fixedNote: string | null;
 }
 
 /** A refusal: each field that is wrong, with a plain message. */

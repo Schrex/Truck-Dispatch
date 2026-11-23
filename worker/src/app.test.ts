@@ -242,7 +242,8 @@ describe.each([
   { route: 'places', one: 'place', name: 'shortName', seeded: 'plc-plant', seededName: 'Sample Plant', fresh: 'Sample Pit' },
   { route: 'materials', one: 'material', name: 'name', seeded: 'mat-minus', seededName: '2" minus', fresh: 'Sample Fill' },
   { route: 'foremen', one: 'foreman', name: 'name', seeded: 'frm-a', seededName: 'Sample Foreman A', fresh: 'Sample Foreman D' },
-])('the $route list', ({ route, one, name, seeded, seededName, fresh }) => {
+  { route: 'inspection-items', table: 'inspection_items', one: 'inspectionItem', name: 'label', seeded: 'insp-07', seededName: 'Lights', fresh: 'Horn' },
+])('the $route list', ({ route, table = route, one, name, seeded, seededName, fresh }) => {
   const names = async (search = '') => (await list(`/api/${route}${search}`)).map((e) => e[name]);
   const change = (id: string, body: unknown) => send('PATCH', `/api/${route}/${id}`, body);
 
@@ -273,10 +274,10 @@ describe.each([
 
   it('refuses a name another request saved after the check, with the same message, rather than failing', async () => {
     const { [name]: taken } = await refusal(await post(`/api/${route}`, { [name]: seededName }));
-    const added = await send('POST', `/api/${route}`, { [name]: fresh }, { DB: racedBy(route, () => post(`/api/${route}`, { [name]: fresh })) });
+    const added = await send('POST', `/api/${route}`, { [name]: fresh }, { DB: racedBy(table, () => post(`/api/${route}`, { [name]: fresh })) });
     expect(await refusal(added)).toEqual({ [name]: taken });
     const other = `${fresh} 2`;
-    const renamed = await send('PATCH', `/api/${route}/${seeded}`, { [name]: other }, { DB: racedBy(route, () => post(`/api/${route}`, { [name]: other })) });
+    const renamed = await send('PATCH', `/api/${route}/${seeded}`, { [name]: other }, { DB: racedBy(table, () => post(`/api/${route}`, { [name]: other })) });
     expect(await refusal(renamed)).toEqual({ [name]: taken });
     expect(await names()).toContain(seededName);
   });
@@ -653,6 +654,76 @@ describe('Materials and Foremen', () => {
       { id: 'mat-stone', name: 'Sample Stone', sortOrder: null, active: true },
     ]);
     expect((await list('/api/foremen')).map((f) => f.name)).toEqual(['Sample Foreman A', 'Sample Foreman B', 'Sample Foreman C']);
+  });
+});
+
+/** The paper Daily Truck Log & Inspection's items, in its order: the checklist's starting items. */
+const PAPER_CHECKLIST = [
+  'Dump box clean',
+  'Air leaks / brake pressure',
+  'Truck paperwork',
+  'Mud flaps',
+  'Fire ext / triangles',
+  'Tires / wheels',
+  'Lights',
+  'Coolant',
+  'Engine oil',
+  'Fueled up',
+  'Air tank (drain)',
+  'Suspension',
+];
+
+describe('the Inspection checklist', () => {
+  it('starts with the paper form\'s 12 items, in its order, none optional', async () => {
+    const items = await list('/api/inspection-items');
+    expect(items.map((i) => i.label)).toEqual(PAPER_CHECKLIST);
+    expect(items.map((i) => i.sortOrder)).toEqual(PAPER_CHECKLIST.map((_, i) => i + 1));
+    expect(items.every((i) => i.optional === false && i.active === true)).toBe(true);
+  });
+
+  it('marks an item optional and back, and adds one optional or not', async () => {
+    const marked = await send('PATCH', '/api/inspection-items/insp-12', { optional: true });
+    expect(marked.status).toBe(200);
+    expect(((await marked.json()) as { inspectionItem: Entry }).inspectionItem).toMatchObject({ id: 'insp-12', optional: true });
+    await send('PATCH', '/api/inspection-items/insp-12', { optional: false });
+    const optional = await post('/api/inspection-items', { label: 'Horn', optional: true });
+    const plain = await post('/api/inspection-items', { label: 'Wipers' });
+    expect(((await optional.json()) as { inspectionItem: Entry }).inspectionItem).toMatchObject({ label: 'Horn', optional: true });
+    expect(((await plain.json()) as { inspectionItem: Entry }).inspectionItem).toMatchObject({ label: 'Wipers', optional: false });
+    expect((await list('/api/inspection-items')).filter((i) => i.optional).map((i) => i.label)).toEqual(['Horn']);
+  });
+
+  it('refuses an optional that is not true or false, with a message on it', async () => {
+    expect(Object.keys(await refusal(await send('PATCH', '/api/inspection-items/insp-12', { optional: 'yes' })))).toEqual(['optional']);
+    expect(Object.keys(await refusal(await send('PATCH', '/api/inspection-items/insp-12', { optional: null })))).toEqual(['optional']);
+    expect(Object.keys(await refusal(await post('/api/inspection-items', { label: 'Horn', optional: 1 })))).toEqual(['optional']);
+  });
+
+  it('is put in Dave\'s order with the whole-list route', async () => {
+    const ids = PAPER_CHECKLIST.map((_, i) => `insp-${String(i + 1).padStart(2, '0')}`);
+    const response = await reorder('inspection-items', [...ids].reverse());
+    expect(response.status).toBe(200);
+    expect((await list('/api/inspection-items')).map((i) => i.label)).toEqual([...PAPER_CHECKLIST].reverse());
+  });
+
+  it('puts a new item, or one brought back, last', async () => {
+    const added = await post('/api/inspection-items', { label: 'Horn' });
+    expect(((await added.json()) as { inspectionItem: Entry }).inspectionItem).toMatchObject({ sortOrder: 13 });
+    await send('PATCH', '/api/inspection-items/insp-01', { active: false });
+    expect((await list('/api/inspection-items')).map((i) => i.label)).toEqual([...PAPER_CHECKLIST.slice(1), 'Horn']);
+    await send('PATCH', '/api/inspection-items/insp-01', { active: true });
+    expect((await list('/api/inspection-items')).map((i) => i.label)).toEqual([...PAPER_CHECKLIST.slice(1), 'Horn', 'Dump box clean']);
+  });
+
+  it('keeps Dave\'s renames, order, optional items and removals when the seed runs again, and adds no duplicates', async () => {
+    await send('PATCH', '/api/inspection-items/insp-07', { label: 'Lights / signals', optional: true });
+    await send('PATCH', '/api/inspection-items/insp-12', { active: false });
+    await reorder('inspection-items', ['insp-02', 'insp-01']);
+    const before = await list('/api/inspection-items?include=inactive');
+    await d1.reseed();
+    expect(await list('/api/inspection-items?include=inactive')).toEqual(before);
+    expect(before).toHaveLength(12);
+    expect(before.find((i) => i.id === 'insp-07')).toMatchObject({ label: 'Lights / signals', optional: true });
   });
 });
 
