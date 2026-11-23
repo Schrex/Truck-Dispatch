@@ -250,6 +250,11 @@ export interface TruckDayInput {
   drivers: (TruckDayDriver & { defaultTruckId: string | null })[];
   /** Every Driver's Assignments that day; a null Truck means the Driver's usual one. */
   assignments: { driverId: string | null; truckId: string | null }[];
+  /**
+   * Dave's answer to "Who was driving?" (#77), picked when he answered the
+   * Truck's Unplanned work: the Driver, when more than one fits. Ignored otherwise.
+   */
+  drivenBy?: string | null;
 }
 
 export interface TripDay {
@@ -298,6 +303,12 @@ export interface MadeAssignment extends TripAssignment {
 export interface UnplannedAnswers {
   /** "Make an Assignment": each claims only the Trips of the piece it answers. */
   madeAssignments?: MadeAssignment[];
+  /**
+   * Split (#77): the leftAt of each Trip where Dave split a run that held two
+   * hauls. A new piece of Unplanned work starts at that Trip, named by it; a
+   * split at a run's first Trip, or at a Trip in no run, changes nothing.
+   */
+  splits?: string[];
 }
 
 export interface TripDayInput {
@@ -544,8 +555,9 @@ function truckDayOf(input: TripDayInput, visits: CleanVisit[], trips: Trip[]): T
   }
 
   const candidates = truckDrivers(input.truck);
+  const picked = candidates.find((c) => c.id === input.truck?.drivenBy) ?? null;
   return {
-    driver: candidates.length === 1 ? candidates[0] : null,
+    driver: candidates.length === 1 ? candidates[0] : picked,
     driverCandidates: candidates,
     startAt,
     endAt,
@@ -606,6 +618,24 @@ function unplannedRuns(trips: Trip[]): { trips: Trip[]; runs: number[][] } {
     }
   }
   return { trips: out, runs };
+}
+
+/**
+ * Cut the runs at Dave's splits. Only the pieces change: which Trips are in a
+ * run (and so taken back from the planned work) was decided before, as if
+ * nothing were split.
+ */
+function splitRuns(trips: Trip[], runs: number[][], splits: string[]): number[][] {
+  if (splits.length === 0) return runs;
+  const at = new Set(splits.map(ms));
+  return runs.flatMap((run) => {
+    const parts: number[][] = [];
+    for (const i of run) {
+      if (parts.length === 0 || at.has(ms(trips[i].leftAt))) parts.push([]);
+      parts.at(-1)!.push(i);
+    }
+    return parts;
+  });
 }
 
 /** A run's id: its first Trip's leftAt, as UnplannedWork.id. */
@@ -679,8 +709,9 @@ export function buildTripDay(input: TripDayInput): TripDay {
   const matched = pair(visits, input.now).map((t) => ({ ...t, match: matchTrip(t, input.assignments, input.places) }));
   const grouped = unplannedRuns(matched);
   const answers = input.answers ?? {};
-  const trips = answerRuns(grouped.trips, grouped.runs, answers, input.places);
-  const unplanned = piecesOf(trips, grouped.runs);
+  const runs = splitRuns(grouped.trips, grouped.runs, answers.splits ?? []);
+  const trips = answerRuns(grouped.trips, runs, answers, input.places);
+  const unplanned = piecesOf(trips, runs);
   // Inside cleaned visits only: a drive-through's miles are already in the Trip across it,
   // and a short exit's miles are inside the joined visit.
   const insidePlaces = round(visits.reduce((sum, v) => sum + (v.exitOdometer === null ? 0 : v.exitOdometer - v.entryOdometer), 0));

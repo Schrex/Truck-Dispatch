@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { easternTime } from './days';
-import { buildTripDay, matchTrip, routeAt, type TripAssignment } from './trips';
+import { buildTripDay, matchTrip, routeAt, type MadeAssignment, type TripAssignment } from './trips';
 import { FIXTURE_METER, FIXTURE_PARKED_AT_JOB, FIXTURE_PLACES, FIXTURE_SCENARIOS, FIXTURE_VISITS } from './trips.fixture';
 
 const END_OF_DAY = '2026-11-17T04:59:00Z';
@@ -250,6 +250,41 @@ describe('Make an Assignment: an answer to Unplanned work', () => {
     });
     expect(d.unplanned).toHaveLength(1);
     expect(d.assignments[2]).toMatchObject({ assignmentId: 'a3', loads: 0, status: 'none' });
+  });
+});
+
+describe('Split: one run that held two hauls', () => {
+  const [a1, a2] = scenario('two');
+  const cancelled = [{ ...a1, cancelledAt: '2026-11-16T15:10:00Z' }, a2];
+  const at = (splits: string[], madeAssignments: MadeAssignment[] = []) =>
+    buildTripDay({ places: FIXTURE_PLACES, visits: FIXTURE_VISITS, assignments: cancelled, now: END_OF_DAY, answers: { splits, madeAssignments } });
+  const pieces = (d: ReturnType<typeof at>) => d.unplanned.map((w) => w.trips.map((t) => `${easternTime(t.leftAt)} ${t.fromCode} → ${t.toCode}`));
+  /** 10:41, Plant → North: the second Trip of the run to and from the Plant. */
+  const second = at([]).unplanned[0].trips[1].leftAt;
+
+  it('splits a run at the Trip Dave taps: two pieces, the second starting at that Trip and named by it', () => {
+    const d = at([second]);
+    expect(pieces(d)).toEqual([
+      ['10:27 J1001 North → PLANT'],
+      ['10:41 PLANT → J1001 North', '11:14 J1001 North → PLANT'],
+      ['14:15 J1001 North → J1002 South', '14:33 J1002 South → J1001 North'],
+    ]);
+    expect(d.unplanned[1]).toMatchObject({ id: second, places: [{ code: 'PLANT' }, { code: 'J1001 North' }] });
+  });
+
+  it('ignores a split at a run’s first Trip or at a Trip in no run', () => {
+    const d = at(['2026-11-16T15:27:50Z', '2026-11-16T13:24:26Z']);
+    expect(pieces(d)).toEqual(pieces(at([])));
+  });
+
+  it('answers each part on its own: each made Assignment claims only its own part’s Trips', () => {
+    const made = (id: string, from: string, to: string, unplannedId: string): MadeAssignment => ({ id, label: id.toUpperCase(), fromPlaceId: from, toPlaceId: to, cancelledAt: null, changes: [], unplannedId });
+    const d = at([second], [made('a3', 'plc-north', 'plc-plant', '2026-11-16T15:27:50Z'), made('a4', 'plc-plant', 'plc-north', second)]);
+    expect(lines(d).slice(5, 8)).toEqual(['10:27 J1001 North → PLANT load a3', '10:41 PLANT → J1001 North load a4', '11:14 J1001 North → PLANT empty a4']);
+    expect(d.assignments.slice(2).map((a) => [a.assignmentId, a.loads, a.empties, a.truckingHours])).toEqual([
+      ['a3', 1, 0, 0.17],
+      ['a4', 1, 1, 0.74],
+    ]);
   });
 });
 

@@ -221,7 +221,7 @@ describe('The Trip builder on the real day (MCK-55-17, Mon 16 Nov 2026)', () => 
 describe('The Truck’s Driver', () => {
   const randy = { id: 'drv-randy', name: 'Randy', defaultTruckId: 'trk-55' };
   const sam = { id: 'drv-sam', name: 'Sam', defaultTruckId: 'trk-60' };
-  const driverOf = (truck: { drivers: (typeof randy)[]; assignments: { driverId: string; truckId: string | null }[] }) =>
+  const driverOf = (truck: { drivers: (typeof randy)[]; assignments: { driverId: string; truckId: string | null }[]; drivenBy?: string | null }) =>
     buildTripDay({ places: REAL_DAY.places, visits: [], assignments: [], now: easternIso(REAL_DAY.date, '12:00:00'), truck: { id: 'trk-55', ...truck } }).truckDay;
 
   it('is the Driver whose Assignments name the Truck, over the Driver whose usual Truck it is', () => {
@@ -255,5 +255,15 @@ describe('The Truck’s Driver', () => {
       ],
     });
     expect(d.driver).toBeNull();
+  });
+
+  it('is the Driver Dave picks when it asks "Who was driving?", but only one of those who fit', () => {
+    const both = [
+      { driverId: 'drv-randy', truckId: 'trk-55' },
+      { driverId: 'drv-sam', truckId: 'trk-55' },
+    ];
+    expect(driverOf({ drivers: [randy, sam], assignments: both, drivenBy: 'drv-sam' }).driver?.name).toBe('Sam');
+    expect(driverOf({ drivers: [randy, sam], assignments: both, drivenBy: 'drv-sam' }).driverCandidates).toHaveLength(2);
+    expect(driverOf({ drivers: [randy, sam], assignments: both, drivenBy: 'drv-nobody' }).driver).toBeNull();
   });
 });
