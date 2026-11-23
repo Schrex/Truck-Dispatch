@@ -60,10 +60,75 @@ describe('Importing a JSON Fleet export', () => {
     expect(await storedVisits(truckId)).toHaveLength(14);
   });
 
-  it('refuses rows for a Truck with no such HCSS code', async () => {
-    const response = await importFile('2026-11-16-1502.json');
-    expect(response.status).toBe(400);
-    expect(((await response.json()) as { message: string }).message).toMatch(/MCK-55-17.*Settings/);
+});
+
+/** How many Imports and visits are stored, whoever they are for. */
+const storedCounts = async () => {
+  const DB = d1.database();
+  const count = async (table: string) => (await DB.prepare(`SELECT count(*) AS n FROM ${table}`).first<{ n: number }>())?.n;
+  return { imports: await count('fleet_imports'), days: await count('fleet_import_days'), visits: await count('fleet_visits') };
+};
+const NOTHING = { imports: 0, days: 0, visits: 0 };
+
+/** The Worker's refusal: its status, error and the reason the page shows. */
+const refusalOf = async (response: Response) => {
+  const body = (await response.json()) as { error: string; message: string };
+  return { status: response.status, error: body.error, message: body.message };
+};
+
+describe('Refusing a Fleet export that would mix the wrong data into a Truck\'s day', () => {
+  it('refuses rows for a Truck with no such HCSS code, and stores nothing', async () => {
+    expect(await refusalOf(await importFile('2026-11-16-1502.json'))).toEqual({
+      status: 400, error: 'unknown_truck', message: 'No Truck has the HCSS code MCK-55-17. Set it in Settings.',
+    });
+    expect(await storedCounts()).toEqual(NOTHING);
+  });
+
+  it('refuses rows for a Truck that has the HCSS code but is not active, like an unknown code', async () => {
+    const { truckId } = await setUpTruck55(send);
+    expect((await send('PATCH', `/api/trucks/${truckId}`, { active: false })).status).toBe(200);
+    expect(await refusalOf(await importFile('2026-11-16-1502.json'))).toEqual({
+      status: 400, error: 'unknown_truck', message: 'No Truck has the HCSS code MCK-55-17. Set it in Settings.',
+    });
+    expect(await storedCounts()).toEqual(NOTHING);
+  });
+
+  it('refuses a file that holds more than one Truck, even when both are set up, and stores nothing', async () => {
+    await setUpTruck55(send);
+    expect((await send('POST', '/api/trucks', { number: '61', hcssCode: 'MCK-61-20' })).status).toBe(201);
+    const rows = fleetRows('2026-11-16-1502.json');
+    rows[rows.length - 1] = { ...rows[rows.length - 1], equipmentCode: 'MCK-61-20' };
+    const response = await send('POST', '/api/fleet-imports', { fileName: 'two.json', format: 'json', rows }, { NOW: AFTERNOON });
+    expect(await refusalOf(response)).toEqual({ status: 400, error: 'more_than_one_truck', message: 'The file must hold one Truck.' });
+    expect(await storedCounts()).toEqual(NOTHING);
+  });
+
+  it.each([
+    ['no rows', []],
+    ['rows without the Fleet fields', [{ hello: 1 }, { name: 'Randy' }]],
+    ['some rows without the Fleet fields', [...fleetRows('2026-11-16-1502.json'), { EquipmentCode: 'MCK-55-17' }]],
+    ['no row list at all', { Result: 'nothing' }],
+    ['rows with a blank EquipmentCode', fleetRows('2026-11-16-1502.json').map((r) => ({ ...r, equipmentCode: '  ' }))],
+  ])('refuses a file that is not a Fleet export (%s), and stores nothing', async (_, rows) => {
+    await setUpTruck55(send);
+    const response = await send('POST', '/api/fleet-imports', { fileName: 'notes.json', format: 'json', rows }, { NOW: AFTERNOON });
+    expect(await refusalOf(response)).toEqual({
+      status: 400, error: 'not_a_fleet_export', message: 'This is not a Fleet export. Export the entry/exit report from HCSS Fleet and drop that.',
+    });
+    expect(await storedCounts()).toEqual(NOTHING);
+  });
+
+  it.each([['production'], ['prod'], ['Staging'], [''], [undefined]])('refuses any Import where ENVIRONMENT is %j, and stores nothing', async (ENVIRONMENT) => {
+    await setUpTruck55(send);
+    expect(await refusalOf(await importFile('2026-11-16-1502.json', { ENVIRONMENT }))).toEqual({
+      status: 403, error: 'imports_not_allowed', message: 'Fleet imports are allowed only on local, preview and staging.',
+    });
+    expect(await storedCounts()).toEqual(NOTHING);
+  });
+
+  it.each([['local'], ['preview'], ['staging'], ['test']])('accepts a good file where ENVIRONMENT is %s', async (ENVIRONMENT) => {
+    await setUpTruck55(send);
+    expect(await counts(await importFile('2026-11-16-1502.json', { ENVIRONMENT }))).toBe('18 new · 0 closed · 0 already stored');
   });
 });
 

@@ -14,6 +14,10 @@ import type { FleetExportFormat, FleetImport } from '../../shared/types';
  * closed (see CLOSES and MORE_EXACT), and the Import keeps its counts.
  *
  *   POST api/fleet-imports  { fileName, format, rows }  → 201 { import }
+ *
+ * An Import is refused, storing nothing, where ENVIRONMENT is not on
+ * IMPORTS_ALLOWED_IN, when the rows are not a Fleet export's, when they hold
+ * more than one EquipmentCode, or when no active Truck has that HCSS code.
  */
 export async function handleFleetImports(request: Request, env: Env, route: string): Promise<Response | null> {
   if (route !== 'fleet-imports') return null;
@@ -22,6 +26,13 @@ export async function handleFleetImports(request: Request, env: Env, route: stri
 }
 
 const FORMATS: FleetExportFormat[] = ['json', 'xlsx'];
+
+/**
+ * Where Imports are allowed (an allow-list: anything else, unset included, is
+ * refused), so the unauthenticated Worker can't be fed a real Truck's data in
+ * production. ADR 0008 allows one real Truck's data on staging.
+ */
+const IMPORTS_ALLOWED_IN = ['local', 'preview', 'staging', 'test'];
 
 const isMoment = (value: unknown): value is string => typeof value === 'string' && !Number.isNaN(Date.parse(value));
 const isOdometer = (value: unknown) => value === null || (typeof value === 'number' && Number.isFinite(value));
@@ -32,6 +43,7 @@ function isRow(value: unknown): value is FleetExportRow {
   return (
     !!r &&
     typeof r.equipmentCode === 'string' &&
+    r.equipmentCode.trim() !== '' &&
     typeof r.geofenceCode === 'string' &&
     r.geofenceCode !== '' &&
     isMoment(r.enteredAt) &&
@@ -45,6 +57,9 @@ function isRow(value: unknown): value is FleetExportRow {
 const enteredMinute = (enteredAt: string) => `${new Date(enteredAt).toISOString().slice(0, 16)}Z`;
 
 async function importExport(request: Request, env: Env): Promise<Response> {
+  if (!IMPORTS_ALLOWED_IN.includes(env.ENVIRONMENT ?? '')) {
+    return json({ error: 'imports_not_allowed', message: 'Fleet imports are allowed only on local, preview and staging.' }, 403);
+  }
   const body = await readJson<Record<string, unknown>>(request);
   if (body instanceof Response) return body;
 
@@ -53,12 +68,16 @@ async function importExport(request: Request, env: Env): Promise<Response> {
   if (!fileName) errors.fileName = 'Say which file this is.';
   const format = body.format as FleetExportFormat;
   if (!FORMATS.includes(format)) errors.format = 'Send a JSON or xlsx Fleet export.';
-  const rows = body.rows;
-  if (!Array.isArray(rows) || rows.length === 0 || !rows.every(isRow)) errors.rows = 'Send the export\'s entry/exit rows.';
   if (Object.keys(errors).length > 0) return refuse(errors);
+  const rows = body.rows;
+  if (!Array.isArray(rows) || rows.length === 0 || !rows.every(isRow)) {
+    return json({ error: 'not_a_fleet_export', message: 'This is not a Fleet export. Export the entry/exit report from HCSS Fleet and drop that.' }, 400);
+  }
   const visits = rows as FleetExportRow[];
 
-  const code = visits[0].equipmentCode.trim();
+  const codes = new Set(visits.map((v) => v.equipmentCode.trim()));
+  if (codes.size > 1) return json({ error: 'more_than_one_truck', message: 'The file must hold one Truck.' }, 400);
+  const [code] = codes;
   const truck = await env.DB.prepare('SELECT id, number FROM trucks WHERE hcss_code = ? AND active = 1')
     .bind(code)
     .first<{ id: string; number: string }>();
