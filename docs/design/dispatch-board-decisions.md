@@ -55,7 +55,7 @@ Sources: the "Trucking page · 5 design mocks" export, page **Final · scheduler
 
 ### Check-in (phase 2, grilling of 23 Nov; spec: [`../specs/phase-2-check-in.md`](../specs/phase-2-check-in.md))
 - **Check-in and Inspection are one step**: pick today's Truck, inspect it, done. A separate "I took Truck 21" with no Inspection would add nothing, because the Driver of a Trip is whoever last *inspected* the Truck.
-- **Today only, with or without a Sent day.** An Inspection is about the Truck this morning, not the plan; a yard move with no Assignment still needs one. Check-in never hides the day's Assignments.
+- **Today only, with or without Assigned work.** An Inspection is about the Truck this morning, not the plan; a yard move with no Assignment still needs one. Check-in never hides the day's Assignments.
 - **Any active Truck**, with the usual one pre-selected. Two Drivers on one Truck are shown, not refused: blocking a Driver at 6 AM is worse than Dave seeing the overlap.
 - **The checklist is the paper form's**, item for item and in its order, so Drivers see what they know. "Keys in lockbox" is an end-of-day check and moves to the phase 4 sign-off.
 - **OK, Needs repair or N/A per item**, rather than the paper's single tick, because a tick cannot say what is wrong. Needs repair requires a note: the paper's "Repairs needed", per item. Every item that is not optional must be answered.

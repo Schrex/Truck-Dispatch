@@ -38,7 +38,7 @@ _Avoid_: project lead, super
 ## Trucks
 
 **Check-in**:
-A Driver picking the Truck he is taking today and doing its Inspection, as one step. He is checked in to that Truck once the Inspection is done; taking another Truck later that day means checking in to it too. Offered only for today, with or without a Sent day.
+A Driver picking the Truck he is taking today and doing its Inspection, as one step. He is checked in to that Truck once the Inspection is done; taking another Truck later that day means checking in to it too. Offered only for today, whether or not the Driver has Assigned work that day.
 _Avoid_: clock-in, sign-in, truck pick
 
 **Inspection**:
