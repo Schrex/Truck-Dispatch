@@ -20,7 +20,7 @@ Legend: ✅ done · 🟡 in review · ⬜ to do · ⛔ blocked
 1. ⬜ Driver confirms today's Truck, with his usual Truck pre-selected
 2. ⬜ Dave sees on the Board which Truck each Driver took
 3. ⬜ Inspection checklist as a list in Settings
-4. ⬜ Driver does the Inspection item by item (OK, Needs repair, N/A). The Inspection is never edited afterwards.
+4. ⬜ Driver does the Inspection item by item (OK, Needs repair, N/A). The Inspection is never edited afterwards. Write an ADR for the Inspection being the official, append-only record.
 5. ⬜ Needs repair opens a Truck problem. Dave sees it and marks it fixed.
 6. ⬜ Open Truck problems show on the Driver's lane and on that Truck in the composer
 

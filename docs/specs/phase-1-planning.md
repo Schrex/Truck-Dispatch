@@ -1,24 +1,11 @@
-# Spec: planning from the final mocks (phase 1)
+# Phase 1 spec: planning (user stories)
 
-Status: agreed in a design grilling on 2026-11-21 and revised after an independent review the same day. Words in capitals (Assignment, Driver, Truck, Place, Job, Foreman, Material, Unassigned, Send, Draft, Changed, Added, Working day, Inspection, Trip, Load) are the ones in `GLOSSARY.md`. The full set of decisions, including phases 2 to 4 and the target schema, is in `docs/design/dispatch-board-decisions.md` ("Final mocks").
+Status: **built**. Agreed in a design grilling on 21 Nov 2026 and revised after an independent review the same day and after trying it on staging on 22 Nov. Words in capitals are the ones in [`GLOSSARY.md`](../../GLOSSARY.md).
 
-## Problem Statement
-
-Dave plans the Drivers' days on a board that does not match how the work happens. One dialog with dropdowns per Assignment is slow when a call comes in mid-morning. The board cannot say in what order a Driver should do his Assignments, cannot take one off a Driver's day without deleting it, and shows every half-made change to the Drivers the moment it is saved, so planning Monday on Friday afternoon puts drafts on their phones. Moving between days means arrows and a date field with no sense of which days are planned, sent or still empty; Copy today only ever copies today, which is wrong on a Monday. The Drivers have no screen of their own: there is nowhere for Randy to open his phone and see what he is doing tomorrow and in what order. Settings is a set of tabs whose lists have no order of their own, so the chips and lanes come out alphabetical rather than in the order Dave thinks in.
-
-The design mocks (F1 scheduler, F2 driver, F3 settings) and the Daily Schedule app's week strip show the intended answer.
-
-## Solution
-
-The board becomes the F1 scheduler: one lane per Driver and an Unassigned lane, each Assignment a block in the order Dave wants it done, a **+** on each lane that opens a composer of large chips (Pick up, Drop off, Hauling what, Truck, Note), and a **✕** on each Assignment. Typing a Place or Material that is not in the lists adds it. An Assignment names a Truck only when the work needs a certain one; otherwise the Driver takes his own.
-
-Days work as they do in the Daily Schedule: a week strip in the header with Today and Tomorrow on its tiles and each day's state, arrows that skip weekends and Holidays, and the board opening on the next Working day. A day is a Draft that the Drivers cannot see until Dave taps **Send**; after that, every change reaches them the next time their view refreshes and is marked "Changed by Dave" or "Added by Dave". An empty day offers **Start from** the latest earlier day that has Assignments.
-
-A **Scheduler | Driver** switch in the header gives each Driver his own view until the Hub's sign-in exists: he picks his name once, his phone remembers it, and he sees his Sent Assignments in order, with any Changed or cancelled ones marked.
-
-Settings becomes the F3 single page with sections for Drivers, Trucks, Places, Materials, Jobs and Foremen, each list in an order Dave sets, and a usual Foreman on a job-site Place.
-
-Trips, Inspections, Tickets and sign-off are later phases and change nothing here, except that the schema leaves room for them.
+These stories record what phase 1 had to do and why ("so that…"). Other docs cover the rest:
+- What the app does now: [`../how-it-works.md`](../how-it-works.md). The API: [`../api.md`](../api.md). The schema: `migrations/`.
+- The reasons behind the design: [`../design/dispatch-board-decisions.md`](../design/dispatch-board-decisions.md).
+- What is out of scope: [`mission.md`](mission.md) and [`roadmap.md`](roadmap.md). How we test: [`tech-stack.md`](tech-stack.md#testing).
 
 ## User Stories
 
@@ -141,87 +128,3 @@ Trips, Inspections, Tickets and sign-off are later phases and change nothing her
 88. As Dave, I want a clear message when a list or a day cannot load, so that I never plan on a half-loaded board.
 89. As Dave, I want a save that fails to say so and keep what I typed, so that I can try again.
 90. As Dave, I want the Worker to refuse changes to a past day, so that the rule holds whichever device I use.
-
-## Implementation Decisions
-
-### Schema (only adds; one migration per ticket that needs one)
-
-- Assignments gain a **position** (integer, the order within its date and Driver, Unassigned counted as one lane; ties, such as existing rows all at 0, break by creation time), a **cancelled time** (set by ✕ on a Sent day; a cancelled Assignment is kept) and a **changed time** (the last change a Driver can see: a field, cancel, Put back, or its own move; not set on neighbours renumbered by a move).
-- A new add-only **assignment changes** record keeps an Assignment's fields as they were before each change made after its day was Sent.
-- An Assignment's Truck now means "a certain truck"; no Truck means the Driver's own. Existing rows keep their Truck. Picking a Driver no longer fills a Truck in.
-- A new **day sends** table, one row per Sent day with the time it was first Sent. A day with no row is a Draft.
-- Drivers, Places and Materials gain a **sort order**; a list sorts by it, entries without one last, then by name. Places gain a **usual Foreman**.
-- The target schema for phases 2 to 4 is in the design doc and is not migrated now. The unused orders table stays until a later release.
-
-From the design doc, the phase 1 part:
-
-```
-assignments   + position INTEGER NOT NULL DEFAULT 0
-              + cancelled_at TEXT
-              + changed_at TEXT
-assignment_changes  id, assignment_id -> assignments, changed_at, before (JSON)
-day_sends     date PRIMARY KEY, sent_at
-drivers       + sort_order INTEGER
-places        + sort_order INTEGER, + usual_foreman_id -> foremen
-materials     + sort_order INTEGER
-```
-
-### Day rules (new pure module shared by the Worker and the page)
-
-- Today in US Eastern from the Worker's clock, as now.
-- **Working day**: a weekday that is not one of the six Holidays, worked out by rule (fixed dates, last Monday of May, first Monday of September, fourth Thursday of November); a weekend Holiday is not moved. Next and previous Working day pass over both.
-- The word for a date relative to today (Today, Tomorrow, Yesterday, "This Thursday", …), arrow targets and labels, the week heading, and a Holiday's name. This follows the Daily Schedule's day navigation and its tests.
-- **Day state** for a date from its Assignments and its send: none ("–"), Draft (with the count Unassigned), Sent, Changed. Changed means an Assignment on the day is Changed or Added.
-- **Changed by Dave** for one Assignment: its changed time is after its day's send. **Added by Dave**: it was created after its day's send.
-- Written with plain date arithmetic (no date library), so the Worker and the page share it; the Worker's existing day arithmetic moves into it.
-
-### API changes
-
-- A day's Assignments answer with each Assignment's position and cancelled time and whether it is Changed, ordered by lane (Driver sort order, Unassigned last), then position. The day's answer also carries its sent time, or none.
-- A new read of a week's day states, asked by its Monday, answering seven entries (state, count Unassigned, Holiday name) for the strip.
-- Adding an Assignment puts it last in its lane. A move within a lane swaps it with its neighbour (one place) and renumbers the lane.
-- Changing an Assignment is per field (PATCH with only the fields that change); the full-replace PUT goes. A real change of Driver puts it last in the new lane on a Draft day; on a Sent day it cancels the Assignment and adds a new one, last in the new lane. A change of date is refused (409).
-- Adding or changing an Assignment may give a new Place or Material by name instead of an id; the Worker finds an entry with that name ignoring case (bringing a removed one back) or creates it (a Place with no kind), last in its list's order, in the same request.
-- **✕**: delete on a Draft day; on a Sent day it sets the cancelled time instead. **Put back** clears it.
-- **Send** a day: records the send; a bad date or a day before today is 400 `{ fields }`, a day with no Assignments is 409 `{ error, message }`; sending again does nothing. No warnings.
-- **Start from**: copies the latest earlier day that has Assignments onto an empty day, per the stories above; a day that has Assignments is 409 `{ error, message }`. The copy names the columns it copies rather than the ones it skips, so a later column is never copied by accident. Copy today's route is replaced by it; Duplicate's use is removed from the page.
-- **Driver view read**: one Driver's Assignments for a date, only if the day is Sent, otherwise an answer that says the day is a Draft; cancelled ones included and marked; Changed ones with what they were before, Added ones marked. The page asks for the day the Driver picked (any day), and for his next Sent day after tomorrow.
-- A Truck's HCSS code and id stay editable through the list routes.
-- The list routes accept and return the sort order, and a Place's usual Foreman. A reorder sets the sort order of a whole list in one request.
-- Past days stay read-only in the Worker by US Eastern time, as now. Unlike the Daily Schedule, there is no lock on a Sent day.
-
-### The page
-
-- The board, the composer, the open-block editor, the week strip, the Driver view and Settings are new or rewritten components on the existing stack (React 18, Tailwind 3, shadcn/ui, the Hub's tokens; ADR-0002). The Daily Schedule's CSS is not copied, only its behaviour.
-- The view (Scheduler or Driver) and the chosen Driver are kept in the device's browser storage; nothing about them is saved in the database.
-- The Driver view refreshes on focus.
-- The word "job" is used only for a Job; an Assignment is always called an assignment, even where the mocks say "job".
-
-## Testing Decisions
-
-A good test says what Dave or a Driver would see, or what the API answers, for a situation described in the glossary's words, and does not depend on how a rule is written. New tests follow the existing ones in reading that way.
-
-Three seams, two of which exist:
-
-- **The Worker's API, called as a request** against a real local D1 migrated from the migrations and reseeded for each test (prior art: the Worker's app tests). Covers: position on add, move and reorder; per-field changes; a Driver change on a Sent day cancelling and adding; a date change refused; Changed and Added, and the earlier fields recorded; ✕ deleting on a Draft day and cancelling on a Sent day; Put back; Send and its refusals; Changed after a send; Start from and Copy to, every row of the copy rules, and their refusals; typed Place and Material names found or created; the Driver view read for a Draft and a Sent day; the week read; sort order and usual Foreman on the lists; past days still refused.
-- **The page in jsdom with a fake API** (prior art: the App, Driver cards and Settings page tests). Covers: lanes in Settings order with Unassigned last; adding from a lane's **+** with chips and typed names; opening a block and changing a chip; moving to another Driver; ✕ and Put back; the strip's words and states and the arrows' labels; Send; Start from on an empty day; the Driver view's first-time pick, remembered choice, Draft message, Changed and cancelled marks; Settings sections, ordering and panels; load and save failures.
-- **New: the day rules as pure functions** (prior art: the Daily Schedule's day navigation and schedule-rules tests). Covers: Working days across weekends and each Holiday in several years, the words and arrow targets across a week boundary and a Friday, day states for each case, and Changed.
-
-The smoke test against staging gains read-only checks of the week read and the Driver view read.
-
-## Out of Scope
-
-- Phases 2 to 4: truck check-in, Inspections, Truck problems, Trips from HCSS Fleet, Now and Done on the board, Tickets, sign-off and the Truck log. Their decisions and schema are recorded in the design doc.
-- Sign-in and roles; Hub integration; real per-Driver access. Anyone can open the Scheduler view.
-- A Week view (Drivers by Monday to Friday).
-- Reading the Daily Schedule's Off Work to grey out Drivers.
-- Slack, texts or notifications to Drivers.
-- Dropping the old orders table.
-- Two people changing the same Assignment at once: the last save of each field wins.
-
-## Further Notes
-
-- The mocks show Start now / Finished buttons; they are deliberately not built. Progress will come only from the Truck (phase 3).
-- ✕ deleting only on a Draft day refines the grilling's "deletes on later days", so that a Driver who has seen an Assignment always sees it cancelled rather than gone.
-- During the build no Driver gets Cloudflare Access; Sumanth tests both the Scheduler and the Driver view. Giving Drivers access is a later step.
-- Two decisions may deserve an ADR: Send per day without a lock (unlike the Daily Schedule), and the Inspection as the official, append-only record (phase 2).

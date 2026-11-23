@@ -8,8 +8,8 @@ Start with [`specs/mission.md`](specs/mission.md) for why the project exists, th
 |---|---|
 | [`specs/mission.md`](specs/mission.md) | The problem, the four-step pipeline to a Truck log, who it is for, principles, out of scope |
 | [`specs/roadmap.md`](specs/roadmap.md) | Every phase cut into one-PR steps, with what is done, in review, to do and blocked |
-| [`specs/tech-stack.md`](specs/tech-stack.md) | Stack, tooling and environments, and what is still undecided |
-| [`specs/phase-1-planning.md`](specs/phase-1-planning.md) | Phase 1 spec: the user stories for the Board, Driver view and Settings |
+| [`specs/tech-stack.md`](specs/tech-stack.md) | Stack, tooling, how we test, and what is still undecided |
+| [`specs/phase-1-planning.md`](specs/phase-1-planning.md) | Phase 1 user stories (built): what the Board, Driver view and Settings had to do, and why |
 
 ## How it works now
 
@@ -24,9 +24,8 @@ Start with [`specs/mission.md`](specs/mission.md) for why the project exists, th
 | File | What |
 |---|---|
 | [`adr/`](adr/) | Architecture decisions: own app (0001), Hub's UI stack (0002), Send without a lock (0003), past days enforced by the Worker (0004) |
-| [`design/dispatch-board-decisions.md`](design/dispatch-board-decisions.md) | Every design decision from the grillings, the phases and the target schema, newest last |
+| [`design/dispatch-board-decisions.md`](design/dispatch-board-decisions.md) | Why the app works as it does (phase 1), what is decided for phases 2 to 4, and their target schema |
 | [`design/system-design.html`](design/system-design.html) | Interactive map of the pipeline from Dave's plan to a Truck log, with a real truck's day (open in a browser) |
-| [`design/pipeline-map.html`](design/pipeline-map.html) | Earlier, shorter version of the map above |
 
 ## For AI agents
 
