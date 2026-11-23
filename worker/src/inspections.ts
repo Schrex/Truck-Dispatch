@@ -2,8 +2,9 @@ import type { Env } from './app';
 import { clock } from './clock';
 import { json, readJson, refuse, text } from './http';
 import { isActive, listOrder } from './lists';
+import { openProblem, problemsOf } from './truckProblems';
 import { isCalendarDate } from '../../shared/days';
-import { INSPECTION_ANSWERS, type CheckIn, type CheckIns, type Inspection, type InspectionAnswer, type InspectionAnswerKind } from '../../shared/types';
+import { INSPECTION_ANSWERS, type CheckIn, type CheckIns, type Inspection, type InspectionAnswer, type InspectionAnswerKind, type TruckProblem } from '../../shared/types';
 
 /**
  * Check-in (GLOSSARY.md): a Driver picks the Truck he is taking today and
@@ -11,6 +12,7 @@ import { INSPECTION_ANSWERS, type CheckIn, type CheckIns, type Inspection, type 
  * (ADR 0006): it is added, read, and never changed or deleted.
  *
  *   POST api/inspections        add one, for today only           → 201 { inspection }
+ *                               (with the Truck problems its Needs repair answers opened)
  *   GET  api/inspections/:id    read one                          → 200 { inspection }
  *   GET  api/check-ins?date=    each Driver's latest that day     → 200 { date, checkIns }
  */
@@ -45,17 +47,23 @@ const SELECT_INSPECTION = `SELECT i.id, i.date, i.driver_id AS driverId, d.name 
        EXISTS (SELECT 1 FROM inspection_answers a WHERE a.inspection_id = i.id AND a.answer = 'repair') AS needsRepair
   FROM inspections i JOIN drivers d ON d.id = i.driver_id JOIN trucks t ON t.id = i.truck_id`;
 
-/** One saved Inspection with its answers, or null. */
+/** One saved Inspection with its answers and the Truck problems it opened, or null. */
 async function readInspection(env: Env, id: string): Promise<Inspection | null> {
-  const [{ results: rows }, { results: answers }] = await env.DB.batch<Record<string, unknown>>([
+  const [{ results: rows }, { results: answers }, { results: problems }] = await env.DB.batch<Record<string, unknown>>([
     env.DB.prepare(`${SELECT_INSPECTION} WHERE i.id = ?`).bind(id),
     env.DB.prepare(
       `SELECT position, item_id AS itemId, label, answer, repair_note AS repairNote FROM inspection_answers WHERE inspection_id = ? ORDER BY position`,
     ).bind(id),
+    problemsOf(env, id),
   ]);
   const row = rows[0];
   if (!row) return null;
-  return { ...(row as Omit<Inspection, 'needsRepair' | 'answers'>), needsRepair: row.needsRepair === 1, answers: answers as unknown as InspectionAnswer[] };
+  return {
+    ...(row as Omit<Inspection, 'needsRepair' | 'answers' | 'problems'>),
+    needsRepair: row.needsRepair === 1,
+    answers: answers as unknown as InspectionAnswer[],
+    problems: problems as unknown as TruckProblem[],
+  };
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -78,7 +86,9 @@ type Answer = Omit<InspectionAnswer, 'position'>;
  * so a Finish retried after a lost reply is never saved twice. Otherwise every
  * item on the checklist that is not optional must be answered, each Needs
  * repair with a note, by an active Driver for an active Truck; the answers are
- * kept in the checklist's order with each item's wording as it is now.
+ * kept in the checklist's order with each item's wording as it is now. Each
+ * Needs repair opens a Truck problem with its note, in the same batch, so a
+ * refused or repeated Inspection opens none.
  */
 async function addInspection(request: Request, env: Env): Promise<Response> {
   const body = await readJson<Record<string, unknown>>(request);
@@ -117,6 +127,9 @@ async function addInspection(request: Request, env: Env): Promise<Response> {
           id, position, a.itemId, a.label, a.answer, a.repairNote,
         ),
       ),
+      ...answers
+        .filter((a) => a.answer === 'repair')
+        .map((a) => openProblem(env, { truckId, driverId, reportedAt: now.toISOString(), text: a.repairNote!, inspectionId: id })),
     ]);
   } catch (error) {
     // The same Finish arriving twice at once: the first one saved it, and it stands.

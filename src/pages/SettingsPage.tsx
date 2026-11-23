@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { ChevronDown, ChevronUp, ClipboardList } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ORDERED_LISTS, type ListName, type OrderedList } from '../../shared/types';
 import { EntryPanel } from '@/components/settings/EntryPanel';
 import { ListSection } from '@/components/settings/ListSection';
+import { TruckProblemsSection } from '@/components/settings/TruckProblemsSection';
 import { section, type NameOf, type Row, type SectionSpec } from '@/components/settings/spec';
 import { PageHeader } from '@/components/PageHeader';
 import { Button } from '@/components/ui/button';
@@ -94,7 +95,7 @@ const isOrdered = (list: ListName): list is OrderedList => (ORDERED_LISTS as rea
 /** The panel open now: an entry of a list, or a new one (entry null). */
 type Open = { list: ListName; entry: Row | null } | null;
 
-/** Settings: every list the Board picks from, on one page, each entry a chip that opens an edit panel. */
+/** Settings: every list the Board picks from, on one page, each entry a chip that opens an edit panel; and, under Trucks, the Truck problems. */
 export function SettingsPage() {
   const [lists, setLists] = useState<Partial<Record<ListName, Row[]>>>({});
   const [unloaded, setUnloaded] = useState<ListName[]>([]);
@@ -192,8 +193,8 @@ export function SettingsPage() {
       </PageHeader>
       <main className="container grid gap-4 py-6 lg:grid-cols-2">
         {SECTIONS.map((spec) => (
+          <Fragment key={spec.list}>
           <ListSection
-            key={spec.list}
             spec={spec}
             entries={lists[spec.list] ?? null}
             failed={unloaded.includes(spec.list)}
@@ -203,6 +204,9 @@ export function SettingsPage() {
             onBringBack={(entry) => bringBack(spec, entry)}
             chipControls={moveButtons(spec)}
           />
+          {/* Under Trucks: what Drivers reported wrong with them, for Dave to mark fixed. */}
+          {spec.list === 'trucks' && <TruckProblemsSection />}
+          </Fragment>
         ))}
       </main>
       {open && openSpec && (

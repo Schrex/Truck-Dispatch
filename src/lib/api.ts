@@ -1,4 +1,4 @@
-import type { Assignment, AssignmentChange, BusinessDay, ChangedAssignment, CheckIn, CheckIns, CopiedDay, Day, DriverDay, Inspection, NewInspection, EntryFields, ListName, Lists, NewAssignment, OrderedList, TypedNames, WeekDay } from '../../shared/types';
+import type { Assignment, AssignmentChange, BusinessDay, ChangedAssignment, CheckIn, CheckIns, CopiedDay, Day, DriverDay, Inspection, NewInspection, EntryFields, ListName, Lists, NewAssignment, OrderedList, TruckProblem, TypedNames, WeekDay } from '../../shared/types';
 import { basePath } from './basePath';
 
 // Every call starts at the base path the page was reached under: /api/...
@@ -175,4 +175,14 @@ export async function fetchCheckIns(date: string): Promise<CheckIn[]> {
  */
 export async function addInspection(inspection: NewInspection): Promise<Inspection> {
   return (await request<{ inspection: Inspection }>('api/inspections', json('POST', inspection))).inspection;
+}
+
+/** Every Truck problem: open ones first, then fixed ones, each newest first. */
+export async function fetchTruckProblems(): Promise<TruckProblem[]> {
+  return (await request<{ problems: TruckProblem[] }>('api/truck-problems')).problems;
+}
+
+/** Mark fixed: closes a Truck problem, with how it was fixed if Dave says. One already fixed is answered as it is. */
+export async function fixTruckProblem(id: string, note?: string): Promise<TruckProblem> {
+  return (await request<{ problem: TruckProblem }>(`api/truck-problems/${encodeURIComponent(id)}/fix`, json('POST', note ? { note } : {}))).problem;
 }

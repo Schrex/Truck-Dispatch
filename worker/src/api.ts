@@ -2,6 +2,7 @@ import type { Env } from './app';
 import { clock } from './clock';
 import { json, readJson, refuse, text } from './http';
 import { handleInspections } from './inspections';
+import { handleTruckProblems } from './truckProblems';
 import { exists, handleList, isList, listOrder } from './lists';
 import { checkTyped, saveLinked, typedIn, type Typed } from './typedNames';
 import { addDays, dayState, draftsOn, holidayName, isCalendarDate, mondayOf, sinceSent, weekDates } from '../../shared/days';
@@ -66,6 +67,9 @@ export async function handleApi(request: Request, env: Env, route: string, query
 
   const checkingIn = await handleInspections(request, env, route, query);
   if (checkingIn) return checkingIn;
+
+  const problems = await handleTruckProblems(request, env, route, query);
+  if (problems) return problems;
 
   const [list, entryId, ...rest] = route.split('/');
   if (isList(list) && rest.length === 0) return handleList(request, env, list, entryId, query);

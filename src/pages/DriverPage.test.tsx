@@ -68,6 +68,12 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       id: body.id, date: businessDay.today, driverId: driver.id, driverName: driver.name, truckId: truck.id, truckNumber: truck.number,
       doneAt: DONE_AT, otherNotes: body.otherNotes ?? null, needsRepair,
       answers: body.answers.map((a, position) => ({ position, itemId: a.itemId, label: checklist.find((i) => i.id === a.itemId)!.label, answer: a.answer, repairNote: a.repairNote ?? null })),
+      problems: body.answers
+        .filter((a) => a.answer === 'repair')
+        .map((a, n) => ({
+          id: `tp-${body.id}-${n}`, truckId: truck.id, truckNumber: truck.number, reportedByDriverId: driver.id, reportedByName: driver.name,
+          reportedAt: DONE_AT, text: a.repairNote!, inspectionId: body.id, fixedAt: null, fixedNote: null,
+        })),
     };
     checkIns[businessDay.today] = [
       ...(checkIns[businessDay.today] ?? []).filter((c) => c.driverId !== driver.id),

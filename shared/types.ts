@@ -317,6 +317,8 @@ export interface Inspection {
   otherNotes: string | null;
   needsRepair: boolean;
   answers: InspectionAnswer[];
+  /** The Truck problems it opened, one per Needs repair answer, in the same order. */
+  problems: TruckProblem[];
 }
 
 /** A Driver's check-in on a day: his latest Inspection that day, its Truck and time. */
@@ -334,6 +336,30 @@ export interface CheckIn {
 export interface CheckIns {
   date: string;
   checkIns: CheckIn[];
+}
+
+/**
+ * Something wrong with a Truck, reported by a Driver with a note (GLOSSARY.md).
+ * Open until Dave marks it fixed; kept forever after, with when and how.
+ * A Truck with an open problem can still be checked in to and driven.
+ */
+export interface TruckProblem {
+  id: string;
+  truckId: string;
+  truckNumber: string;
+  /** The reporting Driver; always one for now (only Drivers report problems). */
+  reportedByDriverId: string | null;
+  reportedByName: string | null;
+  /** When it was reported, by the Worker's clock: an ISO 8601 moment in UTC. */
+  reportedAt: string;
+  /** What is wrong, in the Driver's words. */
+  text: string;
+  /** The Inspection it came from (a Needs repair answer), if any. */
+  inspectionId: string | null;
+  /** When Dave marked it fixed (ISO 8601, UTC); null while open. */
+  fixedAt: string | null;
+  /** How it was fixed, if Dave said. */
+  fixedNote: string | null;
 }
 
 /** A refusal: each field that is wrong, with a plain message. */
