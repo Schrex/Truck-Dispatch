@@ -7,6 +7,12 @@ import { SegmentedToggle } from '@/components/SegmentedToggle';
 import { NOT_A_HAUL } from '../../shared/trips';
 import type { UnplannedAnswer } from './answers';
 
+/** Where Unplanned work can be split: a Trip after its first, by leftAt, as "Split at 09:45 · J611 Bishop Kearney → Villager". */
+export interface SplitChoice {
+  at: string;
+  label: string;
+}
+
 /** A piece of Unplanned work as the answer shows it. */
 export interface AnswerableWork {
   /** UnplannedWork.id. */
@@ -15,8 +21,8 @@ export interface AnswerableWork {
   line: string;
   /** Its Places that are Places (not only a geofence code), in the order first reached. */
   places: { id: string; name: string }[];
-  /** Where it can be split (#77): each Trip after its first, by leftAt, as "Split at 09:45 · J611 Bishop Kearney → Villager". */
-  splits?: { at: string; label: string }[];
+  /** Where it can be split (#77): each Trip after its first. */
+  splits?: SplitChoice[];
 }
 
 /** One of the Driver's Assignments that day, as a link offers it: "A2 · Walworth Dolomite → J25008 Los Flamboyanes". */
@@ -125,7 +131,7 @@ function MakeAnAssignmentQuestions({ work, materials, onReady }: WayProps) {
 }
 
 /** "Split this Unplanned work at a Trip": one button per Trip after the first; tapping one splits the piece there. */
-function SplitRow({ splits, onSplit }: { splits: { at: string; label: string }[]; onSplit: (at: string) => void }) {
+function SplitRow({ splits, onSplit }: { splits: SplitChoice[]; onSplit: (at: string) => void }) {
   const labelId = useId();
   return (
     <div role="group" aria-labelledby={labelId} className="space-y-2 border-t pt-3">

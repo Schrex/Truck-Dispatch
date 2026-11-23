@@ -66,13 +66,19 @@ function dropOff(work: UnplannedWork, loadedAt: string): string | null {
  * picked under "Who was driving?", else `driverId`, the Truck's Driver; the
  * last Driver picked is the answer to "Who was driving?" (`drivenBy`).
  */
-export function tripAnswers(
-  answers: UnplannedAnswer[],
-  pieces: UnplannedWork[],
-  plannedCount: number,
-  driverId: string,
-  splits: string[] = [],
-): { input: UnplannedAnswers; made: PlannedMadeAssignment[]; drivenBy: string | null } {
+export function tripAnswers({
+  answers,
+  pieces,
+  plannedCount,
+  driverId,
+  splits = [],
+}: {
+  answers: UnplannedAnswer[];
+  pieces: UnplannedWork[];
+  plannedCount: number;
+  driverId: string;
+  splits?: string[];
+}): { input: UnplannedAnswers; made: PlannedMadeAssignment[]; drivenBy: string | null } {
   const made: PlannedMadeAssignment[] = [];
   const drivenBy = answers.flatMap((a) => (a.driverId ? [a.driverId] : [])).at(-1) ?? null;
   const links: UnplannedLink[] = [];

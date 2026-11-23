@@ -81,8 +81,19 @@ function asAssignment(planned: PlannedAssignment | PlannedMadeAssignment, positi
   };
 }
 
+/** What the simulation is asked for: a scenario at one minute, with what Dave has answered and split so far. */
+export interface SimulateAtOptions {
+  scenario: Scenario;
+  /** Minutes past midnight, US Eastern. */
+  minutes: number;
+  /** Dave's answers to the Unplanned work; none by default. */
+  answers?: UnplannedAnswer[];
+  /** The Trips (by leftAt) where Dave split Unplanned work in two; none by default. */
+  splits?: string[];
+}
+
 /** The real day under one scenario, with Dave's answers to its Unplanned work, at `minutes` past midnight, US Eastern. */
-export function simulateAt(scenario: Scenario, minutes: number, answers: UnplannedAnswer[] = [], splits: string[] = []): SimulatedDay {
+export function simulateAt({ scenario, minutes, answers = [], splits = [] }: SimulateAtOptions): SimulatedDay {
   // The Worker knows the whole of the clock's minute.
   const now = easternIso(REAL_DAY.date, `${clockTime(minutes)}:59`);
   // The real 16 Nov day, unless the scenario makes one up.
@@ -93,7 +104,7 @@ export function simulateAt(scenario: Scenario, minutes: number, answers: Unplann
     answers.length === 0
       ? []
       : buildTripDay({ places: REAL_DAY.places, visits: day.visits, assignments: scenario.assignments, answers: { splits }, now: easternIso(REAL_DAY.date, '23:59:59'), dayOver: true }).unplanned;
-  const answered = tripAnswers(answers, wholeDay, scenario.assignments.length, drivers[0].id, splits);
+  const answered = tripAnswers({ answers, pieces: wholeDay, plannedCount: scenario.assignments.length, driverId: drivers[0].id, splits });
   // A linked Assignment, planned or made from another piece, is rerouted from its Unplanned work's first Trip: shown on its new route, Changed from then.
   const linked = <A extends PlannedAssignment | PlannedMadeAssignment>(a: A) => {
     const link = answered.input.links?.find((l) => l.assignmentId === a.id);

@@ -56,7 +56,7 @@ export function SimulatePage() {
   }, [playing]);
 
   const scenario = REAL_DAY.scenarios.find((s) => s.id === scenarioId) ?? REAL_DAY.scenarios[0];
-  const day = useMemo(() => simulateAt(scenario, clock, answers, splits), [scenario, clock, answers, splits]);
+  const day = useMemo(() => simulateAt({ scenario, minutes: clock, answers, splits }), [scenario, clock, answers, splits]);
   const { truckDay } = day.tripDay;
   /** "Who was driving?": more than one Driver fits and Dave has not picked yet. */
   const whoDrove = truckDay.driver === null && truckDay.driverCandidates.length > 1 ? truckDay.driverCandidates : null;
