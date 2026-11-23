@@ -85,5 +85,9 @@ _Avoid_: run, leg
 A Trip carrying material from a pickup Place to a drop Place. Counted from the Truck and tickets, never entered by Dave.
 _Avoid_: run
 
+**Unplanned work**:
+Trips in a row that a Truck made and no Assignment explains, taken as one piece of work for Dave to answer: make an Assignment for it, link it to an Assignment, or say it was not a haul. The Truck cannot tell which way material went, so where it was loaded is Dave's to say.
+_Avoid_: extra job, side job, unassigned trip, Trips with no Assignment
+
 **Material**:
 What a Load carries, e.g. 2" minus, CR2, dirt, topsoil, stone.
