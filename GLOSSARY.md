@@ -19,11 +19,11 @@ _Avoid_: send, publish, post, dispatch
 An Assignment that has not been Assigned yet, with or without a Driver. Its Driver, if it has one, sees nothing of it.
 
 **Changed**:
-An Assignment that Dave altered, cancelled, put back or moved within its Driver's order after its day was Sent. The Driver sees it marked "Changed by Dave". Others that shift place because of a move are not Changed.
+An Assignment that Dave altered, cancelled, put back or moved within its Driver's order after it was Assigned. The Driver sees it marked "Changed by Dave", with what it was when Assigned. Changes to a Draft mark nothing. Others that shift place because of a move are not Changed.
 _Avoid_: edited, updated
 
 **Added**:
-An Assignment that Dave added to a day after it was Sent, including one given to a Driver from another Driver. The Driver sees it marked "Added by Dave".
+An Assignment that Dave Assigned on its own day, or that was given to a Driver from another Driver after it was Assigned. The Driver sees it marked "Added by Dave". Work Assigned before its day is never Added.
 
 **Working day**:
 A weekday that is not one of the six Holidays (New Year's Day, Memorial Day, Independence Day, Labor Day, Thanksgiving, Christmas), the same as the Daily Schedule's. The board opens on the next one. Weekends and Holidays can still be planned.
