@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { EmptyBox } from '@/components/States';
 import { Button } from '@/components/ui/button';
 import { easternTime } from '../../shared/days';
-import type { TruckLogColumn, TruckLogTrip, TruckLogUnplanned } from '../../shared/trips';
+import type { TruckLogColumn, TruckLogTrip, TruckLogUnplanned, TruckLogWhichAssignment } from '../../shared/trips';
 
 /** "J25008 Los Flamboyanes ⇄ J611 Bishop Kearney · out 14:15, back 14:33 · 0.46 h": no direction, as the Truck cannot tell one. */
 export function unplannedLine(work: TruckLogUnplanned): string {
@@ -16,7 +16,9 @@ export function unplannedLine(work: TruckLogUnplanned): string {
  * The Truck log's body, below its header: one column per Assignment in Dave's
  * order, like the paper's Orders 1 to 5, then an amber box per piece of
  * Unplanned work, with its Places and times only, for Dave to answer (with
- * onAnswer, its Answer button opens the answer). An Assignment Dave made from
+ * onAnswer, its Answer button opens the answer), and the Trips two
+ * Assignments fit equally, each asked "Which Assignment? A2 or A3" (shown
+ * only: answering one is not built yet). An Assignment Dave made from
  * Unplanned work is an ordinary column, marked From the Truck. Then the drives to and from the shop: leaving in the
  * morning, getting back at the end of the day. Tons are never typed: they come
  * from the Loads' Tickets (phase 4), so until then the box is blank and says so.
@@ -24,11 +26,14 @@ export function unplannedLine(work: TruckLogUnplanned): string {
 export function TruckLogAssignments({
   columns,
   unplanned,
+  whichAssignment = [],
   shopTrips,
   onAnswer,
 }: {
   columns: TruckLogColumn[];
   unplanned: TruckLogUnplanned[];
+  /** The ties: planned work Dave picks the Assignment of. */
+  whichAssignment?: TruckLogWhichAssignment[];
   shopTrips: TruckLogTrip[];
   /** Dave taps Answer on a piece of Unplanned work (by its id). */
   onAnswer?: (unplannedId: string) => void;
@@ -82,6 +87,18 @@ export function TruckLogAssignments({
             </div>
           );
         })}
+        {whichAssignment.length > 0 && (
+          <div role="group" aria-label="Which Assignment?" className="rounded-md border border-warning bg-warning/10">
+            <h3 className="border-b border-warning px-3 py-1 text-xs font-semibold uppercase tracking-wide">Which Assignment?</h3>
+            <ul className="space-y-1 px-3 py-1.5 text-sm font-medium">
+              {whichAssignment.map((q) => (
+                <li key={q.id}>
+                  Which Assignment? {q.candidates.join(' or ')} · {easternTime(q.id)} {q.from} → {q.to}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
       <div role="group" aria-label="To and from the shop" className="space-y-1">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">To and from the shop</h3>

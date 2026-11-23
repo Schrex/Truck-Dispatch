@@ -5,7 +5,7 @@
  * Truck log. Pure; nothing is saved and the Worker is not asked.
  */
 import type { Assignment, Driver } from '../../shared/types';
-import { buildTripDay, linkedAssignment, routeAt, type AssignmentTrips, type TripDay, type TripJob, type TruckLogColumn, type TruckLogTrip, type TruckLogUnplanned } from '../../shared/trips';
+import { buildTripDay, linkedAssignment, routeAt, type AssignmentTrips, type TripDay, type TripJob, type TruckLogColumn, type TruckLogTrip, type TruckLogUnplanned, type TruckLogWhichAssignment } from '../../shared/trips';
 import { REAL_DAY, easternIso, type PlannedAssignment, type Scenario } from './realDay';
 import { tripAnswers, type PlannedMadeAssignment, type UnplannedAnswer } from './answers';
 
@@ -29,8 +29,8 @@ export interface SimulatedDay {
   drivers: Driver[];
   /** Each Assignment's label ("A1", "A3") by its id, for the Trip log. */
   labels: Record<string, string>;
-  /** The Truck log's body: one column per Assignment, then the Unplanned work, and the drives to and from the shop. */
-  truckLog: { columns: TruckLogColumn[]; unplanned: TruckLogUnplanned[]; shopTrips: TruckLogTrip[] };
+  /** The Truck log's body: one column per Assignment, then the Unplanned work and the ties ("Which Assignment?"), and the drives to and from the shop. */
+  truckLog: { columns: TruckLogColumn[]; unplanned: TruckLogUnplanned[]; whichAssignment: TruckLogWhichAssignment[]; shopTrips: TruckLogTrip[] };
 }
 
 const placeName = (id: string | null) => REAL_DAY.places.find((p) => p.id === id)?.name ?? null;
@@ -161,5 +161,14 @@ export function simulateAt(scenario: Scenario, minutes: number, answers: Unplann
     }),
   );
   const labels = Object.fromEntries(all.map((a) => [a.id, a.label]));
-  return { tripDay, assignments, drivers, labels, truckLog: { columns, unplanned, shopTrips } };
+  // The ties: planned work, so not Unplanned work; Dave picks which (answering one is not simulated yet).
+  const whichAssignment = tripDay.whichAssignment.map(
+    (q): TruckLogWhichAssignment => ({
+      id: q.id,
+      from: placeName(q.trip.fromPlaceId) ?? q.trip.fromCode,
+      to: placeName(q.trip.toPlaceId) ?? q.trip.toCode,
+      candidates: q.candidates.map((id) => labels[id] ?? id),
+    }),
+  );
+  return { tripDay, assignments, drivers, labels, truckLog: { columns, unplanned, whichAssignment, shopTrips } };
 }

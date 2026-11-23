@@ -189,5 +189,11 @@ export const REAL_DAY = {
       assignments: [assignment('a1', 'A1', J25008, VILLAGER, 'Fill'), assignment('a2', 'A2', WALWORTH, J25008, '1&2 stone', {}, { driverId: SAM.id, truckId: 'trk-55' })],
       drivers: [RANDY, SAM],
     },
+    {
+      id: 'two-the-same',
+      name: 'Made up: two the same',
+      // A2 and A3 both run Walworth → J25008: the rules do not guess, the Truck log asks "Which Assignment? A2 or A3".
+      assignments: [assignment('a1', 'A1', J25008, VILLAGER, 'Fill'), A2, assignment('a3', 'A3', WALWORTH, J25008, '1&2 stone')],
+    },
   ] satisfies Scenario[] as Scenario[],
 };

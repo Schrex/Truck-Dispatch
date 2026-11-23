@@ -189,6 +189,17 @@ export interface TruckLogUnplanned {
   truckingHours: number;
 }
 
+/** A tie as the Truck log asks it: "Which Assignment? A2 or A3 · 11:30 Villager → Walworth Dolomite". */
+export interface TruckLogWhichAssignment {
+  /** The Trip's leftAt. */
+  id: string;
+  /** Where from and to: the Place's short name, else Fleet's geofence code. */
+  from: string;
+  to: string;
+  /** The Assignments that fit it equally, by label ("A2", "A3"), in Dave's order. */
+  candidates: string[];
+}
+
 /** One Trip as the Truck log lists it (the drives to and from the shop). */
 export interface TruckLogTrip {
   leftAt: string;
@@ -616,9 +627,8 @@ const fitsNone = (m: Match) => m.kind === null && m.rule === 7;
 /**
  * The drive back into a piece of Unplanned work's own Places. Where a piece
  * of Unplanned work already went, a Trip back there that only an empty guess
- * explains (rule 4, "going to the Assignment's pickup", for one Assignment
- * or tied between several) is the Unplanned
- * work's way back, not that Assignment's: on 16 Nov the 14:33 drive from
+ * for one Assignment explains (rule 4, "going to the Assignment's pickup")
+ * is the Unplanned work's way back, not that Assignment's: on 16 Nov the 14:33 drive from
  * Bishop Kearney back to J25008 is the Unplanned work's, so A1 keeps its
  * 3.02 h. A Trip on an Assignment's route (rules 1, 2), to the shop (3), a
  * Load guess (5, 6) or a tie still belongs to the planned work and ends the
@@ -644,7 +654,8 @@ function unplannedRuns(trips: Trip[]): { trips: Trip[]; runs: number[][] } {
   let open: number[] | null = null;
   const visited = new Set<string>();
   for (const t of trips) {
-    const backInto = open !== null && t.match.rule === 4 && visited.has(t.toCode.toLowerCase());
+    // A tie is never taken: it is "Which Assignment?", not Unplanned work.
+    const backInto = open !== null && t.match.rule === 4 && !t.match.candidates && visited.has(t.toCode.toLowerCase());
     if (fitsNone(t.match) || backInto) {
       if (open === null) {
         open = [];

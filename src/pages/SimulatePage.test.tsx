@@ -74,6 +74,7 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
       'Reroute at 11:20',
       'Made up: a run to split',
       'Made up: Sam on Truck 55 too',
+      'Made up: two the same',
     ]);
     expect(screen.getAllByRole('table').map((t) => t.getAttribute('aria-label'))).toEqual(['Trips']);
     expect(document.querySelector('input[type=file]')).toBeNull();
@@ -278,6 +279,39 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
         ['14:15', 'for Dave', '–'],
         ['14:33', 'for Dave', '–'],
       ]);
+    });
+  });
+
+  describe('Which Assignment?: two Assignments the same (made up: A2 and A3 both Walworth → J25008)', () => {
+    /** The Truck log's "Which Assignment?" questions, as each reads. */
+    const ties = () =>
+      within(screen.getByRole('region', { name: 'Truck log' }))
+        .queryAllByRole('group', { name: 'Which Assignment?' })
+        .flatMap((box) => within(box).queryAllByRole('listitem').map((li) => li.textContent));
+
+    it('the Truck log asks "Which Assignment? A2 or A3" for each Trip both fit, and none of it is Unplanned work', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      choose('two-the-same');
+      expect(ties()).toEqual([
+        'Which Assignment? A2 or A3 · 11:30 Villager → Walworth Dolomite',
+        'Which Assignment? A2 or A3 · 12:08 Walworth Dolomite → J25008 Los Flamboyanes',
+        'Which Assignment? A2 or A3 · 12:54 J25008 Los Flamboyanes → Walworth Dolomite',
+        'Which Assignment? A2 or A3 · 13:29 Walworth Dolomite → J25008 Los Flamboyanes',
+      ]);
+      // Only the drive to Bishop Kearney and back is Unplanned work, as planned.
+      expect(unplannedLog()).toEqual(['J25008 Los Flamboyanes ⇄ J611 Bishop Kearney · out 14:15, back 14:33 · 0.46 h']);
+    });
+
+    it('as planned there is no tie, so no question', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      expect(ties()).toEqual([]);
+    });
+
+    it('only asks about Trips known at the clock’s time', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      choose('two-the-same');
+      setClock(12 * 60 + 50);
+      expect(ties()).toEqual(['Which Assignment? A2 or A3 · 11:30 Villager → Walworth Dolomite', 'Which Assignment? A2 or A3 · 12:08 Walworth Dolomite → J25008 Los Flamboyanes']);
     });
   });
 

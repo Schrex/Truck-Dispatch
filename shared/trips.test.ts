@@ -164,7 +164,7 @@ describe('Trips and matching on the 16 Nov day', () => {
     const d = day('ambiguous');
     expect(d.trips[1].match).toMatchObject({ kind: null, assignmentId: null, rule: 1, candidates: ['a1', 'a3'] });
     expect(d.trips[1].match.reason).toMatch(/2 Assignments fit \(A1, A3\)/);
-    // A1 and A3 both run North → Plant: each Load and each way back is a question, from 08:24 to 11:14.
+    // A1 and A3 both run North → Plant: each Load and each way back is a question, from 08:24 to 11:14, and the drive back to North at 14:33.
     expect(d.whichAssignment.map((q) => `${easternTime(q.trip.leftAt)} ${q.trip.fromCode} → ${q.trip.toCode} ${q.candidates.join('/')}`)).toEqual([
       '08:24 J1001 North → PLANT a1/a3',
       '08:43 PLANT → J1001 North a1/a3',
@@ -173,13 +173,15 @@ describe('Trips and matching on the 16 Nov day', () => {
       '10:27 J1001 North → PLANT a1/a3',
       '10:41 PLANT → J1001 North a1/a3',
       '11:14 J1001 North → PLANT a1/a3',
+      '14:33 J1002 South → J1001 North a1/a3',
     ]);
     expect(d.whichAssignment[0].id).toBe(d.whichAssignment[0].trip.leftAt);
   });
 
-  it('never takes a tie as Unplanned work: on two the same, only the South stop is', () => {
+  it('never takes a tie as Unplanned work, not even a drive back into it: on two the same, only the drive to South is', () => {
     const d = day('ambiguous');
-    expect(d.unplanned.map((w) => w.trips.map((t) => easternTime(t.leftAt)))).toEqual([['14:15', '14:33']]);
+    // 14:33 South → North goes to both A1's and A3's pickup (rule 4): a tie, so "Which Assignment?", not the piece's way back.
+    expect(d.unplanned.map((w) => w.trips.map((t) => easternTime(t.leftAt)))).toEqual([['14:15']]);
   });
 
   it('makes a run of three Trips nothing fits one piece: A1 cancelled at 10:10, its last three Trips to and from the Plant', () => {

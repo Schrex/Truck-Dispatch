@@ -153,7 +153,7 @@ export function SimulatePage() {
           </div>
         </div>
         <TruckLog truck={REAL_DAY.truck} date={REAL_DAY.date} truckDay={day.tripDay.truckDay}>
-          <TruckLogAssignments columns={day.truckLog.columns} unplanned={day.truckLog.unplanned} shopTrips={day.truckLog.shopTrips} onAnswer={answer} />
+          <TruckLogAssignments columns={day.truckLog.columns} unplanned={day.truckLog.unplanned} whichAssignment={day.truckLog.whichAssignment} shopTrips={day.truckLog.shopTrips} onAnswer={answer} />
         </TruckLog>
         {work && shown && (
           <UnplannedAnswerFlow
