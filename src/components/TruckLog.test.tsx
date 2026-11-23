@@ -34,6 +34,17 @@ describe('Truck log header: the Driver', () => {
     expect(driverBox()).toBe('Who was driving?');
   });
 
+  it('asks "Who was driving?" when one Driver fits but nobody checked in to the Truck', () => {
+    render(<TruckLog truck={truck} date="2026-11-16" truckDay={day({ driverCandidates: [{ id: 'drv-randy', name: 'Randy' }] })} />);
+    expect(driverBox()).toBe('Who was driving?');
+  });
+
+  it('names the Driver who checked in', () => {
+    const randy = { id: 'drv-randy', name: 'Randy' };
+    render(<TruckLog truck={truck} date="2026-11-16" truckDay={day({ driver: randy, driverCandidates: [randy] })} />);
+    expect(driverBox()).toBe('Randy');
+  });
+
   it('is blank when no Driver fits', () => {
     render(<TruckLog truck={truck} date="2026-11-16" truckDay={day({})} />);
     expect(driverBox()).toBe('');

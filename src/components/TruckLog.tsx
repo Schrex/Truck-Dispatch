@@ -19,8 +19,11 @@ const miles = (n: number | null) => (n === null ? '' : n.toLocaleString('en-US',
 /** A miles box with no reading on a day that has none: blank, saying what will fill it. */
 const METER_READING = <span className="text-xs italic text-muted-foreground">meter reading</span>;
 
-/** No Driver chosen because more than one fits: a question for Dave, not an answer. */
-const askWhoDrove = (day: TruckDay) => day.driver === null && day.driverCandidates.length > 1;
+/**
+ * No Driver chosen though some fit (more than one, or nobody checked in to
+ * the Truck): a question for Dave, not an answer.
+ */
+const askWhoDrove = (day: TruckDay) => day.driver === null && day.driverCandidates.length > 0;
 
 function driverText(day: TruckDay): string {
   if (day.driver) return day.driver.name;
