@@ -254,6 +254,52 @@ describe('The clock of a stored day', () => {
   });
 });
 
+const readBoard = async ({ date = MONDAY, NOW = TUESDAY }: { date?: string; NOW?: string } = {}) => {
+  const response = await send('GET', `/api/assignments?date=${date}`, undefined, { NOW });
+  expect(response.status).toBe(200);
+  return ((await response.json()) as { assignments: Assignment[] }).assignments;
+};
+
+describe('Trip parts on the day read', () => {
+  it("gives Randy's blocks their Loads, Done and since once the 16:20 cut is imported", async () => {
+    const { a1, a2 } = await planMonday();
+    await importCut('2026-11-16-cut-1620.json');
+
+    const board = await readBoard();
+    const part = (id: string) => board.find((a) => a.id === id)?.trips;
+    expect(part(a1.id)).toMatchObject({ loads: 4, status: 'done' });
+    expect(part(a2.id)).toMatchObject({ loads: 2, status: 'done' });
+    expect([easternTime(part(a1.id)!.since!), easternTime(part(a2.id)!.since!)]).toEqual(['08:24', '11:30']);
+  });
+
+  it('gives no Trip part to a Draft, or to another Driver on another Truck', async () => {
+    const { randy, placeId } = await planMonday();
+    const truck61 = ((await (await send('POST', '/api/trucks', { number: '61' })).json()) as { truck: { id: string } }).truck.id;
+    const sam = ((await (await send('POST', '/api/drivers', { name: 'Sam', defaultTruckId: truck61 })).json()) as { driver: { id: string } }).driver.id;
+    const samsBlock = await assigned({ driverId: sam, fromPlaceId: placeId('J25008 Los Flamboyanes'), toPlaceId: placeId('Villager') });
+    const randysDraft = await draft({ driverId: randy, fromPlaceId: placeId('J25008 Los Flamboyanes'), toPlaceId: placeId('Villager') });
+    await importCut('2026-11-16-cut-1620.json');
+
+    const board = await readBoard();
+    expect(board.find((a) => a.id === samsBlock.id)).not.toHaveProperty('trips');
+    expect(board.find((a) => a.id === randysDraft.id)).not.toHaveProperty('trips');
+  });
+
+  it('answers a day with no stored visits exactly as before', async () => {
+    const { randy, placeId } = await planMonday();
+    const tuesday = { date: '2026-11-17', driverId: randy, fromPlaceId: placeId('J25008 Los Flamboyanes'), toPlaceId: placeId('Villager') };
+    const made = await send('POST', '/api/assignments', tuesday, { NOW: SUNDAY_EVENING });
+    const { assignment } = (await made.json()) as { assignment: Assignment };
+    await send('POST', `/api/assignments/${assignment.id}/assign`, undefined, { NOW: SUNDAY_EVENING });
+    const readTuesday = async () => (await send('GET', '/api/assignments?date=2026-11-17', undefined, { NOW: TUESDAY })).text();
+    const before = await readTuesday();
+
+    await importCut('2026-11-16-cut-1620.json');
+
+    expect(await readTuesday()).toBe(before);
+  });
+});
+
 describe('Refusing a Truck log read', () => {
   it('answers 404 for a Truck that does not exist', async () => {
     expect((await send('GET', `/api/trucks/nope/days/${MONDAY}`)).status).toBe(404);

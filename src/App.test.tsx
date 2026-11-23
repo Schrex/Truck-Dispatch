@@ -569,6 +569,25 @@ describe('the lanes', () => {
     expect(within(lane('Sample Driver B')).getByText('Nothing planned yet')).toBeTruthy();
   });
 
+  it('shows the Loads, Done and since of the blocks the day read sends a Trip part with, and leaves the others as they were', async () => {
+    const done = (loads: number, since: string) => ({ loads, tons: null, status: 'done', since, lastLoadAt: since, truckingHours: 1 });
+    const route = { fromPlaceId: 'plc-plant', fromPlaceName: 'Sample Plant', toPlaceId: 'plc-north', toPlaceName: 'Sample Site North' };
+    assignments = [
+      at({ id: 'a1', ...a, ...route, assignedAt: ASSIGNED_AT, position: 0, trips: done(4, '2026-11-20T13:24:00.000Z') }),
+      at({ id: 'a2', ...a, note: 'Back to the plant', assignedAt: ASSIGNED_AT, position: 1, trips: done(2, '2026-11-20T16:30:00.000Z') }),
+      at({ id: 'a3', ...a, note: 'Not sent yet', position: 2 }),
+      at({ id: 'b1', driverId: 'drv-b', driverName: 'Sample Driver B', ...route, assignedAt: ASSIGNED_AT, position: 0 }),
+    ];
+    open('/?date=2026-11-20');
+    expect(await screen.findByText('Not sent yet')).toBeTruthy();
+    expect(blocks('Sample Driver A')).toEqual([
+      'First · Sample Plant → Sample Site North · Truck 21 (his own) · 4 Loads · Done · since 08:24',
+      'Then · Back to the plant · Truck 21 (his own) · 2 Loads · Done · since 11:30',
+      'Then · Draft · Not sent yet · Truck 21 (his own)',
+    ]);
+    expect(blocks('Sample Driver B')).toEqual(['First · Sample Plant → Sample Site North · Truck 24 (his own)']);
+  });
+
 });
 
 describe('the composer', () => {

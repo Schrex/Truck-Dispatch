@@ -209,8 +209,9 @@ export interface Assignment {
   sinceSent: SinceSent;
   /**
    * What the Truck's Trips say about it (phase 3), from the Trip builder
-   * (shared/trips.ts). Optional: of the Worker's reads only the Truck log's
-   * (GET api/trucks/:id/days/:date) sends it yet, and the
+   * (shared/trips.ts). Optional: the Truck log's read (GET
+   * api/trucks/:id/days/:date) and the day read (GET api/assignments) send it
+   * on Assignments a stored Trip matched; the Driver day read not yet. The
    * board block and Driver card look as they always have without it.
    */
   trips?: AssignmentTripPart;
