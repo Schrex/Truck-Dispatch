@@ -1,5 +1,6 @@
 /** Shapes the API takes and returns, shared by the Worker and the page. */
 import type { FleetExportRow } from './fleetExport';
+import type { TripDay, TripPlace, TruckLogColumn, TruckLogTrip, TruckLogUnplanned, TruckLogWhichAssignment } from './trips';
 
 export interface Driver {
   id: string;
@@ -454,6 +455,38 @@ export interface FleetImport extends ImportCounts {
   /** The US Eastern days its visits were entered on, each with its own counts, in date order. */
   days: FleetImportDay[];
   /** Every geofence code in it that no Place has, by code; its visits are stored all the same. */
+  codesWithNoPlace: CodeWithNoPlace[];
+}
+
+/**
+ * A Truck's stored day (GET api/trucks/:id/days/:date): its stored visits and
+ * the Assignments that name it, through the Trip builder and the shared Truck
+ * log function, at one moment of the day.
+ */
+export interface TruckLogDay {
+  truckId: string;
+  truckNumber: string;
+  /** YYYY-MM-DD, US Eastern. */
+  date: string;
+  /** When the latest Import covering this Truck's day was made (ISO 8601, UTC); null when none was. The day is never built later than this. */
+  asOf: string | null;
+  /** The clock the day opened at, "HH:MM" US Eastern: the one asked for, else the end of a past day, else the latest Import. */
+  clock: string;
+  /** The moment the day is built at (ISO 8601, UTC): the end of the clock's minute, no later than asOf. */
+  at: string;
+  /** The day is over: its date is before today and the clock is at its end, so the Truck stopped wherever it last stopped. */
+  dayOver: boolean;
+  /** Every Place, as the Trip builder takes them, to name where Trips went. */
+  places: TripPlace[];
+  /** The Trip builder's day: Trips, Unplanned work, ties and the Truck log's header (truckDay). */
+  tripDay: TripDay;
+  /** Each Assignment's label ("A1", in Dave's order) by id, discarded ones included, for the Trip log. */
+  labels: Record<string, string>;
+  /** The Assignments shown (Assigned, naming this Truck, not discarded), in Dave's order, on their route at `at`, each with its Trip part. */
+  assignments: Assignment[];
+  /** The Truck log's body (shared/truckLog.ts), one column per shown Assignment. */
+  truckLog: { columns: TruckLogColumn[]; unplanned: TruckLogUnplanned[]; whichAssignment: TruckLogWhichAssignment[]; shopTrips: TruckLogTrip[] };
+  /** Every geofence code in the day's stored visits that no active Place has, as an Import lists them. */
   codesWithNoPlace: CodeWithNoPlace[];
 }
 

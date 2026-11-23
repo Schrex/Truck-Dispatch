@@ -4,6 +4,7 @@ import { json, readJson, refuse, text } from './http';
 import { handleInspections } from './inspections';
 import { handleTruckProblems } from './truckProblems';
 import { handleFleetImports } from './fleetImports';
+import { handleTruckLogs } from './truckLogs';
 import { exists, handleList, isActive, isList } from './lists';
 import { checkTyped, saveLinked, typedIn, type Typed } from './typedNames';
 import { DAY_ORDER, SELECT_ASSIGNMENT, marked, type AssignmentRow } from './assignmentQueries';
@@ -75,6 +76,9 @@ export async function handleApi(request: Request, env: Env, route: string, query
 
   const fleetImports = await handleFleetImports(request, env, route);
   if (fleetImports) return fleetImports;
+
+  const truckLogs = await handleTruckLogs(request, env, route, query);
+  if (truckLogs) return truckLogs;
 
   const [list, entryId, ...rest] = route.split('/');
   if (isList(list) && rest.length === 0) return handleList(request, env, list, entryId, query);
