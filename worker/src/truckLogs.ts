@@ -7,7 +7,7 @@ import { json, refuse } from './http';
 import { addDays, easternMoment, easternTime, isCalendarDate } from '../../shared/days';
 import { buildTripDay, routeAt, type FleetVisit, type TripAssignment, type TripJob, type TripPlace, type TruckCheckIn, type TruckDayInput } from '../../shared/trips';
 import { truckLog, truckLogLanes } from '../../shared/truckLog';
-import type { Assignment, AssignmentTripPart, DayTruck, DriverTruckLog, TruckLogDay } from '../../shared/types';
+import type { Assignment, AssignmentTripPart, DayTruck, TruckLogDay } from '../../shared/types';
 
 /**
  * A Truck's stored day: its stored Fleet visits and the day's Assignments that
@@ -48,65 +48,71 @@ async function readTruckDay(env: Env, truckId: string, date: string, at: string 
 
 type StoredTruck = { id: string; number: string };
 
-/**
- * Each Trip part the stored visits give the Assignments on a date, by
- * Assignment id: every Truck with visits that day is built whole, as of its
- * latest Import, as the Truck log route opens it. The Driver's day read
- * attaches them; an Assignment no stored Trip matched has none.
- */
-export async function storedTripParts(env: Env, date: string): Promise<Map<string, AssignmentTripPart>> {
-  return (await storedDay(env, date)).parts;
+/** A US Eastern day as UTC moments, from its midnight to the next: a visit is filed under the day it was entered on. */
+const easternDay = (date: string) => ({ from: easternMoment(date, 0, 0), to: easternMoment(addDays(date, 1), 0, 0) });
+
+/** A date's stored Trips, as the day reads attach them (see storedDay). */
+export interface StoredDay {
+  /** The Assignment with its Trip part, when a stored Trip matched it; otherwise as it was. */
+  withTripPart: <A extends Assignment>(assignment: A) => A;
+  /** Each Truck with visits that day, with its Unplanned work (each with the Driver at its time) and ties, for the lanes. */
+  trucks: DayTruck[];
+  /** Each Truck's whole stored day, by Truck id, as the Truck log route opens it. */
+  days: Map<string, TruckLogDay>;
 }
 
 /**
- * A date's stored Trips as the board reads them: each Assignment's Trip part
- * (as storedTripParts), and each Truck with visits that day, with its
- * Unplanned work (each with the Driver at its time) and ties. No Truck has
- * visits: `trucks` is empty.
+ * A date's stored Trips: every Truck with visits that day is built whole, as
+ * of its latest Import, as the Truck log route opens it. The board's and the
+ * Driver's day reads attach each Assignment's Trip part from these; an
+ * Assignment no stored Trip matched has none. No Truck has visits: `trucks`
+ * is empty and nothing gets a Trip part.
  */
-export async function storedDay(env: Env, date: string): Promise<{ parts: Map<string, AssignmentTripPart>; trucks: DayTruck[] }> {
+export async function storedDay(env: Env, date: string): Promise<StoredDay> {
+  const { from, to } = easternDay(date);
   const { results: trucks } = await env.DB.prepare(
     `SELECT DISTINCT t.id, t.number FROM fleet_visits v JOIN trucks t ON t.id = v.truck_id WHERE v.entered_at >= ? AND v.entered_at < ? ORDER BY t.number`,
   )
-    .bind(easternMoment(date, 0, 0), easternMoment(addDays(date, 1), 0, 0))
+    .bind(from, to)
     .all<StoredTruck>();
   const parts = new Map<string, AssignmentTripPart>();
-  const days: DayTruck[] = [];
+  const days = new Map<string, TruckLogDay>();
   for (const truck of trucks) {
     const day = await storedTruckDay(env, truck, date, null);
     for (const a of day.assignments) if (a.trips) parts.set(a.id, a.trips);
-    days.push({ truckId: truck.id, truckNumber: truck.number, ...day.lanes });
+    days.set(truck.id, day);
   }
-  return { parts, trucks: days };
+  return {
+    withTripPart: (assignment) => (parts.has(assignment.id) ? { ...assignment, trips: parts.get(assignment.id) } : assignment),
+    trucks: [...days.values()].map((day) => ({ truckId: day.truckId, truckNumber: day.truckNumber, ...day.lanes })),
+    days,
+  };
 }
 
 /**
- * A Driver's Truck log for the Driver day read: on today only, the Truck he
- * last checked in to today, else his usual Truck, built as the Truck log route
- * opens today (as of the latest Import). None on any other day, with no
- * Truck, or when that Truck has no stored visits today.
+ * The Truck whose log a Driver reads on his day read: on today only, the Truck
+ * he last checked in to today, else his usual Truck. None on any other day,
+ * with no Truck, or when that Truck has no stored visits today (so its day is
+ * among storedDay's).
  */
-export async function driverTruckLog(env: Env, driverId: string, date: string): Promise<DriverTruckLog | undefined> {
-  if (date !== clock(env).today) return undefined;
-  const truck = await env.DB.prepare(
-    `SELECT t.id, t.number, t.hcss_code AS hcssCode FROM drivers d
+export async function driverTruck(env: Env, driverId: string, date: string): Promise<{ id: string; hcssCode: string | null } | null> {
+  if (date !== clock(env).today) return null;
+  const { from, to } = easternDay(date);
+  return env.DB.prepare(
+    `SELECT t.id, t.hcss_code AS hcssCode FROM drivers d
        LEFT JOIN (${LATEST_INSPECTIONS}) i ON i.driverId = d.id
        JOIN trucks t ON t.id = COALESCE(i.truckId, d.default_truck_id)
       WHERE d.id = ?
         AND EXISTS (SELECT 1 FROM fleet_visits v WHERE v.truck_id = t.id AND v.entered_at >= ? AND v.entered_at < ?)`,
   )
-    .bind(date, driverId, easternMoment(date, 0, 0), easternMoment(addDays(date, 1), 0, 0))
-    .first<StoredTruck & { hcssCode: string | null }>();
-  if (!truck) return undefined;
-  return { ...(await storedTruckDay(env, truck, date, null)), hcssCode: truck.hcssCode };
+    .bind(date, driverId, from, to)
+    .first<{ id: string; hcssCode: string | null }>();
 }
 
 /** A Truck's stored day, built at the clock minute `at` (null: the default clock). `date` and `at` are already checked. */
 async function storedTruckDay(env: Env, truck: StoredTruck, date: string, at: string | null): Promise<TruckLogDay> {
   const DB = env.DB;
-  // A visit is filed under the US Eastern day it was entered on.
-  const from = easternMoment(date, 0, 0);
-  const to = easternMoment(addDays(date, 1), 0, 0);
+  const { from, to } = easternDay(date);
   // Assigned ones naming the Truck (none named: the Driver's usual one), and every one that day of a Driver
   // who checked in to it, whatever Truck they name; cancelled and discarded ones included.
   const READ = `a.date = ?1 AND a.assigned_at IS NOT NULL

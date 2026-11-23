@@ -4,7 +4,7 @@ import { json, readJson, refuse, text } from './http';
 import { handleInspections } from './inspections';
 import { handleTruckProblems } from './truckProblems';
 import { handleFleetImports } from './fleetImports';
-import { driverTruckLog, handleTruckLogs, storedDay, storedTripParts } from './truckLogs';
+import { driverTruck, handleTruckLogs, storedDay } from './truckLogs';
 import { exists, handleList, isActive, isList } from './lists';
 import { checkTyped, saveLinked, typedIn, type Typed } from './typedNames';
 import { DAY_ORDER, SELECT_ASSIGNMENT, marked, type AssignmentRow } from './assignmentQueries';
@@ -170,13 +170,12 @@ const LAST_IN_LANE = '(SELECT COALESCE(MAX(position) + 1, 0) FROM assignments WH
  */
 async function readDay(env: Env, date: string | null): Promise<Response> {
   if (!isCalendarDate(date)) return refuse({ date: PICK_DATE });
-  const [{ results }, { parts, trucks }] = await Promise.all([
+  const [{ results }, { withTripPart, trucks }] = await Promise.all([
     env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.date = ? AND a.discarded_at IS NULL ${DAY_ORDER}`).bind(date).all<AssignmentRow>(),
     storedDay(env, date),
   ]);
-  const withTrips = (a: Assignment): Assignment => (parts.has(a.id) ? { ...a, trips: parts.get(a.id) } : a);
   // No key with no stored visits, so such a day answers exactly as before.
-  return json({ assignments: results.map(marked).map(withTrips), ...(trucks.length > 0 && { trucks }) } satisfies Day);
+  return json({ assignments: results.map(marked).map(withTripPart), ...(trucks.length > 0 && { trucks }) } satisfies Day);
 }
 
 /**
@@ -203,13 +202,13 @@ const WAS_FIELDS = [
  * are kept only once it is Assigned, so the first is it as he was given it).
  * Days before today are read like the rest, so the phone still shows today
  * after midnight Eastern until it refreshes. Each one a stored Trip matched has
- * its Trip part, by the same whole-Truck days as the board (storedTripParts).
- * Today, his Truck's stored day comes too (driverTruckLog).
+ * its Trip part, by the same whole-Truck days as the board (storedDay).
+ * Today, his Truck's stored day comes too, one of those days (driverTruck).
  */
 async function readDriverDay(env: Env, driverId: string, date: string): Promise<Response> {
   if (!isCalendarDate(date)) return refuse({ date: PICK_DATE });
   if (!(await exists(env, 'drivers', driverId))) return json({ error: 'not_found' }, 404);
-  const [[{ results: rows }, { results: kept }], parts, truckLog] = await Promise.all([
+  const [[{ results: rows }, { results: kept }], { withTripPart, days }, truck] = await Promise.all([
     env.DB.batch<AssignmentRow & { id: string; before: string }>([
       env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.date = ? AND a.driver_id = ? AND a.assigned_at IS NOT NULL AND a.dismissed_at IS NULL ${DAY_ORDER}`).bind(date, driverId),
       env.DB.prepare(
@@ -217,17 +216,18 @@ async function readDriverDay(env: Env, driverId: string, date: string): Promise<
           WHERE a.date = ? AND a.driver_id = ? AND c.changed_at >= a.assigned_at ORDER BY c.changed_at DESC, c.rowid DESC`,
       ).bind(date, driverId),
     ]),
-    storedTripParts(env, date),
-    driverTruckLog(env, driverId, date),
+    storedDay(env, date),
+    driverTruck(env, driverId, date),
   ]);
   // Newest first, so the last one set for each Assignment is its first.
   const asAssigned = new Map(kept.map((row) => [row.id, JSON.parse(row.before) as Partial<Assignment>]));
   const assignments = rows.map(marked).map((assignment): DriverAssignment => {
     const before = asAssigned.get(assignment.id);
     const was = assignment.sinceSent === 'changed' && before ? wasWhenAssigned(assignment, before) : {};
-    return parts.has(assignment.id) ? { ...assignment, trips: parts.get(assignment.id), was } : { ...assignment, was };
+    return withTripPart({ ...assignment, was });
   });
-  return json((truckLog ? { date, assignments, truckLog } : { date, assignments }) satisfies DriverDay);
+  const day = truck && days.get(truck.id);
+  return json((day ? { date, assignments, truckLog: { ...day, hcssCode: truck.hcssCode } } : { date, assignments }) satisfies DriverDay);
 }
 
 /** The fields a Driver reads that are not as they were when Assigned, each with the name it had then. */
