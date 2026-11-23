@@ -1,10 +1,11 @@
 import { expect, test } from '@playwright/test';
-import { PHONE } from './clock';
+import { DESKTOP, PHONE, TODAY } from './clock';
 
 // Phase 2, end to end: on his phone a Driver checks in on Today, his usual
 // Truck pre-selected, answering one item Needs repair with a note, and sees
-// the one-line summary. The Worker's clock is fixed at 9:00 AM US Eastern.
-test('a Driver checks in with one Needs repair and sees the summary line', async ({ browser }) => {
+// the one-line summary; then Dave's Board shows the check-in on his lane.
+// The Worker's clock is fixed at 9:00 AM US Eastern.
+test('a Driver checks in with one Needs repair, sees the summary line, and Dave sees it on the Board', async ({ browser }) => {
   const phone = await (await browser.newContext({ viewport: PHONE })).newPage();
   await phone.goto('/truck-dispatch/driver');
   await phone.getByRole('button', { name: 'Sample Driver B' }).click();
@@ -27,4 +28,10 @@ test('a Driver checks in with one Needs repair and sees the summary line', async
   // The check-in is the Worker's: it is there after a reload.
   await phone.reload();
   await expect(phone.getByRole('region', { name: 'Checked in' })).toHaveText('Truck 24 · checked in 9:00 · Check in again');
+
+  // On Dave's Board, today, the Driver's lane shows the check-in and that it found something.
+  const board = await (await browser.newContext({ viewport: DESKTOP })).newPage();
+  await board.goto(`/truck-dispatch/?date=${TODAY}`);
+  const lane = board.getByRole('article', { name: 'Sample Driver B' });
+  await expect(lane.getByText(/^Truck 24 · checked in/)).toHaveText('Truck 24 · checked in 9:00 · needs repair');
 });

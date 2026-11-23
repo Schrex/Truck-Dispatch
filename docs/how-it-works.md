@@ -7,6 +7,7 @@ What the app does as built, page by page. Words in capitals are defined in [`GLO
 ### Lanes
 - Opens on the next **Working day** (US Eastern; on a Friday, Monday).
 - One lane per Driver (name and usual Truck; a removed Driver only on a day he has work), and an Unassigned lane last.
+- **Check-ins (today only):** when the day on screen is today, each Driver's lane shows his check-in in place of his usual Truck: "Truck 24 · checked in 6:42" (his latest Inspection; US Eastern, 24-hour clock), adding "· needs repair" when that Inspection had a Needs repair item, or "Not checked in" until he has. Two Drivers checked in to one Truck both show it. The Board reads the check-ins again when the page regains the focus; if they cannot be read, the lanes show the usual Truck. On any other day the lanes show the usual Truck as before.
 - Each lane shows that day's **Assignments** as blocks in order, reading "From → To" (or the note), marked First (the first that is not cancelled) and Then.
 - A block shows the Assignment's Foreman beside its job site ("TIUNY (Brody)"), and the Truck: one the Assignment names shows plainly; with none named ("His own", the Driver takes his usual Truck) his usual Truck shows in grey, or nothing if he has none.
 - A **Draft** block has a dashed outline and a small "Draft" tag beside First or Then; an Assigned block looks plain, tagged only once it is Changed or Added (or Cancelled).

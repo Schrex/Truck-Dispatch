@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Plus, User, UserX } from 'lucide-react';
-import type { Assignment, Driver, Place, Truck } from '../../shared/types';
+import type { Assignment, CheckIn, Driver, Place, Truck } from '../../shared/types';
+import { clockTime } from '../../shared/days';
 import { AssignmentBlock } from '@/components/AssignmentBlock';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -50,6 +51,19 @@ function lanesOf(assignments: Assignment[], drivers: Driver[] | null, trucks: Tr
   return [...lanes.values(), unassigned];
 }
 
+/**
+ * The Truck line under a lane's Driver: his usual Truck (in grey), or, while
+ * today's check-ins are given, the Truck he checked in to and when (adding
+ * "needs repair" when that Inspection found something), or "Not checked in".
+ */
+function truckLine(lane: Lane, checkIns: CheckIn[] | undefined): string | null {
+  const usual = lane.usualTruck && `Truck ${lane.usualTruck}`;
+  if (!checkIns || !lane.driverId) return usual;
+  const checkIn = checkIns.find((c) => c.driverId === lane.driverId);
+  if (!checkIn) return 'Not checked in';
+  return `Truck ${checkIn.truckNumber} · checked in ${clockTime(checkIn.doneAt)}${checkIn.needsRepair ? ' · needs repair' : ''}`;
+}
+
 /** Where an open Assignment sits in its lane, so its editor offers only the moves it can make. */
 export interface InLane {
   first: boolean;
@@ -66,7 +80,8 @@ function inLane(assignments: Assignment[], openId: string | null | undefined): I
 }
 
 /**
- * The board's lanes: each Driver's name and usual Truck, then his
+ * The board's lanes: each Driver's name and usual Truck (or, with checkIns,
+ * his check-in today), then his
  * Assignments as blocks in the order Dave set, marked First and Then. Tapping
  * a block calls onEdit; the block named by openId is shown open, with what
  * `editor` gives for it under the lane's blocks. With onAdd each lane but a removed
@@ -83,6 +98,7 @@ export function Lanes({
   drivers,
   trucks,
   places = null,
+  checkIns,
   onEdit,
   onAssign,
   openId,
@@ -96,6 +112,8 @@ export function Lanes({
   trucks: Truck[] | null;
   /** The Places, so each block names its Foreman beside the job site; null while they load. */
   places?: Place[] | null;
+  /** Each Driver's check-in on today, given only while today is on screen; without it each lane shows its usual Truck. */
+  checkIns?: CheckIn[];
   onEdit?: (assignment: Assignment) => void;
   /** Assigns a Draft that has a Driver; settles once the Worker has answered. */
   onAssign?: (assignment: Assignment) => Promise<void>;
@@ -112,7 +130,7 @@ export function Lanes({
   return (
     <div className="space-y-3">
       {lanesOf(assignments, drivers, trucks).map((lane) => {
-        const about = [lane.removed && 'Removed', lane.usualTruck && `Truck ${lane.usualTruck}`].filter(Boolean).join(' · ');
+        const about = [lane.removed && 'Removed', truckLine(lane, checkIns)].filter(Boolean).join(' · ');
         const name = lane.driverName ?? 'Unassigned';
         const openAt = lane.assignments.findIndex((assignment) => assignment.id === openId);
         // First is the first that is not cancelled, as the moves count them; a cancelled one is off the day.

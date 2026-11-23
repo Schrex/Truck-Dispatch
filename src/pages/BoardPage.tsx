@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Loader2, Settings } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
-import type { Assignment, BusinessDay, Driver, Foreman, Material, Place, Truck } from '../../shared/types';
+import type { Assignment, BusinessDay, CheckIn, Driver, Foreman, Material, Place, Truck } from '../../shared/types';
 import { isCalendarDate } from '../../shared/days';
 import { AssignmentEditor } from '@/components/AssignmentEditor';
 import { afterSave, Composer, EMPTY_DRAFT, type Draft } from '@/components/Composer';
@@ -14,7 +14,7 @@ import { WeekStrip } from '@/components/WeekStrip';
 import { ViewToggle } from '@/components/ViewToggle';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/sonner';
-import { assignAssignment, fetchBusinessDay, fetchDay, fetchList, Refused } from '@/lib/api';
+import { assignAssignment, fetchBusinessDay, fetchCheckIns, fetchDay, fetchList, Refused } from '@/lib/api';
 
 /**
  * The board: one day's Assignments, one lane per Driver. The day on
@@ -30,6 +30,7 @@ import { assignAssignment, fetchBusinessDay, fetchDay, fetchList, Refused } from
  * Each Assignment is Assigned on its own (ADR 0005): a Draft with a Driver
  * has Assign on its block, one tap; there is no Send for the day. Below the
  * header the week strip shows the state of every day of the week.
+ * On today each lane shows its Driver's check-in (or "Not checked in").
  */
 export function BoardPage() {
   const [search, setSearch] = useSearchParams();
@@ -54,7 +55,29 @@ export function BoardPage() {
   // Until the Worker says which day is today, nothing on the Board can be changed.
   const editable = Boolean(date && businessDay && date >= businessDay.today);
 
+  /** Each Driver's check-in on today, read only while today is on screen; null until it is read (or when it cannot be). */
+  const [checkIns, setCheckIns] = useState<CheckIn[] | null>(null);
+  const onToday = Boolean(date && businessDay && date === businessDay.today);
+
   const show = useCallback((day: string) => setSearch({ date: day }), [setSearch]);
+
+  // Today's check-ins, read again when the page regains the focus (as the week strip is), so they arrive without a reload.
+  // One that cannot be read leaves the lanes showing each Driver's usual Truck until the next focus.
+  useEffect(() => {
+    if (!onToday || !businessDay) return;
+    let stale = false;
+    const load = () =>
+      fetchCheckIns(businessDay.today).then(
+        (all) => !stale && setCheckIns(all),
+        () => {},
+      );
+    load();
+    window.addEventListener('focus', load);
+    return () => {
+      stale = true;
+      window.removeEventListener('focus', load);
+    };
+  }, [onToday, businessDay]);
 
   useEffect(() => {
     // Inactive entries too, so an Assignment that still uses one shows it in its picker.
@@ -195,6 +218,7 @@ export function BoardPage() {
             drivers={drivers}
             trucks={trucks}
             places={places}
+            checkIns={onToday ? (checkIns ?? undefined) : undefined}
             onEdit={editable ? (assignment) => setOpenId((current) => (current === assignment.id ? null : assignment.id)) : undefined}
             onAssign={editable ? assign : undefined}
             openId={editable ? openId : null}
