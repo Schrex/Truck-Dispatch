@@ -118,13 +118,13 @@ function MakeAnAssignmentQuestions({ work, materials, onReady }: WayProps) {
   );
 }
 
-/** "Two hauls? Split it at a Trip": one button per Trip after the first; tapping one splits the piece there. */
+/** "Split this Unplanned work at a Trip": one button per Trip after the first; tapping one splits the piece there. */
 function SplitRow({ splits, onSplit }: { splits: { at: string; label: string }[]; onSplit: (at: string) => void }) {
   const labelId = useId();
   return (
     <div role="group" aria-labelledby={labelId} className="space-y-2 border-t pt-3">
       <p id={labelId} className="text-sm font-medium">
-        Two hauls? Split it at a Trip
+        Split this Unplanned work at a Trip
       </p>
       <div className="flex flex-wrap gap-2">
         {splits.map((s) => (

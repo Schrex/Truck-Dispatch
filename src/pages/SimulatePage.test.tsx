@@ -72,7 +72,7 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
       'As planned',
       'The other way round',
       'Reroute at 11:20',
-      'Made up: a run to split',
+      'Made up: Unplanned work to split',
       'Made up: Sam on Truck 55 too',
       'Made up: two the same',
     ]);
@@ -454,7 +454,7 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
       choose('split');
       expect(unplannedLog()).toEqual([WHOLE]);
       tap('Answer', screen.getByRole('group', { name: 'Unplanned work' }));
-      expect(within(within(answer()).getByRole('group', { name: 'Two hauls? Split it at a Trip' })).getAllByRole('button').map((b) => b.textContent)).toEqual([
+      expect(within(within(answer()).getByRole('group', { name: 'Split this Unplanned work at a Trip' })).getAllByRole('button').map((b) => b.textContent)).toEqual([
         'Split at 09:45 · J611 Bishop Kearney → Villager',
         'Split at 10:10 · Villager → J25008 Los Flamboyanes',
       ]);
@@ -469,7 +469,7 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
       expect(laneUnplanned()).toBe('2 Unplanned work');
       // A piece of one Trip has nothing to split.
       tap('Answer', screen.getByRole('group', { name: 'Unplanned work 1' }));
-      expect(within(answer()).queryByRole('group', { name: 'Two hauls? Split it at a Trip' })).toBeNull();
+      expect(within(answer()).queryByRole('group', { name: 'Split this Unplanned work at a Trip' })).toBeNull();
     });
 
     it('answering each part as its own Assignment gives each its own Loads and Trucking hours', () => {

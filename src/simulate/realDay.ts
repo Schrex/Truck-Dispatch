@@ -177,7 +177,7 @@ export const REAL_DAY = {
     },
     {
       id: 'split',
-      name: 'Made up: a run to split',
+      name: 'Made up: Unplanned work to split',
       // Nothing explains the run J25008 → J611 → Villager → J25008: two hauls in one piece of Unplanned work.
       assignments: [assignment('a1', 'A1', WALWORTH, J25008, '1&2 stone')],
       day: SPLIT_DAY,
