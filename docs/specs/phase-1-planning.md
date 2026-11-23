@@ -115,7 +115,7 @@ These stories record what phase 1 had to do and why ("so that…"). They are kep
 
 77. As Dave, I want Settings as one page with sections for Drivers, Trucks, Places, Materials, Jobs and Foremen, so that I can see every list at once.
 78. As Dave, I want each entry shown as a chip with its key detail (a Driver's usual Truck, a Place's kind and usual Foreman, a Truck's HCSS link), so that I can check the lists without opening them.
-79. As Dave, I want to tap a chip to edit it in a panel, saving as I go, so that changes are quick.
+79. As Dave, I want to tap a chip to edit it in a panel that changes nothing until I tap Save, with Cancel to back out, so that adding, changing and removing all work the same way and I always know what was saved.
 80. As Dave, I want "+ Add" on each section, so that I can add entries here as well as from the composer.
 81. As Dave, I want to put Drivers, Places and Materials in my own order with ▲▼ (or drag), so that lanes and chips follow it.
 82. As Dave, I want a Place's kind offered as Job site, Plant and Shop or yard, so that the choice is simple; a yard already saved keeps showing as Shop or yard.
@@ -123,7 +123,7 @@ These stories record what phase 1 had to do and why ("so that…"). They are kep
 84. As Dave, I want Settings to say nothing about HCSS on a Truck, so that the panel holds only what I manage; its HCSS code and id stay in the data and come from HCSS when Trips are counted later.
 85. As Dave, I want a Place's panel to say "On the truck map" or "Not on the truck map yet", so that I know which Places will match Trips later.
 86. As Dave, I want "Remove" to make an entry inactive after asking, and to warn when a Driver still has Assignments on later days, so that old Assignments keep its name and I know what is still planned for him; nothing is ever deleted.
-87. As Dave, I want inactive entries listed apart and able to come back, so that a returning Driver or a reopened pit is one tap.
+87. As Dave, I want adding a removed entry's name again to bring that entry back, and to be told it was brought back, so that a returning Driver or a Truck back in service is added like any other and never refused as already there. Removed entries are not listed in Settings.
 
 ### Errors and safety
 

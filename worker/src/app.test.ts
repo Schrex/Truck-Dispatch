@@ -317,6 +317,43 @@ describe.each([
   });
 });
 
+describe('adding a removed entry again', () => {
+  const remove = (path: string) => send('PATCH', path, { active: false });
+
+  it('brings the removed Truck back, keeping what it had unless the add sends it', async () => {
+    const { truck } = (await (await post('/api/trucks', { number: '30', hcssCode: 'T30', hcssGuid: 'guid-30' })).json()) as { truck: { id: string } };
+    await remove(`/api/trucks/${truck.id}`);
+
+    const again = await post('/api/trucks', { number: '30', hcssCode: 'T30-NEW' });
+    expect(again.status).toBe(200);
+    expect(await again.json()).toEqual({ truck: { id: truck.id, number: '30', hcssCode: 'T30-NEW', hcssGuid: 'guid-30', active: true }, broughtBack: true });
+    const { trucks } = (await (await get('/api/trucks')).json()) as { trucks: { number: string }[] };
+    expect(trucks.filter((t) => t.number === '30')).toHaveLength(1);
+  });
+
+  it('finds it ignoring case, takes the name as written now, and puts it last in an ordered list', async () => {
+    await remove('/api/drivers/drv-a');
+    const again = await post('/api/drivers', { name: 'SAMPLE DRIVER A' });
+    expect(again.status).toBe(200);
+    expect(await again.json()).toMatchObject({ driver: { id: 'drv-a', name: 'SAMPLE DRIVER A', active: true }, broughtBack: true });
+    const { drivers } = (await (await get('/api/drivers')).json()) as { drivers: { id: string }[] };
+    expect(drivers.map((d) => d.id)).toEqual(['drv-b', 'drv-c', 'drv-a']);
+  });
+
+  it('still refuses the name of an entry in use, and a rename to a removed entry\'s name', async () => {
+    expect(await refusal(await post('/api/trucks', { number: '21' }))).toEqual({ number: 'There is already a Truck with this number.' });
+    await remove('/api/trucks/trk-21');
+    expect(await refusal(await send('PATCH', '/api/trucks/trk-24', { number: '21' }))).toEqual({ number: 'There is already a Truck with this number.' });
+  });
+
+  it('brings nothing back when another field of the add is refused', async () => {
+    await remove('/api/drivers/drv-a');
+    expect(await refusal(await post('/api/drivers', { name: 'Sample Driver A', defaultTruckId: 'trk-nothing' }))).toEqual({ defaultTruckId: 'Pick a Truck from the list.' });
+    const { drivers } = (await (await get('/api/drivers')).json()) as { drivers: { id: string }[] };
+    expect(drivers.map((d) => d.id)).not.toContain('drv-a');
+  });
+});
+
 describe('Trucks', () => {
   it('save an HCSS code and HCSS id, and clear them', async () => {
     const response = await post('/api/trucks', { number: '30', hcssCode: ' T30 ', hcssGuid: '7f1c' });
