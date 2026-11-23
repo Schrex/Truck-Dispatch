@@ -1,6 +1,6 @@
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import { ArrowDown, ArrowUp, Loader2, X } from 'lucide-react';
-import type { Assignment, AssignmentChange, ChangedAssignment, Driver, Foreman, Material, Place, Truck, TypedNames } from '../../shared/types';
+import { NOTE_LIMIT, type Assignment, type AssignmentChange, type ChangedAssignment, type Driver, type Foreman, type Material, type Place, type Truck, type TypedNames } from '../../shared/types';
 import { chipClass, OrTypeIt, TypedBox } from '@/components/TypedName';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -225,7 +225,7 @@ export function AssignmentEditor({
         <Textarea
           id={noteId}
           rows={2}
-          maxLength={1000}
+          maxLength={NOTE_LIMIT}
           value={note}
           onChange={(event) => setNote(event.target.value)}
           onBlur={() => {

@@ -24,7 +24,7 @@ Start with [`specs/mission.md`](specs/mission.md) for why the project exists, th
 
 | File | What |
 |---|---|
-| [`adr/`](adr/) | Architecture decisions: own app (0001), Hub's UI stack (0002), Send without a lock (0003, superseded), past days enforced by the Worker (0004), Assign each Assignment on its own (0005) |
+| [`adr/`](adr/) | Architecture decisions: own app (0001), Hub's UI stack (0002), Send without a lock (0003, superseded), past days enforced by the Worker (0004), Assign each Assignment on its own (0005), the Inspection is the official, append-only record (0006) |
 | [`design/dispatch-board-decisions.md`](design/dispatch-board-decisions.md) | Why the app works as it does (phase 1), what is decided for phases 2 to 4, and their target schema |
 | [`design/system-design.html`](design/system-design.html) | Interactive map of the pipeline from Dave's plan to a Truck log, with a real truck's day (open in a browser) |
 

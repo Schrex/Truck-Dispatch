@@ -12,12 +12,12 @@ export type Row = Record<string, unknown> & { id: string; active: boolean };
 /** Looks up an entry's display name in another list, or null if it is not loaded or not there. */
 export type NameOf = (list: ListName, id: unknown) => string | null;
 
-/** What the panel's fields hold now, by key: the saved value, or the one Dave just set. */
-export type FormValues = Record<string, string | null>;
+/** What the panel's fields hold now, by key: the saved value, or the one Dave just set (on or off for a switch). */
+export type FormValues = Record<string, string | boolean | null>;
 
 /**
  * An optional field of a list: free text, an entry picked from another list,
- * or one of a fixed set of values. With shownWhen, the panel asks for it only
+ * one of a fixed set of values, or on or off (a switch, off unless set). With shownWhen, the panel asks for it only
  * while the other fields allow it, e.g. a usual Foreman only on a job site.
  */
 export type ListField<L extends ListName> = (
@@ -32,6 +32,7 @@ export type ListField<L extends ListName> = (
       /** Saved values offered as another choice, e.g. a yard shown as Shop or yard (saved as shop only when changed). */
       shownAs?: Record<string, string>;
     }
+  | { key: Key<L>; label: string; kind: 'switch'; hint: string }
 ) & { shownWhen?: (form: FormValues) => boolean };
 
 /**
@@ -52,6 +53,8 @@ export interface SectionSpec<L extends ListName> {
   detail?: (entry: Lists[L], nameOf: NameOf) => string | null;
   /** A line in the panel saying what the entry is linked to, e.g. "On the truck map". */
   status?: (entry: Lists[L]) => string;
+  /** What a rename changes, said in the panel; by default every Assignment that uses the entry. */
+  renamed?: string;
   /** A warning before the entry is removed, e.g. a Driver's later days; null for none. */
   removeWarning?: (entry: Lists[L]) => Promise<string | null>;
 }
