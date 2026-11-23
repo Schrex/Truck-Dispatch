@@ -68,6 +68,19 @@ export interface Foreman {
 }
 
 /**
+ * One line of the Inspection checklist ("Lights"), kept in Settings. A Driver
+ * may leave an optional item unanswered.
+ */
+export interface InspectionItem {
+  id: string;
+  label: string;
+  optional: boolean;
+  /** Dave's own place for it in the list, 1 first; null for none (after the ordered ones, by label). Set only by a reorder. */
+  sortOrder: number | null;
+  active: boolean;
+}
+
+/**
  * The lists Settings edits and the Board picks from, by their API route
  * (GET, POST api/<list>; PATCH api/<list>/<id>). Nothing is ever deleted.
  */
@@ -78,6 +91,7 @@ export interface Lists {
   places: Place;
   materials: Material;
   foremen: Foreman;
+  'inspection-items': InspectionItem;
 }
 export type ListName = keyof Lists;
 
@@ -89,7 +103,7 @@ export type ListName = keyof Lists;
 export type EntryFields<L extends ListName> = Partial<Omit<Lists[L], 'id' | 'onTruckMap' | 'sortOrder'>>;
 
 /** The lists Dave puts in his own order. */
-export const ORDERED_LISTS = ['drivers', 'places', 'materials'] as const satisfies readonly ListName[];
+export const ORDERED_LISTS = ['drivers', 'places', 'materials', 'inspection-items'] as const satisfies readonly ListName[];
 export type OrderedList = (typeof ORDERED_LISTS)[number];
 
 /** Today and tomorrow in US Eastern time, and the next Working day after today, which the board opens on (GET api/today). */

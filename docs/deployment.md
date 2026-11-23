@@ -6,7 +6,7 @@
 | Worker | `truck-dispatch-preview`, one version per PR | `truck-dispatch-staging` |
 | Address | `https://pr-<n>-truck-dispatch-preview.schrex-dev.workers.dev/truck-dispatch/` | `https://truck-dispatch-staging.schrex-dev.workers.dev/truck-dispatch/` |
 | D1 | `truck-dispatch-preview`, shared by open PRs | `truck-dispatch-staging` |
-| Data | Synthetic drivers + orders added while reviewing | Synthetic drivers + orders added while testing (kept across deploys) |
+| Data | The Inspection checklist's starting items, synthetic drivers + orders added while reviewing | The Inspection checklist's starting items, synthetic drivers + orders added while testing (kept across deploys) |
 | Protection | Cloudflare Access: Schrex Dev members only | Cloudflare Access: Schrex Dev members, plus the CI service token |
 
 Both run typecheck, tests and build as parallel jobs, build once, and then deploy that build. Neither touches the Hub or production Supabase.
@@ -41,6 +41,15 @@ Already done; kept here to rebuild it or to set up production later. Make sure t
    - **403**: the token is valid, but no policy on this application lets it in.
 6. **Protect `main`** (Settings → Rules → Rulesets → "Protect main"): pull request with 1 approval, checks `typecheck`, `test`, `build` (and the browser end-to-end job once phase 2 adds it), no force push or deletion; Repository admin may bypass.
 
+## Seed files
+
+| File | What | Loaded by |
+|---|---|---|
+| `seed/inspection-items.sql` | **Reference data**: the Inspection checklist's 12 starting items, as on the paper Daily Truck Log & Inspection | `bun run setup`, the preview and staging pipelines, and **production must load it too** (after migrating, before the first Driver checks in) |
+| `seed/fixture.sql` | **Synthetic test data**: made-up Trucks, Drivers, Jobs, Places, Materials and Foremen | `bun run setup`, the preview and staging pipelines only. **Never production.** |
+
+Both only add missing rows (`INSERT OR IGNORE`, fixed ids), so running them on every deploy keeps whatever was changed in Settings: a renamed, reordered or removed checklist item stays as Dave left it.
+
 ## Reviewing a preview
 
 1. Open the PR. The bot comment has the preview link; it is also in the run summary under the **Checks** tab.
@@ -54,7 +63,7 @@ The comment updates on every push. Each PR keeps its own address, so two open PR
 
 - **URL:** shown on the deploy run (Actions → *Deploy staging* → the run → `staging` environment link), and in the repo's **Environments** list.
 - **Logs:** Actions → *Deploy staging*. The run summary records the deployed commit and each smoke-test check. Worker logs: Cloudflare dashboard → `truck-dispatch-staging` → Observability.
-- **Order:** migrate → seed → deploy → smoke test. A failed migration stops before the new version goes live. One deploy runs at a time, and later merges wait.
+- **Order:** migrate → seed (the Inspection checklist, then the synthetic fixture) → deploy → smoke test. A failed migration stops before the new version goes live. One deploy runs at a time, and later merges wait.
 - **Smoke test** (`scripts/smoke.mjs`): waits up to ~30 s for `/api/health` to report the new commit, then checks the page and API at `/` and `/truck-dispatch/`. Read-only: it never adds orders.
   - While Cloudflare spreads a version, some requests still reach the old one after health already reports the new one (the old Worker answers routes it doesn't know with 404 `not_found`). So every API answer carries an `X-Commit` header, and a check that gets an answer from another commit (or with no header) is retried for up to ~30 s. Any other failure fails the check at once.
   - A check that fails with *"still the old version after N tries"* means the new version never reached it: re-run the job, or look at the deployment in the Cloudflare dashboard.

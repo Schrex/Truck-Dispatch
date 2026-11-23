@@ -1,6 +1,6 @@
 # How it works today
 
-What the app does as built, page by page. Words in capitals are defined in [`GLOSSARY.md`](../GLOSSARY.md); the API behind each action is in [`api.md`](api.md). It is a standalone Cloudflare Worker backed by D1 with **synthetic** Drivers, Trucks, Jobs, Places, Materials and Foremen only. Hub integration (at `/truck-dispatch/`), sign-in and production are later phases ([roadmap](specs/roadmap.md)).
+What the app does as built, page by page. Words in capitals are defined in [`GLOSSARY.md`](../GLOSSARY.md); the API behind each action is in [`api.md`](api.md). It is a standalone Cloudflare Worker backed by D1 with **synthetic** Drivers, Trucks, Jobs, Places, Materials and Foremen only, plus the Inspection checklist's starting items (reference data). Hub integration (at `/truck-dispatch/`), sign-in and production are later phases ([roadmap](specs/roadmap.md)).
 
 ## Dispatch board (`/`)
 
@@ -59,8 +59,9 @@ What the app does as built, page by page. Words in capitals are defined in [`GLO
 
 ## Settings (`/settings`)
 
-- Every list on one page: Drivers, Trucks, Places, Materials, Jobs, Foremen.
+- Every list on one page: Drivers, Trucks, Places, Materials, Jobs, Foremen, and the Inspection checklist.
 - Each entry is a chip with its key detail: a Truck only its number (its HCSS code and id stay in the data for later and are not shown); a Place its kind, and a job site also its usual Foreman, as in "TIUNY · Job site · Brody", set in its panel.
 - Tapping one opens a panel that saves as you type; **+ Add** adds one.
 - **Remove** makes one inactive after asking (warning how many later days still hold a Driver's Assignments). Removed entries are listed apart and can be brought back; nothing is ever deleted.
-- **▲▼** by each Driver, Place and Material put them in Dave's own order, which the lanes and the composer's chips follow; a new or brought-back entry goes last (also one typed in the composer).
+- **▲▼** by each Driver, Place, Material and Inspection item put them in Dave's own order, which the lanes and the composer's chips (and later the Inspection) follow; a new or brought-back entry goes last (also one typed in the composer).
+- **Inspection checklist**: the items a Driver answers in an Inspection, starting with the paper Daily Truck Log & Inspection's 12 in its order (Dump box clean … Suspension). Each item's panel has its wording and an **Optional** switch (saved at once; the chip then says "Optional"), meaning a Driver may finish without answering it. New wording is used from the next Inspection on. The starting items are reference data loaded in every environment (`seed/inspection-items.sql`); loading it again never undoes Dave's changes. Drivers do not answer the checklist yet (later in phase 2).

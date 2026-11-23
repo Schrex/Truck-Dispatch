@@ -77,6 +77,15 @@ const SECTIONS: SectionSpec<ListName>[] = [
     detail: (job) => job.jobNumber,
   }),
   section({ list: 'foremen', title: 'Foremen', noun: 'Foreman', name: { key: 'name', label: 'Name' }, fields: [] }),
+  section({
+    list: 'inspection-items',
+    title: 'Inspection checklist',
+    noun: 'Inspection item',
+    name: { key: 'label', label: 'Item' },
+    fields: [{ key: 'optional', label: 'Optional', kind: 'switch', hint: 'A Driver may finish his Inspection without answering it.' }],
+    detail: (item) => (item.optional ? 'Optional' : null),
+    renamed: 'new wording is used from the next Inspection on.',
+  }),
 ];
 
 /** Whether Dave puts this list in his own order with ▲▼. */

@@ -49,6 +49,7 @@ Tap **+** on a Driver's lane (or on "Unassigned"), tap the chips you know (or ty
 | `shared/base.ts` | The `/truck-dispatch` prefix, used by both |
 | `shared/days.ts` | Day rules used by both, with no date library: Working days and the six Holidays, next and previous Working day, the word for a day (Today, Next Monday), short dates and arrow labels, and the Assign rules: whether an Assignment is Changed or Added since it was Assigned, a day's state (none, Draft with the count of Drafts, Assigned, Changed; cancelled Drafts are not counted) and its week strip word |
 | `migrations/` | D1 schema only. Create with `bunx wrangler d1 migrations create truck-dispatch <name>` |
+| `seed/inspection-items.sql` | Reference data every environment loads, production too: the Inspection checklist's 12 starting items from the paper form, fixed ids, `INSERT OR IGNORE` so Dave's changes survive. Loaded before the fixture. |
 | `seed/fixture.sql` | Synthetic Trucks, Drivers with usual Trucks, Jobs, Places, Materials and Foremen; `INSERT OR IGNORE`, safe to run repeatedly. No Assignments. |
 | `wrangler.jsonc` | Local app (top level), `env.preview`, `env.staging` |
 
@@ -58,6 +59,6 @@ Short-lived feature branch → pull request into `main` → CI checks + a protec
 
 ## Rules for database changes
 
-- Migrations change the schema only; test data goes in `seed/fixture.sql`.
+- Migrations change the schema only; test data goes in `seed/fixture.sql`, and reference data every environment needs (such as the Inspection checklist's starting items) in its own seed file, run by `bun run setup` and every pipeline.
 - In a pull request, only add (tables, columns, indexes). Rename or drop in a later release, after nothing uses it. The preview database is shared by open PRs, and on staging the old version runs on the migrated database until the new one is live.
 - If CI says two migrations share a number, renumber yours after merging `main`.

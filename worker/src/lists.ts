@@ -16,7 +16,7 @@ import { ORDERED_LISTS, PLACE_KINDS, type ListName } from '../../shared/types';
  * unique in the list, ignoring case) and its other fields. Whether an entry is
  * active matters only to the page's pickers; any entry that exists may be used.
  *
- * Drivers, Places and Materials are ordered: each entry answers its sortOrder
+ * Drivers, Places, Materials and the Inspection checklist are ordered: each entry answers its sortOrder
  * (1 is first, null for none) and a list answers ordered entries first, then
  * the rest by name. A new entry, or one brought back, has no order, so it
  * comes after the ordered ones until Dave orders the list again.
@@ -41,7 +41,9 @@ type Field =
       onlyWhen?: { column: string; value: string; message: string };
     }
   /** Optional, one of a fixed set of values; empty is saved as null. */
-  | { key: string; column: string; kind: 'choice'; choices: readonly string[]; message: string };
+  | { key: string; column: string; kind: 'choice'; choices: readonly string[]; message: string }
+  /** On or off: true or false, saved as 1 or 0 (off when an entry is added without it). */
+  | { key: string; column: string; kind: 'flag'; message: string };
 
 interface List {
   table: string;
@@ -110,6 +112,12 @@ export const LISTS: Record<ListName, List> = {
     one: 'foreman',
     name: { key: 'name', column: 'name', missing: 'Write the Foreman\'s name.', taken: 'There is already a Foreman with this name.' },
     fields: [],
+  },
+  'inspection-items': {
+    table: 'inspection_items',
+    one: 'inspectionItem',
+    name: { key: 'label', column: 'label', missing: 'Write what the Driver checks.', taken: 'There is already an item with this wording.' },
+    fields: [{ key: 'optional', column: 'optional', kind: 'flag', message: 'Choose optional or not.' }],
   },
 };
 
@@ -213,10 +221,11 @@ function select(list: ListName): string {
   return `SELECT ${columns.join(', ')} FROM ${table}`;
 }
 
-/** SQLite has no booleans: active and each fact come back as 1 or 0. */
+/** SQLite has no booleans: active, each flag and each fact come back as 1 or 0. */
 function entry(list: ListName, row: Record<string, unknown>) {
-  const facts = (LISTS[list].facts ?? []).map((f) => [f.key, row[f.key] === 1]);
-  return { ...row, ...Object.fromEntries(facts), active: row.active === 1 };
+  const { fields, facts = [] } = LISTS[list];
+  const booleans = [...fields.filter((f) => f.kind === 'flag'), ...facts].map((f) => [f.key, row[f.key] === 1]);
+  return { ...row, ...Object.fromEntries(booleans), active: row.active === 1 };
 }
 
 /** One column of a saved entry, read for a rule that depends on it. */
@@ -253,6 +262,11 @@ async function save(request: Request, env: Env, list: ListName, id: string | nul
   for (const field of spec.fields) {
     if (!(field.key in body)) continue;
     const raw = body[field.key];
+    if (field.kind === 'flag') {
+      if (typeof raw !== 'boolean') errors[field.key] = field.message;
+      else values[field.column] = raw ? 1 : 0;
+      continue;
+    }
     if (raw != null && typeof raw !== 'string') {
       errors[field.key] = field.kind === 'text' ? 'Write it as text.' : field.message;
       continue;

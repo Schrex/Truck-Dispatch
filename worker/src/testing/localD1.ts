@@ -5,7 +5,7 @@ import type { Env } from '../app';
 
 /**
  * A real local D1 for the tests, migrated from migrations/ like the deployed
- * ones and reseeded from seed/fixture.sql before each test. Wrangler's test
+ * ones and reseeded from seed/ (the checklist, then the fixture) before each test. Wrangler's test
  * harness runs a tiny Worker (d1-only.ts) only to own the database; the tests
  * call handle() in Node with that database in its environment.
  */
@@ -24,7 +24,8 @@ export function localD1() {
       },
     ],
   });
-  const seed = readFileSync('seed/fixture.sql', 'utf8');
+  // The reference data every environment loads, then the synthetic test data.
+  const seeds = ['seed/inspection-items.sql', 'seed/fixture.sql'].map((file) => readFileSync(file, 'utf8'));
   let db: D1Database | undefined;
 
   beforeAll(async () => {
@@ -36,13 +37,13 @@ export function localD1() {
   beforeEach(async () => {
     const DB = database();
     // Rows that point at others go first: an Assignment's earlier fields at it, Assignments and orders at the lists, Drivers at Trucks, Places at Jobs.
-    await DB.batch(['assignment_changes', 'day_sends', 'assignments', 'orders', 'drivers', 'trucks', 'places', 'jobs', 'materials', 'foremen'].map((table) => DB.prepare(`DELETE FROM ${table}`)));
+    await DB.batch(['assignment_changes', 'day_sends', 'assignments', 'orders', 'drivers', 'trucks', 'places', 'jobs', 'materials', 'foremen', 'inspection_items'].map((table) => DB.prepare(`DELETE FROM ${table}`)));
     await reseed();
   });
 
-  /** Runs seed/fixture.sql on the database as it is, as every deploy does. */
+  /** Runs seed/inspection-items.sql and seed/fixture.sql on the database as it is, as every deploy does. */
   const reseed = async () => {
-    await database().exec(seed.replace(/--.*$/gm, '').replace(/\s*\n\s*/g, ' '));
+    for (const seed of seeds) await database().exec(seed.replace(/--.*$/gm, '').replace(/\s*\n\s*/g, ' '));
   };
 
   const database = (): D1Database => {

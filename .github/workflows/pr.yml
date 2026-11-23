@@ -88,12 +88,14 @@ jobs:
       - if: steps.secrets.outputs.ready == 'true'
         run: node scripts/check-config.mjs "$CONFIG"
 
-      # Migrations and the synthetic seed go to the preview database only.
-      # The seed only adds missing rows.
+      # Migrations, the Inspection checklist's starting items (reference data)
+      # and the synthetic seed go to the preview database only. Each seed only
+      # adds missing rows.
       - name: Migrate and seed the preview database
         if: steps.secrets.outputs.ready == 'true'
         run: |
           bunx wrangler d1 migrations apply truck-dispatch-preview --remote --config "$CONFIG"
+          bunx wrangler d1 execute truck-dispatch-preview --remote --config "$CONFIG" --file seed/inspection-items.sql
           bunx wrangler d1 execute truck-dispatch-preview --remote --config "$CONFIG" --file seed/fixture.sql
 
       - name: Upload the preview version
