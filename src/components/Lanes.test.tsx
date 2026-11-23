@@ -341,3 +341,44 @@ describe('Changed and Added marks', () => {
     expect(screen.getByRole('listitem').textContent).toBe('Then · Sample Plant · Haul stone');
   });
 });
+
+describe('The Trip part on a block', () => {
+  const haul = { ...a, fromPlaceName: 'Sample Site North', toPlaceName: 'Sample Plant', materialName: 'Fill' };
+  const part = (fields: Partial<NonNullable<Assignment['trips']>>): Assignment['trips'] => ({
+    loads: 0,
+    tons: null,
+    status: 'none',
+    since: null,
+    lastLoadAt: null,
+    truckingHours: null,
+    ...fields,
+  });
+  /** The block's HTML as rendered: compared whole, so "exactly as today" means byte for byte. */
+  const html = (fields: Partial<Assignment>) => {
+    render(
+      <ul>
+        <AssignmentBlock assignment={assignment({ ...haul, ...fields })} first />
+      </ul>,
+    );
+    const shown = { text: screen.getByRole('listitem').textContent, html: screen.getByRole('list').innerHTML };
+    cleanup();
+    return shown;
+  };
+
+  it('shows its Loads, Now and since when the Truck is on it', () => {
+    expect(html({ trips: part({ loads: 2, status: 'now', since: '2026-11-16T13:24:26Z' }) }).text).toBe(
+      'First · Sample Site North → Sample Plant · Fill · 2 Loads · Now · since 08:24',
+    );
+  });
+
+  it('says Done once the Truck has moved on, and 1 Load for one', () => {
+    expect(html({ trips: part({ loads: 1, status: 'done', since: '2026-11-16T16:30:53Z' }) }).text).toBe(
+      'First · Sample Site North → Sample Plant · Fill · 1 Load · Done · since 11:30',
+    );
+  });
+
+  it('looks exactly as it does without a Trip part while it has no Trips yet', () => {
+    expect(html({ trips: part({}) }).html).toBe(html({}).html);
+    expect(html({}).text).toBe('First · Sample Site North → Sample Plant · Fill');
+  });
+});

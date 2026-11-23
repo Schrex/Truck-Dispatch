@@ -195,6 +195,31 @@ export interface Assignment {
   handedFromId: string | null;
   /** Whether it is Changed or Added since it was Assigned; null on a Draft or when neither. */
   sinceSent: SinceSent;
+  /**
+   * What the Truck's Trips say about it (phase 3), from the Trip builder
+   * (shared/trips.ts). Optional: the Worker does not send it yet, and the
+   * board block and Driver card look as they always have without it.
+   */
+  trips?: AssignmentTripPart;
+}
+
+/** Whether the Truck is working on an Assignment now, has finished it, or has made no Trip for it. */
+export type TripStatus = 'now' | 'done' | 'none';
+
+/** An Assignment's Trips as the screens show them, at one moment of the day. */
+export interface AssignmentTripPart {
+  /** Loads hauled on it so far. */
+  loads: number;
+  /** The tons on its Loads' Tickets (phase 4); null until Tickets exist, shown blank "from Tickets". */
+  tons: number | null;
+  /** Now while the Truck's latest Trip is its and the Truck is not back at the shop; Done once it moved on; none before its first Trip. */
+  status: TripStatus;
+  /** When work on it began: its first Trip's leave time (ISO 8601), "since 08:24"; null before. */
+  since: string | null;
+  /** Arrive time of its latest Load (ISO 8601), "last 11:25"; null before its first Load. */
+  lastLoadAt: string | null;
+  /** From leaving for its first Trip to arriving at the end of its last, loaded or empty, in hours; null before its first Trip. */
+  truckingHours: number | null;
 }
 
 /**

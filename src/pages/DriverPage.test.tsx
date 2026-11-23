@@ -708,3 +708,41 @@ describe('checking in on Today', () => {
     });
   });
 });
+
+describe('the Trip part on a Driver card', () => {
+  beforeEach(() => {
+    localStorage.setItem('truck-dispatch:view', 'driver');
+    localStorage.setItem('truck-dispatch:driver', 'drv-a');
+  });
+  const part = (fields: Partial<NonNullable<DriverAssignment['trips']>>): DriverAssignment['trips'] => ({
+    loads: 0, tons: null, status: 'none', since: null, lastLoadAt: null, truckingHours: null, ...fields,
+  });
+  const haul = { materialName: 'Fill', fromPlaceName: 'Sample Site North', toPlaceName: 'Sample Plant' };
+  /** Today's one card as his phone shows it: its text, and its HTML compared whole so "exactly as today" means byte for byte. */
+  async function shown(fields: Partial<DriverAssignment>) {
+    sentDays['drv-a 2026-11-19'] = [card({ id: 'one', ...haul, ...fields })];
+    open('/');
+    const [only] = cardsIn(await day('Today, Thu, Nov 19'));
+    const seen = { html: only.outerHTML, text: only.textContent };
+    cleanup();
+    return seen;
+  }
+
+  it('shows its Loads and the time of the last one, and nothing of Now once he has moved on', async () => {
+    const { text } = await shown({ trips: part({ loads: 4, status: 'done', since: '2026-11-16T13:24:26Z', lastLoadAt: '2026-11-16T16:25:10Z' }) });
+    expect(text).toContain('4 Loads · last 11:25');
+    expect(text).not.toMatch(/Now|Done/);
+  });
+
+  it('marks the one he is on now, and says 1 Load for one', async () => {
+    const { text } = await shown({ trips: part({ loads: 1, status: 'now', since: '2026-11-16T13:24:26Z', lastLoadAt: '2026-11-16T13:40:00Z' }) });
+    expect(text).toContain('Now');
+    expect(text).toContain('1 Load · last 08:40');
+  });
+
+  it('looks exactly as it does without a Trip part while it has no Trips yet', async () => {
+    const without = await shown({});
+    expect((await shown({ trips: part({}) })).html).toBe(without.html);
+    expect(without.text).not.toMatch(/load|Now/);
+  });
+});

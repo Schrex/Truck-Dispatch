@@ -6,7 +6,7 @@ How Dave plans each driver's day and how the work they actually do becomes a tru
 
 **Assignment**:
 One piece of work given to one Driver for one day, e.g. haul 2" minus from Villager to TIUNY. It covers any number of Loads. A Driver's Assignments for a day are done in an order Dave sets. Dave can cancel one; a cancelled Assignment is kept and the Driver sees it was cancelled. Its day never changes once it exists. Once it is Assigned, giving it to another Driver cancels it and adds a new one for that Driver. Whether one has started or finished comes from the Truck, never from Dave or the Driver.
-_Avoid_: task, work order, dispatch, dispatch order, job
+_Avoid_: task, order (the paper Truck log's word), work order, dispatch, dispatch order, job
 
 **Unassigned**:
 An Assignment with no Driver yet. It stays a Draft: it cannot be Assigned until Dave gives it a Driver, which he does when one is free.
@@ -49,11 +49,17 @@ _Avoid_: truck check, pre-trip, DVIR (in the app)
 One line of the Inspection checklist ("Lights", "Air leaks / brake pressure"), answered OK, Needs repair or N/A. The checklist is kept in Settings; an Inspection keeps each item's wording as it was that day. An Inspection with any item answered Needs repair is itself said to need repair.
 
 **Ticket**:
-The paper a plant or supplier gives the Driver for one Load. The Driver photographs it; nobody types its numbers.
+The paper a plant or supplier gives the Driver for one Load. The Driver photographs it; nobody types its numbers. The tons an Assignment hauled are the tons on its Loads' Tickets.
 
 **Truck log**:
-The finished record of one Truck for one day: who drove it, its Inspection, its Trips and Loads with their Tickets, its miles and hours, and the sign-offs. Built from what the Truck, the Driver and Dave recorded; nobody types it.
+The finished record of one Truck for one day: who drove it, its Inspection, its Trips and Loads with their Tickets, its miles and hours, and the sign-offs. Built from what the Truck, the Driver and Dave recorded; nobody types it. It replaces the paper Daily Truck Log, whose Orders are that day's Assignments.
 _Avoid_: daily log, timesheet
+
+**Total hours**:
+A Truck's working time for one day, from its first start to its last stop. Worked out from the Truck, never typed.
+
+**Trucking hours**:
+The time a Truck spent on one Assignment, from leaving for its first Trip to the end of its last. Worked out from the Truck, never typed.
 
 **Truck problem**:
 Something wrong with a Truck, reported by a Driver either as a Needs repair item in an Inspection or at any time that day, always with a note saying what is wrong. It stays open until Dave marks it fixed. A Truck with an open Truck problem can still be driven: the app reports, it never grounds.
@@ -66,7 +72,7 @@ Anywhere a Truck loads, dumps or parks: a plant, a job site, the shop, a yard.
 _Avoid_: site, location, geofence
 
 **Job**:
-A construction project with a job number. A Job can have more than one Place; a Place belongs to at most one Job.
+A construction project with a job number. A Job can have more than one Place; a Place belongs to at most one Job. An Assignment's Job is the Job of its drop-off, or of its pick-up when the drop-off belongs to none.
 _Avoid_: site, project
 
 ## Work
