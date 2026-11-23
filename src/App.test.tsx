@@ -18,6 +18,8 @@ import { dayState, draftsOn, holidayName, sinceSent, weekDates, type DayTimes } 
  * Assignments that stay once added.
  */
 let assignments: Record<string, unknown>[] = [];
+/** Each Truck's Unplanned work and ties the day read sends with the Assignments (GET api/assignments?date= `trucks`); none by default. */
+let dayTrucks: Record<string, unknown>[] | null = null;
 const THURSDAY = { today: '2026-11-19', tomorrow: '2026-11-20', nextWorkingDay: '2026-11-20' };
 let businessDay = THURSDAY;
 let failLoads = false;
@@ -287,7 +289,7 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     .filter((a) => a.date === date)
     .sort((a, b) => Number(a.position ?? 0) - Number(b.position ?? 0))
     .map(marked);
-  return answer({ assignments: day });
+  return answer(dayTrucks ? { assignments: day, trucks: dayTrucks } : { assignments: day });
 });
 
 const open = (address: string) => {
@@ -305,6 +307,7 @@ const blocks = (driver: string) =>
 
 beforeEach(() => {
   assignments = [];
+  dayTrucks = null;
   businessDay = THURSDAY;
   sent.length = 0;
   failLoads = false;
@@ -588,6 +591,69 @@ describe('the lanes', () => {
     expect(blocks('Sample Driver B')).toEqual(['First · Sample Plant → Sample Site North · Truck 24 (his own)']);
   });
 
+  describe('Unplanned work from stored Trips', () => {
+    const route = { fromPlaceId: 'plc-plant', fromPlaceName: 'Sample Plant', toPlaceId: 'plc-north', toPlaceName: 'Sample Site North' };
+    /** The Unplanned work of Mon 16 Nov: J25008 ⇄ Bishop Kearney, out 14:15, back at J25008 14:43 (on Fri 20 Nov here). */
+    const bishopKearney = (driver: { id: string; name: string } | null) => ({
+      id: '2026-11-20T19:15:00.000Z',
+      places: ['J25008 Los Flamboyanes', 'J611 Bishop Kearney'],
+      leftAt: '2026-11-20T19:15:00.000Z',
+      arrivedAt: '2026-11-20T19:43:00.000Z',
+      driver,
+    });
+    const truck55 = (fields: Record<string, unknown>) => ({ truckId: 'trk-55', truckNumber: '55', unplanned: [], whichAssignment: [], ...fields });
+    /** What a lane shows after its blocks, as it reads. */
+    const afterBlocks = (driver: string) => within(lane(driver)).queryAllByRole('group').map((group) => group.textContent);
+
+    it("shows it in the lane of the Driver at its time, after his Assignments", async () => {
+      assignments = [
+        at({ id: 'a1', ...a, ...route, assignedAt: ASSIGNED_AT, position: 0 }),
+        at({ id: 'a2', ...a, note: 'Back to the plant', assignedAt: ASSIGNED_AT, position: 1 }),
+      ];
+      dayTrucks = [truck55({ unplanned: [bishopKearney({ id: 'drv-a', name: 'Sample Driver A' })] })];
+      open('/?date=2026-11-20');
+      expect(await screen.findByText('Back to the plant')).toBeTruthy();
+      const work = within(lane('Sample Driver A')).getByRole('group', { name: '1 Unplanned work' });
+      expect(work.textContent).toBe('1 Unplanned work' + 'J25008 Los Flamboyanes ⇄ J611 Bishop Kearney · 14:15–14:43');
+      // After A2: the last of the lane's blocks comes before it.
+      expect(blocks('Sample Driver A')).toHaveLength(2);
+      const lastBlock = within(lane('Sample Driver A')).getAllByRole('listitem').at(-1)!;
+      expect(lastBlock.compareDocumentPosition(work) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(afterBlocks('Sample Driver B')).toEqual([]);
+      expect(screen.queryByRole('article', { name: /^Driver not known/ })).toBeNull();
+    });
+
+    it('shows it in its own row under the lanes, "Driver not known · Truck 55", when nobody checked in, and leaves Unassigned as it was', async () => {
+      assignments = [at({ id: 'a1', ...a, ...route, assignedAt: ASSIGNED_AT, position: 0 }), at({ id: 'u1', note: 'Who takes this?', position: 0 })];
+      dayTrucks = [truck55({ unplanned: [bishopKearney(null)] })];
+      open('/?date=2026-11-20');
+      expect(await screen.findByText('Who takes this?')).toBeTruthy();
+      expect(screen.getAllByRole('article').map((l) => within(l).getByRole('heading').textContent)).toEqual([
+        'Sample Driver A',
+        'Sample Driver B',
+        'Unassigned',
+        'Driver not known · Truck 55',
+      ]);
+      expect(within(lane('Driver not known · Truck 55')).getByRole('group', { name: '1 Unplanned work' }).textContent).toBe(
+        '1 Unplanned work' + 'J25008 Los Flamboyanes ⇄ J611 Bishop Kearney · 14:15–14:43',
+      );
+      expect(blocks('Unassigned')).toEqual(['First · Draft · Who takes this?']);
+      expect(afterBlocks('Unassigned')).toEqual([]);
+      expect(afterBlocks('Sample Driver A')).toEqual([]);
+    });
+
+    it('asks "Which Assignment?" in the lane of a Trip two Assignments fit, not Unplanned work', async () => {
+      assignments = [
+        at({ id: 'a1', ...a, ...route, assignedAt: ASSIGNED_AT, position: 0 }),
+        at({ id: 'a3', ...a, ...route, assignedAt: ASSIGNED_AT, position: 1 }),
+      ];
+      dayTrucks = [truck55({ whichAssignment: [{ id: '2026-11-20T13:24:00.000Z', from: 'Sample Plant', to: 'Sample Site North', assignmentIds: ['a1', 'a3'] }] })];
+      open('/?date=2026-11-20');
+      await waitFor(() => expect(afterBlocks('Sample Driver A')).toEqual(['Which Assignment?' + '08:24 Sample Plant → Sample Site North']));
+      expect(within(lane('Sample Driver A')).queryByText(/Unplanned work/)).toBeNull();
+      expect(screen.queryByRole('article', { name: /^Driver not known/ })).toBeNull();
+    });
+  });
 });
 
 describe('the composer', () => {
