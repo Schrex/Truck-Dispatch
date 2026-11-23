@@ -109,7 +109,8 @@ export function simulateAt({ scenario, minutes, answers = [], splits = [] }: Sim
   const tripDay = buildTripDay({
     places: REAL_DAY.places,
     visits: day.visits,
-    assignments: scenario.assignments,
+    // Whose each is (none named: Randy's), so the check-ins pick the Assignments a Trip matches.
+    assignments: scenario.assignments.map((a) => ({ ...a, driverId: a.driverId ?? REAL_DAY.driver.id, truckId: a.truckId ?? null })),
     answers: answered.input,
     now,
     // The reading before the day exists all day; the one after it only once it was taken (22:12 that evening).
@@ -127,6 +128,8 @@ export function simulateAt({ scenario, minutes, answers = [], splits = [] }: Sim
       drivers,
       assignments: all.map((a) => ({ driverId: a.driverId ?? REAL_DAY.driver.id, truckId: a.truckId ?? null })),
       drivenBy: answered.drivenBy,
+      // Randy checked in to Truck 55 at the start of the day, unless the scenario says who did.
+      checkIns: scenario.checkIns ?? [{ driverId: REAL_DAY.driver.id, at: easternIso(REAL_DAY.date, '00:00:00') }],
     },
   });
   const labels = Object.fromEntries(all.map((a) => [a.id, a.label]));

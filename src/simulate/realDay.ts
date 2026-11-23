@@ -8,7 +8,7 @@
  * so the scenarios are as Dave made them for the simulation.
  */
 import type { Driver, Truck } from '../../shared/types';
-import type { FleetVisit, IgnitionEvent, TripAssignment, TripJob, TripPlace } from '../../shared/trips';
+import type { FleetVisit, IgnitionEvent, TripAssignment, TripJob, TripPlace, TruckCheckIn } from '../../shared/trips';
 
 /** An Assignment as the simulation plans it: what the Trip builder matches, and the Material the board shows. */
 export interface PlannedAssignment extends TripAssignment {
@@ -35,6 +35,8 @@ export interface Scenario {
   drivers?: Driver[];
   /** A made-up day in place of the real one (e.g. a run to split); none means the real 16 Nov day. */
   day?: ScenarioDay;
+  /** The check-ins to Truck 55 that day; none means Randy checked in at the start of the day. */
+  checkIns?: TruckCheckIn[];
 }
 
 /** US Eastern's offset on a date, "-05:00" or "-04:00". */
@@ -185,9 +187,10 @@ export const REAL_DAY = {
     {
       id: 'two-drivers',
       name: 'Made up: Sam on Truck 55 too',
-      // Randy's A1 (his own Truck) and Sam's A2 both name Truck 55: the Truck log asks "Who was driving?".
+      // Randy's A1 (his own Truck) and Sam's A2 both name Truck 55, and nobody checked in: the Truck log asks "Who was driving?".
       assignments: [assignment('a1', 'A1', J25008, VILLAGER, 'Fill'), assignment('a2', 'A2', WALWORTH, J25008, '1&2 stone', {}, { driverId: SAM.id, truckId: 'trk-55' })],
       drivers: [RANDY, SAM],
+      checkIns: [],
     },
     {
       id: 'two-the-same',
