@@ -2,5 +2,17 @@
   "attribution": {
     "commit": "",
     "pr": ""
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ \"$CLAUDE_CODE_REMOTE\" = \"true\" ]; then git -C \"$CLAUDE_PROJECT_DIR\" config user.name 'sumanth-schrex' && git -C \"$CLAUDE_PROJECT_DIR\" config user.email '342557711+sumanth-schrex@users.noreply.github.com'; fi; exit 0"
+          }
+        ]
+      }
+    ]
   }
 }
