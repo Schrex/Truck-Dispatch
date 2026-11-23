@@ -9,7 +9,7 @@
 | Data | The Inspection checklist's starting items, synthetic drivers + orders added while reviewing | The Inspection checklist's starting items, synthetic drivers + orders added while testing (kept across deploys) |
 | Protection | Cloudflare Access: Schrex Dev members only | Cloudflare Access: Schrex Dev members, plus the CI service token |
 
-Both run typecheck, tests and build as parallel jobs, build once, and then deploy that build. Neither touches the Hub or production Supabase.
+Both run typecheck, tests and build as parallel jobs, build once, and then deploy that build. A pull request also runs the browser end-to-end journeys (`e2e` job, see below). Neither touches the Hub or production Supabase.
 
 ## Accounts and access
 
@@ -39,14 +39,22 @@ Already done; kept here to rebuild it or to set up production later. Make sure t
    - Smoke test says **302 / redirected to sign-in**: the secrets are missing or empty.
    - **401**: Access does not know the token (wrong ID or secret).
    - **403**: the token is valid, but no policy on this application lets it in.
-6. **Protect `main`** (Settings → Rules → Rulesets → "Protect main"): pull request with 1 approval, checks `typecheck`, `test`, `build` (and the browser end-to-end job once phase 2 adds it), no force push or deletion; Repository admin may bypass.
+6. **Protect `main`** (Settings → Rules → Rulesets → "Protect main"): pull request with 1 approval, checks `typecheck`, `test`, `e2e`, `build`, no force push or deletion; Repository admin may bypass.
+
+## Browser end-to-end job
+
+The `e2e` job in `pr.yml` runs `bun run e2e` on every pull request: it builds the app, starts the built Worker with its own fresh local D1 (`.wrangler/e2e`, migrated and seeded) and the clock fixed with `NOW`, and drives a few whole journeys in headless Chromium. Any failing journey fails the job. It needs no secrets and touches no Cloudflare database.
+
+- **Chromium** is installed by `bunx playwright install --with-deps chromium`; the download is cached in `~/.cache/ms-playwright` (keyed on `bun.lock`, so a Playwright upgrade downloads afresh).
+- **No traces, screenshots or videos** are recorded. To look into a failure, run `bun run e2e` locally (add `--trace on` after `bunx playwright test` for a one-off trace, opened with `bunx playwright show-trace`).
+- **Required check:** a repo admin adds `e2e` to the "Protect main" ruleset (step 6 above). Code cannot do this; until then a failing journey does not block a merge.
 
 ## Seed files
 
 | File | What | Loaded by |
 |---|---|---|
-| `seed/inspection-items.sql` | **Reference data**: the Inspection checklist's 12 starting items, as on the paper Daily Truck Log & Inspection | `bun run setup`, the preview and staging pipelines, and **production must load it too** (after migrating, before the first Driver checks in) |
-| `seed/fixture.sql` | **Synthetic test data**: made-up Trucks, Drivers, Jobs, Places, Materials and Foremen | `bun run setup`, the preview and staging pipelines only. **Never production.** |
+| `seed/inspection-items.sql` | **Reference data**: the Inspection checklist's 12 starting items, as on the paper Daily Truck Log & Inspection | `bun run setup`, the e2e suite, the preview and staging pipelines, and **production must load it too** (after migrating, before the first Driver checks in) |
+| `seed/fixture.sql` | **Synthetic test data**: made-up Trucks, Drivers, Jobs, Places, Materials and Foremen | `bun run setup`, the e2e suite, the preview and staging pipelines only. **Never production.** |
 
 Both only add missing rows (`INSERT OR IGNORE`, fixed ids), so running them on every deploy keeps whatever was changed in Settings: a renamed, reordered or removed checklist item stays as Dave left it.
 
