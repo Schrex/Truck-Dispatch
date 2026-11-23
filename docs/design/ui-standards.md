@@ -32,8 +32,8 @@ Every page is built the same way, so Dave and the Drivers learn one app, not fou
 ## Surfaces and states
 
 - A card (`Card`, `shadow-sm`) holds one thing: a lane, a section, a Driver's Assignment. Tappable cards lift on hover (`lift`); what is open or chosen glows yellow (`shadow-glow`).
-- State colours mean the same everywhere: dashed outline on an Assignment = Draft (elsewhere a dashed line only marks something not there yet: an empty state, Unassigned, a + to add); amber = Changed, or Unplanned work for Dave to answer; an outlined pill = From the Truck (an Assignment Dave made afterwards from Unplanned work; Assigned, never Added); green = Added or Assigned; red = cancelled or a Truck problem; yellow = chosen, Now, or go.
-- People are shown by their initials in a yellow circle (lanes, Who are you?, the Driver view's header); Unassigned is a dashed ring.
+- State colours mean the same everywhere: dashed outline on an Assignment = Draft (elsewhere a dashed line only marks something not there yet: an empty state, Unassigned, a + to add); amber = Changed, or what the Truck did that Dave must answer (Unplanned work, "Which Assignment?" when two Assignments fit a Trip); an outlined pill = From the Truck (an Assignment Dave made afterwards from Unplanned work; Assigned, never Added); green = Added or Assigned; red = cancelled or a Truck problem; yellow = chosen, Now, or go.
+- People are shown by their initials in a yellow circle (lanes, Who are you?, the Driver view's header); Unassigned is a dashed ring; a Driver not known (Unplanned work on a Truck nobody had checked in to) is a solid amber ring with a ?, never Unassigned's ring.
 - Empty states are a dashed box saying what is missing ("Nothing planned yet"), loading is a spinner with "Loading …", a failure is red text saying what failed and when it tries again.
 
 ## Motion

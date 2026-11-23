@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react';
-import { Plus, UserX } from 'lucide-react';
+import { CircleHelp, Plus, UserX } from 'lucide-react';
 import type { Assignment, CheckIn, DayTruck, Driver, Place, StoredUnplanned, StoredWhichAssignment, Truck, TruckProblem } from '../../shared/types';
 import { clockTime, easternTime } from '../../shared/days';
 import { AssignmentBlock } from '@/components/AssignmentBlock';
@@ -84,6 +84,18 @@ function truckToday(lane: Lane, checkIns: CheckIn[] | undefined): { id: string; 
   return lane.usualTruck;
 }
 
+/** An avatar's round shape, whoever it stands for. */
+const AVATAR = 'flex h-10 w-10 shrink-0 select-none items-center justify-center rounded-full font-display text-sm font-semibold tracking-wide';
+
+/** The "Driver not known" row's avatar: a solid amber ring with a ?, for Dave to answer, never Unassigned's dashed ring (docs/design/ui-standards.md). */
+function NotKnownAvatar() {
+  return (
+    <span aria-hidden className={cn(AVATAR, 'border-2 border-warning bg-warning/10')}>
+      <CircleHelp className="h-4 w-4" />
+    </span>
+  );
+}
+
 /**
  * A lane's avatar: the Driver's initials on the Hub's yellow (greyed for a
  * removed Driver), or a dashed ring for Unassigned. Decoration only: the lane's
@@ -94,7 +106,7 @@ function LaneAvatar({ name, removed }: { name: string | null; removed: boolean }
     <span
       aria-hidden
       className={cn(
-        'flex h-10 w-10 shrink-0 select-none items-center justify-center rounded-full font-display text-sm font-semibold tracking-wide',
+        AVATAR,
         !name && 'border-2 border-dashed border-muted-foreground/40 text-muted-foreground',
         name && !removed && 'bg-primary text-primary-foreground shadow-xs ring-2 ring-background',
         name && removed && 'bg-muted text-muted-foreground',
@@ -134,7 +146,7 @@ function UnplannedMarker({ count, onOpen }: { count: number; onOpen?: () => void
   );
 }
 
-/** The amber of Unplanned work and "Which Assignment?", as the Truck log's boxes. */
+/** The amber of Unplanned work and "Which Assignment?", as the Truck log's boxes: for Dave to answer (docs/design/ui-standards.md). */
 const AMBER_BOX = 'rounded-md border border-warning bg-warning/10 px-3 py-2 text-sm';
 
 /** "1 Unplanned work" with each piece's Places and times, "J25008 Los Flamboyanes ⇄ J611 Bishop Kearney · 14:15–14:43": shown, not answered. */
@@ -340,7 +352,7 @@ export function Lanes({
           <Card key={truck.truckId} role="article" aria-labelledby={`not-known-${truck.truckId}`} style={{ '--i': i } as CSSProperties} className="animate-rise p-4">
             <div className="flex flex-col gap-3 md:flex-row md:items-start">
               <div className="flex min-w-0 items-start gap-3 md:w-64 md:shrink-0 lg:w-72">
-                <LaneAvatar name={null} removed={false} />
+                <NotKnownAvatar />
                 <h3 id={`not-known-${truck.truckId}`} className="pt-0.5 font-display text-lg font-semibold uppercase leading-tight tracking-wide">
                   {title}
                 </h3>
