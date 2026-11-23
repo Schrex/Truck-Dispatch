@@ -2,9 +2,9 @@ import type { Env } from './app';
 import { clock } from './clock';
 import { json, readJson, refuse, text } from './http';
 import { businessDateOf } from '../../shared/days';
-import type { FleetExportRow } from '../../shared/fleetExport';
+import { EXPORT_ADVICE, isMoment, type FleetExportRow } from '../../shared/fleetExport';
 import { DRIVE_THROUGH_MINUTES } from '../../shared/trips';
-import type { CodeWithNoPlace, FleetExportFormat, FleetImport, FleetImportDay } from '../../shared/types';
+import type { CodeWithNoPlace, FleetExportFormat, FleetImport, FleetImportDay, ImportCounts } from '../../shared/types';
 
 /**
  * Fleet imports: Dave drops an HCSS Fleet export on the
@@ -37,7 +37,6 @@ const FORMATS: FleetExportFormat[] = ['json', 'xlsx'];
  */
 const IMPORTS_ALLOWED_IN = ['local', 'preview', 'staging', 'test'];
 
-const isMoment = (value: unknown): value is string => typeof value === 'string' && !Number.isNaN(Date.parse(value));
 const isOdometer = (value: unknown) => value === null || (typeof value === 'number' && Number.isFinite(value));
 
 /** A row as shared/fleetExport.ts makes it; the page sends nothing else. */
@@ -74,7 +73,7 @@ async function importExport(request: Request, env: Env): Promise<Response> {
   if (Object.keys(errors).length > 0) return refuse(errors);
   const rows = body.rows;
   if (!Array.isArray(rows) || rows.length === 0 || !rows.every(isRow)) {
-    return json({ error: 'not_a_fleet_export', message: 'This is not a Fleet export. Export the entry/exit report from HCSS Fleet and drop that.' }, 400);
+    return json({ error: 'not_a_fleet_export', message: `This is not a Fleet export. ${EXPORT_ADVICE}` }, 400);
   }
   const visits = rows as FleetExportRow[];
 
@@ -120,7 +119,7 @@ async function importExport(request: Request, env: Env): Promise<Response> {
 
   const days = perDay.results as unknown as FleetImportDay[];
   const codesWithNoPlace = await codesWithNoPlaceIn(DB, once);
-  const sum = (key: 'added' | 'closed' | 'unchanged') => days.reduce((n, d) => n + d[key], 0);
+  const sum = (key: keyof ImportCounts) => days.reduce((n, d) => n + d[key], 0);
   return json(
     {
       import: {

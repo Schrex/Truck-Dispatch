@@ -31,7 +31,11 @@ interface FleetJsonRow {
   ExitOdometer?: number | null;
 }
 
-const isMoment = (value: unknown): value is string => typeof value === 'string' && !Number.isNaN(Date.parse(value));
+/** What to do instead when a dropped file is not the export: said once, for the readers, the page and the Worker. */
+export const EXPORT_ADVICE = 'Export the entry/exit report from HCSS Fleet and drop that.';
+
+/** Whether a value is a time Date.parse reads, e.g. "2026-11-16T12:02:03Z". */
+export const isMoment = (value: unknown): value is string => typeof value === 'string' && !Number.isNaN(Date.parse(value));
 
 function isJsonRow(value: unknown): value is FleetJsonRow {
   const r = value as FleetJsonRow;
@@ -53,7 +57,7 @@ const odometer = (value: unknown): number | null => (typeof value === 'number' &
 export function readFleetJson(json: unknown): FleetExportRow[] {
   const rows = Array.isArray(json) ? json : (json as { Result?: unknown } | null)?.Result;
   if (!Array.isArray(rows) || rows.length === 0) {
-    throw new Error('This file has no entry/exit rows. Export the entry/exit report from HCSS Fleet and drop that.');
+    throw new Error(`This file has no entry/exit rows. ${EXPORT_ADVICE}`);
   }
   if (!rows.every(isJsonRow)) {
     throw new Error('Some rows have no EquipmentCode, GeofenceCode or entry time. Is this the HCSS Fleet entry/exit report?');
@@ -102,30 +106,24 @@ interface XlsxVisit {
 }
 
 /**
- * The rows of Fleet's entry/exit xlsx report, for the Truck Dave picked
- * (its HCSS code: the xlsx names no Truck), or throws with a message a person
- * can act on. The xlsx gives no odometers, so they are null.
+ * The visit rows of Fleet's entry/exit xlsx report, or throws with a message
+ * a person can act on.
  *
  * Its layout: a header row (Location Code, Location Description, Entry Time,
  * Exit Time, Duration, Calculated Mileage); an "Entry Date: M/D/YYYY" row
  * starting each day; then a row per visit, its times "hh:mm:ss AM" in US
- * Eastern. They are read as US Eastern explicitly, never the runtime's zone.
- *
- * Fleet cuts visits at midnight: a visit still there at the end of a day
- * exits at "12:00:00 AM". When the next day starts there at 12:00:00 AM, that
- * midnight is its exit (Fleet's own split, as the JSON gives it); otherwise the
- * Truck is still there and the visit is open.
+ * Eastern.
  */
-export function readFleetXlsx(sheet: FleetSheet, equipmentCode: string): FleetExportRow[] {
+function xlsxVisits(sheet: FleetSheet): XlsxVisit[] {
   const [header, ...rows] = sheet;
   if (!header || !XLSX_TITLES.every((title, i) => typeof header[i] === 'string' && header[i].trim() === title)) {
-    throw new Error('This sheet is not the entry/exit report. Export the entry/exit report from HCSS Fleet and drop that.');
+    throw new Error(`This sheet is not the entry/exit report. ${EXPORT_ADVICE}`);
   }
   const visits: XlsxVisit[] = [];
   let date: string | null = null;
   rows.forEach((row, i) => {
-    const first = typeof row[0] === 'string' ? row[0].trim() : '';
-    const day = ENTRY_DATE.exec(first);
+    const firstCell = typeof row[0] === 'string' ? row[0].trim() : '';
+    const day = ENTRY_DATE.exec(firstCell);
     if (day) {
       date = `${day[3]}-${pad(Number(day[1]))}-${pad(Number(day[2]))}`;
       return;
@@ -133,16 +131,39 @@ export function readFleetXlsx(sheet: FleetSheet, equipmentCode: string): FleetEx
     if (row.every((cell) => cell == null || cell === '')) return;
     const entry = wallTime(row[2]);
     const exit = wallTime(row[3]);
-    if (!first || entry === null || exit === null) {
+    if (!firstCell || entry === null || exit === null) {
       throw new Error(`Row ${i + 2} has no Location Code, Entry Time or Exit Time. Is this the HCSS Fleet entry/exit report?`);
     }
     if (date === null) throw new Error(`Row ${i + 2} comes before any "Entry Date" row. Is this the HCSS Fleet entry/exit report?`);
-    visits.push({ date, geofenceCode: first, entry, exit });
+    visits.push({ date, geofenceCode: firstCell, entry, exit });
   });
   if (visits.length === 0) {
-    throw new Error('This file has no entry/exit rows. Export the entry/exit report from HCSS Fleet and drop that.');
+    throw new Error(`This file has no entry/exit rows. ${EXPORT_ADVICE}`);
   }
+  return visits;
+}
 
+/**
+ * How many visits Fleet's entry/exit xlsx report holds, or throws as
+ * readFleetXlsx does: the page checks the sheet with it before Dave picks the Truck.
+ */
+export function countFleetXlsxVisits(sheet: FleetSheet): number {
+  return xlsxVisits(sheet).length;
+}
+
+/**
+ * The rows of Fleet's entry/exit xlsx report (its layout in xlsxVisits), for
+ * the Truck Dave picked (its HCSS code: the xlsx names no Truck), or throws
+ * with a message a person can act on. The xlsx gives no odometers, so they
+ * are null. Its times are read as US Eastern explicitly, never the runtime's zone.
+ *
+ * Fleet cuts visits at midnight: a visit still there at the end of a day
+ * exits at "12:00:00 AM". When the next day starts there at 12:00:00 AM, that
+ * midnight is its exit (Fleet's own split, as the JSON gives it); otherwise the
+ * Truck is still there and the visit is open.
+ */
+export function readFleetXlsx(sheet: FleetSheet, equipmentCode: string): FleetExportRow[] {
+  const visits = xlsxVisits(sheet);
   const code = equipmentCode.trim();
   const at = (day: string, seconds: number) => easternMoment(day, Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60);
   return visits.map((visit, i) => {

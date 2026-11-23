@@ -410,13 +410,20 @@ export interface NewFleetImport {
   rows: FleetExportRow[];
 }
 
+/** What an Import did to the stored visits, as "N new · N closed · N already stored". */
+export interface ImportCounts {
+  /** Visits it stored that were not stored before. */
+  added: number;
+  /** Stored visits that were open and that it closed. */
+  closed: number;
+  /** Visits it held that were stored already and that it did not close ("already stored"). */
+  unchanged: number;
+}
+
 /** One US Eastern day an Import touched: the visits entered on it, counted as the Import's are. */
-export interface FleetImportDay {
+export interface FleetImportDay extends ImportCounts {
   /** YYYY-MM-DD. */
   date: string;
-  added: number;
-  closed: number;
-  unchanged: number;
 }
 
 /** A geofence code in an Import that no Place has: a Place to set up in Settings, unless it is only driven through. */
@@ -430,7 +437,7 @@ export interface CodeWithNoPlace {
  * One Import: a Fleet export Dave dropped on the Fleet
  * imports page, for one Truck, and what it did to the stored visits.
  */
-export interface FleetImport {
+export interface FleetImport extends ImportCounts {
   id: string;
   truckId: string;
   truckNumber: string;
@@ -438,12 +445,6 @@ export interface FleetImport {
   format: FleetExportFormat;
   /** The Worker's clock when it was imported (ISO 8601, UTC). */
   importedAt: string;
-  /** Visits it stored that were not stored before. */
-  added: number;
-  /** Stored visits that were open and that it closed. */
-  closed: number;
-  /** Visits it held that were stored already and that it did not close ("already stored"). */
-  unchanged: number;
   /** The US Eastern days its visits were entered on, each with its own counts, in date order. */
   days: FleetImportDay[];
   /** Every geofence code in it that no Place has, by code; its visits are stored all the same. */

@@ -1,6 +1,6 @@
 import { readSheet } from 'read-excel-file/universal';
 import { describe, expect, it, vi } from 'vitest';
-import { readFleetJson, readFleetXlsx, type FleetExportRow } from './fleetExport';
+import { countFleetXlsxVisits, readFleetJson, readFleetXlsx, type FleetExportRow } from './fleetExport';
 import EXPORT_1502 from './fixtures/fleet/2026-11-16-1502.json?raw';
 import XLSX from './fixtures/fleet/2026-11-16-EntryExitReport.xlsx?inline';
 
@@ -75,5 +75,15 @@ describe('Reading an xlsx Fleet export', () => {
         'MCK-55-17',
       ),
     ).toThrow(/Entry Date/);
+  });
+});
+
+describe('Checking an xlsx Fleet export before Dave picks its Truck', () => {
+  it('counts the 20 visits of the 16 Nov xlsx', async () => {
+    expect(countFleetXlsxVisits(await sheet())).toBe(20);
+  });
+
+  it('refuses a sheet that is not the entry/exit report, as reading it does', () => {
+    expect(() => countFleetXlsxVisits([['Name', 'Phone']])).toThrow(/entry\/exit report/i);
   });
 });

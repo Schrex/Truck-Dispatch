@@ -72,8 +72,8 @@ export async function handleApi(request: Request, env: Env, route: string, query
   const problems = await handleTruckProblems(request, env, route, query);
   if (problems) return problems;
 
-  const imported = await handleFleetImports(request, env, route);
-  if (imported) return imported;
+  const fleetImports = await handleFleetImports(request, env, route);
+  if (fleetImports) return fleetImports;
 
   const [list, entryId, ...rest] = route.split('/');
   if (isList(list) && rest.length === 0) return handleList(request, env, list, entryId, query);
