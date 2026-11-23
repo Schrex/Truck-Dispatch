@@ -5,8 +5,15 @@ import { App } from '../App';
 // The pages load lazily in the app (App.tsx); importing them here compiles them
 // before the first test, so a cold run never waits on that inside a test.
 import './DriverPage';
-import { weekDates } from '../../shared/days';
-import type { CheckIn, DriverAssignment, DriverDay, Inspection, NewInspection, TruckProblem } from '../../shared/types';
+import { easternTime, weekDates } from '../../shared/days';
+import { readFleetJson } from '../../shared/fleetExport';
+import { buildTripDay } from '../../shared/trips';
+import { truckLog } from '../../shared/truckLog';
+import { REAL_DAY } from '@/simulate/realDay';
+import type { CheckIn, DriverAssignment, DriverDay, DriverTruckLog, Inspection, NewInspection, TruckProblem } from '../../shared/types';
+// The whole 16 Nov day cut at 10:15 and at 16:20, as Fleet would have exported it then.
+import CUT_1015 from '../../shared/fixtures/fleet/2026-11-16-cut-1015.json?raw';
+import CUT_1620 from '../../shared/fixtures/fleet/2026-11-16-cut-1620.json?raw';
 
 /**
  * The API as a Driver's phone sees it: today in US Eastern is Thursday
@@ -24,6 +31,8 @@ const drivers = [
 ];
 /** Each Driver's Assigned Assignments, by Driver and date. A day not here has none. */
 let sentDays: Record<string, DriverAssignment[]> = {};
+/** His Truck log on his day read, by Driver and date, as the Worker gives it today. A day not here has none. */
+let truckLogs: Record<string, DriverTruckLog> = {};
 /** Every Dismiss the phone sent, by id, and whether the Worker fails it. */
 let dismissed: string[] = [];
 let failDismiss = false;
@@ -139,7 +148,8 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     read.push(`${driverDay[1]} ${driverDay[2]}`);
     if (failDriverDays) return answer({ error: 'oops' }, 500);
     const [, driverId, date] = driverDay;
-    const day: DriverDay = { date, assignments: sentDays[`${driverId} ${date}`] ?? [] };
+    const log = truckLogs[`${driverId} ${date}`];
+    const day: DriverDay = { date, assignments: sentDays[`${driverId} ${date}`] ?? [], ...(log && { truckLog: log }) };
     return answer(day);
   }
   if (path.endsWith('/api/drivers')) return answer({ drivers: url.searchParams.get('include') ? drivers : drivers.filter((d) => d.active) });
@@ -174,6 +184,7 @@ const pick = async (word: string) => fireEvent.click(within(await screen.findByR
 beforeEach(() => {
   businessDay = THURSDAY;
   sentDays = {};
+  truckLogs = {};
   dismissed = [];
   failDismiss = false;
   failDriverDays = false;
@@ -801,5 +812,79 @@ describe('the Trip part on a Driver card', () => {
     const without = await shown({});
     expect((await shown({ trips: part({}) })).html).toBe(without.html);
     expect(without.text).not.toMatch(/load|Now/);
+  });
+});
+
+describe('his Truck log under Today', () => {
+  const MONDAY = { today: '2026-11-16', tomorrow: '2026-11-17', nextWorkingDay: '2026-11-17' };
+  /** When the cut was imported: five minutes after it was pulled. */
+  const IMPORTED = { '10:15': '2026-11-16T15:20:00.000Z', '16:20': '2026-11-16T21:25:00.000Z' };
+  const [, J25008, VILLAGER, WALWORTH] = REAL_DAY.places.map((p) => p.id);
+  const A1 = card({ id: 'a1', date: '2026-11-16', fromPlaceName: 'J25008 Los Flamboyanes', toPlaceName: 'Villager', materialName: 'Fill' });
+  const A2 = card({ id: 'a2', date: '2026-11-16', position: 1, fromPlaceName: 'Walworth Dolomite', toPlaceName: 'J25008 Los Flamboyanes', materialName: '1&2 stone' });
+
+  /** Truck 55's stored Mon 16 Nov as the Worker builds it today, as of the Import of the cut pulled at `cut`. */
+  function truckLogAsOf(cut: '10:15' | '16:20'): DriverTruckLog {
+    const asOf = IMPORTED[cut];
+    const visits = readFleetJson(JSON.parse(cut === '10:15' ? CUT_1015 : CUT_1620));
+    const tripDay = buildTripDay({
+      places: REAL_DAY.places, jobs: REAL_DAY.jobs, visits, now: asOf, dayOver: false,
+      assignments: [
+        { id: 'a1', label: 'A1', fromPlaceId: J25008, toPlaceId: VILLAGER, cancelledAt: null, changes: [] },
+        { id: 'a2', label: 'A2', fromPlaceId: WALWORTH, toPlaceId: J25008, cancelledAt: null, changes: [] },
+      ],
+    });
+    const labels = { a1: 'A1', a2: 'A2' };
+    const { assignments, ...log } = truckLog({ tripDay, places: REAL_DAY.places, assignments: [A1, A2], labels });
+    return {
+      truckId: 'trk-55', truckNumber: '55', hcssCode: 'MCK-55-17', date: '2026-11-16', asOf, clock: easternTime(asOf), at: asOf, dayOver: false,
+      places: REAL_DAY.places, tripDay, labels, assignments, truckLog: log, codesWithNoPlace: [],
+    };
+  }
+
+  beforeEach(() => {
+    businessDay = MONDAY;
+    localStorage.setItem('truck-dispatch:view', 'driver');
+    localStorage.setItem('truck-dispatch:driver', 'drv-a');
+    sentDays['drv-a 2026-11-16'] = [A1, A2];
+  });
+
+  /** The Truck log's header boxes: label → what is written in it. */
+  const header = (log: HTMLElement) =>
+    Object.fromEntries([...within(log).getByRole('group', { name: 'Truck log header' }).querySelectorAll('dt')].map((dt) => [dt.textContent, dt.nextElementSibling?.textContent]));
+
+  it('shows the Truck log from his day read under the cards: 06:24 to 16:03, miles for a meter reading, A1 and A2, the J611 Unplanned work, the shop drives, as of the latest Import', async () => {
+    truckLogs['drv-a 2026-11-16'] = truckLogAsOf('16:20');
+    open('/');
+    const today = await day('Today, Mon, Nov 16');
+    const log = await within(today).findByRole('region', { name: 'Truck log' });
+    expect(cardsIn(today).at(-1)!.compareDocumentPosition(log) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(header(log)).toMatchObject({
+      Truck: '55 (MCK-55-17)',
+      'Start time': '06:24',
+      'End time': '16:03',
+      'Start miles': 'meter reading',
+      'End miles': 'meter reading',
+    });
+    expect(within(log).getAllByRole('group', { name: /^Assignment \d/ })).toHaveLength(2);
+    expect(within(log).getByRole('group', { name: 'Unplanned work' }).textContent).toContain('J611 Bishop Kearney');
+    expect(within(log).getByRole('group', { name: 'To and from the shop' }).querySelectorAll('li')).toHaveLength(2);
+    expect(within(log).queryByRole('button', { name: 'Answer' })).toBeNull();
+    expect(within(today).getByText('As of the Import at 16:25')).toBeTruthy();
+  });
+
+  it('shows what is known with only the 10:15 cut stored, and no end time', async () => {
+    truckLogs['drv-a 2026-11-16'] = truckLogAsOf('10:15');
+    open('/');
+    const log = await within(await day('Today, Mon, Nov 16')).findByRole('region', { name: 'Truck log' });
+    expect(header(log)).toMatchObject({ 'Start time': '06:24', 'End time': '' });
+    expect(screen.getByText('As of the Import at 10:20')).toBeTruthy();
+  });
+
+  it('shows none when his day read has none', async () => {
+    open('/');
+    const today = await day('Today, Mon, Nov 16');
+    await waitFor(() => expect(cardsIn(today)).toHaveLength(2));
+    expect(within(today).queryByRole('region', { name: 'Truck log' })).toBeNull();
   });
 });
