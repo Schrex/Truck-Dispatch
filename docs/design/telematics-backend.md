@@ -31,6 +31,21 @@ These come from the simulation spec (#55) and are built in the Trip builder (`sh
 - **Trips with no Assignment** (none fits, or two do), each with its way straight back when that follows, are an **extra job**: an extra Truck log column after Dave's Assignments, "Assignment 3 · unverified", with its Job (of where it went, else where it came from), Pick up, Drop off and Trucking hours. Whether it was a Load and of what Material is Dave's to decide next morning, so both read "Unknown · Dave decides". In the simulation they are shown, not answerable.
 - **To and from the shop**: below the columns, the Truck log lists the drives out of the shop in the morning and back to it at the end of the day, with times and miles.
 
+## Decided: real Truck logs from Fleet exports (23 Nov 2026)
+
+HCSS Fleet's entry/exit API refuses access, so for now Dave drops **Fleet exports** (`GLOSSARY.md`) into the app, several a day, for one Truck. The plan, with its exhibits, is the "Real Truck Logs from Fleet Exports" plan page. Words as in `GLOSSARY.md` (**Fleet export**, **Import**, **Truck log**, **Unplanned work**).
+
+- **Imports.** A new **Truck logs** page (`/truck-logs`, linked from the board header) takes JSON or xlsx. The page reads the file; the Worker stores its visits. The export must hold one Truck whose HCSS code is set; anything else is refused.
+- **No duplicates.** A visit is the same visit when its Truck, geofence code and entry minute (UTC, cut to the minute) match, so JSON and xlsx rows of one visit meet. A newer Import closes an open visit; an older one never reopens it. Each Import reports what it added, closed and already had, and which days it touched: a visit is filed under the Eastern date it entered. There is no undo for an Import yet.
+- **Codes with no Place** are listed on the Truck logs page, never refused.
+- **The Truck logs page** shows a stored day with the Simulation's views (Scheduler, Driver, Trip log, Truck log) and its replay clock, "as of" the latest Import. One Worker route builds it with `buildTripDay`; the Truck log columns move from `src/simulate/simulate.ts` to `shared/` so both use one function.
+- **Board and Driver page.** Reading a day adds the Trip part to each Assignment from stored visits; with none, nothing changes. The Driver sees his Truck log under Today all day, "as of" the latest Import. Board blocks carry no "as of".
+- **Miles** stay blank until meter readings exist; start and end time come from the visits.
+- **The Truck's Driver** is whoever checked in to it that day (each check-in from its time on); with no check-in, the spec #55 rule; "Who was driving?" when more than one fits. The Driver page shows the Truck he checked in to today, else his usual one.
+- **A real day is over** once its date is before today (US Eastern, the Worker's clock); until then the end time appears only once the Truck is back at the shop.
+- **Unplanned work** is shown, not answered: in the lane of the Truck's Driver, or the Unassigned lane (marked with the Truck) when nobody is sure who drove; and on the Truck logs page and the Driver's Truck log.
+- **Staging only.** The Import route refuses in production until sign-in exists. A staging-only seed adds Truck 55 (MCK-55-17), Randy, the real Places with geofence codes and their Jobs, and 16 Nov's A1 and A2 as a backfill. Settings fields for HCSS and geofence codes are a later change. The real loop starts with a day Dave plans ahead.
+
 ## What one real day shows (MCK-55-17, Mon 16 Nov 2026)
 
 There are four sources:
