@@ -7,6 +7,7 @@ import { TruckLog } from '@/components/TruckLog';
 import { TruckLogAssignments } from '@/components/TruckLogAssignments';
 import { Button } from '@/components/ui/button';
 import { DriverView } from '@/simulate/DriverView';
+import { TripLog } from '@/simulate/TripLog';
 import { REAL_DAY } from '@/simulate/realDay';
 import { DAY_END, clockTime, simulateAt } from '@/simulate/simulate';
 
@@ -100,12 +101,23 @@ export function SimulatePage() {
         </div>
       </div>
 
-      <main className="container space-y-3 py-6">
-        <section aria-label="Scheduler view" className="space-y-3">
-          <h2 className="font-display text-xl font-semibold uppercase tracking-wide">Scheduler view</h2>
-          <Lanes assignments={day.assignments} drivers={[REAL_DAY.driver]} trucks={[REAL_DAY.truck]} />
-        </section>
-        <DriverView driverName={REAL_DAY.driver.name} date={REAL_DAY.date} assignments={day.assignments} />
+      <main className="container space-y-6 py-6">
+        <div className="grid gap-6 xl:grid-cols-2">
+          <div className="min-w-0 space-y-6">
+            <section aria-label="Scheduler view" className="space-y-3">
+              <h2 className="font-display text-xl font-semibold uppercase tracking-wide">Scheduler view</h2>
+              <Lanes assignments={day.assignments} drivers={[REAL_DAY.driver]} trucks={[REAL_DAY.truck]} />
+            </section>
+            <DriverView driverName={REAL_DAY.driver.name} date={REAL_DAY.date} assignments={day.assignments} />
+          </div>
+          <div className="min-w-0">
+            <TripLog
+              trips={day.tripDay.trips}
+              places={REAL_DAY.places}
+              assignmentLabels={Object.fromEntries(scenario.assignments.map((a) => [a.id, a.label]))}
+            />
+          </div>
+        </div>
         <TruckLog truck={REAL_DAY.truck} date={REAL_DAY.date} truckDay={day.tripDay.truckDay}>
           <TruckLogAssignments columns={day.truckLog.columns} unexplained={day.truckLog.unexplained} />
         </TruckLog>
