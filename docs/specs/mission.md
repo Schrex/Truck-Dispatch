@@ -33,7 +33,7 @@ One pipeline with four steps. Each step fills part of the Truck log:
 - **Nobody types the log.** Trips come from the Truck, quantities come from Tickets, and hours and miles come from the meters. People answer only what is left blank.
 - **Faster than the Slack message.** If planning a day takes Dave longer than posting in #trucks, the app has failed.
 - **Changes are normal.** Assigned work changes all day. Drivers see every change at once and marked, with no lock and no "Assign again" (ADR 0005, which replaced ADR 0003's day-level Send).
-- **Nothing is lost.** Entries are made inactive, never deleted. A cancelled Assignment stays visible. An Inspection is never edited, only followed by a newer one.
+- **Nothing is lost.** Entries are made inactive, never deleted. A cancelled Assignment is kept: the Driver sees it cancelled, and Dave or the Driver only clears it out of view (Discard, Dismiss). An Inspection is never edited, only followed by a newer one.
 - **One set of words.** `GLOSSARY.md` is the vocabulary for code, UI and docs.
 - **Rules live in the Worker.** Past days, Assign and the US Eastern day are enforced by the server, so they are the same on every device (ADR 0004).
 - **Fits the Hub.** It is its own app, with its own Worker and database (ADR 0001), built on the Hub's stack and looks (ADR 0002), so plugging it into the Hub later is one forwarding step.

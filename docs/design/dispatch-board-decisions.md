@@ -33,7 +33,8 @@ Sources: the "Trucking page · 5 design mocks" export, page **Final · scheduler
 - **Days work as in the Daily Schedule** (`Schrex/daily-schedule`, `docs/specs/week-strip.md`): a week strip, arrows that skip weekends and Holidays, and the Board opening on the next Working day. The behaviour is the same, built in this app's stack.
 - **Past days are enforced by the Worker** in US Eastern (ADR 0004), not by a lock in the page.
 - **Send per day, with no lock after it** (ADR 0003), because trucking changes Sent days all day. Send has no warnings for now.
-- **✕ deletes on a Draft day and cancels on a Sent day**, so a Driver who has seen an Assignment sees it cancelled rather than gone. A cancelled one stays in its lane until it is Put back.
+- **✕ deletes on a Draft day and cancels on a Sent day**, so a Driver who has seen an Assignment sees it cancelled rather than gone. A cancelled one stays in its lane until it is Put back or Discarded.
+- **Discard and Dismiss** (23 Nov): once seen, a cancelled Assignment can be cleared out of view. Dave **Discards** it off the Board and the Driver **Dismisses** it off his day, each on their own, so neither hides it from the other. Nothing is deleted, and Put back brings it back for both. Settings lost **Bring back**: a removed entry comes back by typing its name on an Assignment.
 - **Giving work to another Driver after Send** cancels it for the first Driver and adds it for the second, so each Driver sees what happened to his own day.
 - **Changed and Added.** A field change, a cancel, a Put back, or its own move in the order, after the Send, counts as Changed. Neighbours that shift because of a move are not Changed, so no Driver is told about a change that is not his.
 - **Earlier versions are kept** (add-only) from the Send onwards. The Driver sees "was Cobblestone", and phase 3 can match Trips made before a reroute.
@@ -51,9 +52,9 @@ Sources: the "Trucking page · 5 design mocks" export, page **Final · scheduler
 - **Settings says nothing about HCSS on a Truck.** Its code and id stay in the data for Trips later. A Place still shows "On the truck map" (open question).
 - **First** is the first Assignment that is not cancelled, and the day's count leaves cancelled ones out.
 
-## Phases 2 to 4: decided, not built
+## Phase 2: check-in (built)
 
-### Check-in (phase 2, grilling of 23 Nov; spec: [`../specs/phase-2-check-in.md`](../specs/phase-2-check-in.md))
+### Check-in (grilling of 23 Nov; spec: [`../specs/phase-2-check-in.md`](../specs/phase-2-check-in.md))
 - **Check-in and Inspection are one step**: pick today's Truck, inspect it, done. A separate "I took Truck 21" with no Inspection would add nothing, because the Driver of a Trip is whoever last *inspected* the Truck.
 - **Today only, with or without Assigned work.** An Inspection is about the Truck this morning, not the plan; a yard move with no Assignment still needs one. Check-in never hides the day's Assignments.
 - **Any active Truck**, with the usual one pre-selected. Two Drivers on one Truck are shown, not refused: blocking a Driver at 6 AM is worse than Dave seeing the overlap.
@@ -65,6 +66,10 @@ Sources: the "Trucking page · 5 design mocks" export, page **Final · scheduler
 - **Not the real record until sign-in.** The Driver view trusts whichever name was picked on the phone, so Inspections are tried on staging and used for real only once Drivers sign in through the Hub.
 - **Truck problems** come from Needs repair items or from **Report a problem** at any time that day, for the Truck the Driver is checked in to, always with a note. Open ones show at the start of that Truck's next Inspection, so they are known before driving and not reported twice. Only Drivers report them; Dave marks them fixed (with an optional note) and they are kept. The app never grounds a Truck. No Slack or texts.
 - **The Board, for today**, shows the Truck each Driver checked in to and when, in place of the grey usual Truck, or "Not checked in"; open problems show as a red mark on the lane and on the Truck's chip in the composer.
+
+## Phases 3 and 4: decided, not built
+
+Phase 3 and the Truck log are prototyped on the Simulation page (`/simulate`) on one real day; nothing reads live Fleet data yet.
 
 ### Trips (phase 3)
 - **Trips come from HCSS Fleet** place enter/leave events, pulled by the Worker every 10 minutes from 4 AM to 8 PM Eastern, kept raw and paired into Trips.
@@ -83,9 +88,9 @@ Sources: the "Trucking page · 5 design mocks" export, page **Final · scheduler
 
 ## Target schema, phases 2 to 4
 
-Phase 1's tables are in `migrations/`. Everything below is added later (migrations only add). The unused `orders` table is dropped in a later release.
+Phases 1 and 2 are in `migrations/` (phase 2 as below, `0014` to `0016`). Phases 3 and 4 are added later (migrations only add). The unused `orders` table is dropped in a later release.
 
-### Phase 2: check-in
+### Phase 2: check-in (built)
 ```
 inspection_items   id, label, optional 0/1, sort_order, active
 inspections        id, date, driver_id, truck_id, done_at, other_notes?   append-only

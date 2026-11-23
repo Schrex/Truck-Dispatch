@@ -2,7 +2,7 @@
 
 Dave plans each Driver's day as Assignments and Assigns each to the Driver's phone. Later phases turn that plan, the Truck's own movements and the Driver's Tickets into a finished **Truck log** for every Truck, every day, which nobody types. Why and what next: [mission](docs/specs/mission.md) and [roadmap](docs/specs/roadmap.md).
 
-**Status:** phase 1 (planning: Board, Driver view, Settings) is built and runs on staging with synthetic data. Phases 2 to 4 (check-in, Trips, Tickets and the Truck log) are designed, not built.
+**Status:** phase 1 (planning: Board, Driver view, Settings) and phase 2 (check-in: the Inspection and Truck problems) are built and run on staging with synthetic data. Phase 3 (Trips) is prototyped on the Simulation page on one real day of Fleet data, with the Truck log of phase 4 filled in from it; nothing reads live Fleet data yet, and Tickets and sign-off are designed, not built.
 
 ## Where things are
 
