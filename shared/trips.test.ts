@@ -202,6 +202,57 @@ describe('Trips and matching on the 16 Nov day', () => {
   });
 });
 
+describe('Make an Assignment: an answer to Unplanned work', () => {
+  const [a1, a2] = scenario('two');
+  const cancelled = [{ ...a1, cancelledAt: '2026-11-16T15:10:00Z' }, a2];
+  const plantRun = '2026-11-16T15:27:50Z';
+
+  it('claims only the Trips of the Unplanned work it answers, never earlier ones on the same route', () => {
+    // A1 cancelled at 10:10: 10:27–11:25 to and from the Plant is Unplanned work. Dave says it loaded at the Plant.
+    // Plant → North is the route of A1's ways back at 08:43 and 09:50; they stay A1's.
+    expect(day('two').unplanned.map((w) => w.id)).not.toContain(plantRun);
+    const before = buildTripDay({ places: FIXTURE_PLACES, visits: FIXTURE_VISITS, assignments: cancelled, now: END_OF_DAY });
+    expect(before.unplanned[0].id).toBe(plantRun);
+    const d = buildTripDay({
+      places: FIXTURE_PLACES,
+      visits: FIXTURE_VISITS,
+      assignments: cancelled,
+      now: END_OF_DAY,
+      answers: {
+        madeAssignments: [{ id: 'a3', label: 'A3', fromPlaceId: 'plc-plant', toPlaceId: 'plc-north', cancelledAt: null, changes: [], unplannedId: plantRun }],
+      },
+    });
+    expect(lines(d).slice(1, 8)).toEqual([
+      '08:24 J1001 North → PLANT load a1',
+      '08:43 PLANT → J1001 North empty a1',
+      '09:35 J1001 North → PLANT load a1',
+      '09:50 PLANT → J1001 North empty a1',
+      '10:27 J1001 North → PLANT empty a3',
+      '10:41 PLANT → J1001 North load a3',
+      '11:14 J1001 North → PLANT empty a3',
+    ]);
+    expect(d.assignments.map((a) => [a.assignmentId, a.loads, a.empties])).toEqual([
+      ['a1', 2, 2],
+      ['a2', 2, 2],
+      ['a3', 1, 2],
+    ]);
+    // The South stop is still Unplanned work.
+    expect(d.unplanned.map((w) => easternTime(w.leftAt))).toEqual(['14:15']);
+  });
+
+  it('leaves Unplanned work it does not answer as it is', () => {
+    const d = buildTripDay({
+      places: FIXTURE_PLACES,
+      visits: FIXTURE_VISITS,
+      assignments: scenario('two'),
+      now: END_OF_DAY,
+      answers: { madeAssignments: [{ id: 'a3', label: 'A3', fromPlaceId: 'plc-south', toPlaceId: 'plc-north', cancelledAt: null, changes: [], unplannedId: plantRun }] },
+    });
+    expect(d.unplanned).toHaveLength(1);
+    expect(d.assignments[2]).toMatchObject({ assignmentId: 'a3', loads: 0, status: 'none' });
+  });
+});
+
 describe('The day as the Worker knows it during the day', () => {
   it('at 10:02 knows 5 Trips, A1 is Now, and the North visit is still open', () => {
     const d = day('two', '2026-11-16T15:02:00Z');

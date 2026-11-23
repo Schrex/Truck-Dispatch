@@ -100,6 +100,53 @@ describe('The Trip builder on the real day (MCK-55-17, Mon 16 Nov 2026)', () => 
     });
   });
 
+  describe('Make an Assignment: Dave says where the Unplanned work loaded, and the rules count it', () => {
+    const J25008 = 'plc-j25008';
+    const J611 = 'plc-j611';
+    /** The 16 Nov day with Dave's answer: a made Assignment, A3, From the Truck, for the drive to Bishop Kearney and back. */
+    const answered = (fromPlaceId: string, toPlaceId: string, time = '23:59:59') => {
+      const unplannedId = at('planned').unplanned[0].id;
+      return buildTripDay({
+        places: REAL_DAY.places,
+        jobs: REAL_DAY.jobs,
+        visits: REAL_DAY.visits,
+        assignments: scenario('planned').assignments,
+        now: easternIso(REAL_DAY.date, time),
+        answers: { madeAssignments: [{ id: 'a3', label: 'A3', fromPlaceId, toPlaceId, cancelledAt: null, changes: [], unplannedId }] },
+      });
+    };
+    /** The run's two Trips as "14:15 empty a3 Going to the Assignment’s pickup". */
+    const run = (d: ReturnType<typeof answered>) =>
+      d.trips
+        .filter((t) => ['14:15', '14:33'].includes(easternTime(t.leftAt)))
+        .map((t) => `${easternTime(t.leftAt)} ${t.match.kind} ${t.match.assignmentId} ${t.match.reason}`);
+
+    it('loaded at J611 Bishop Kearney: 1 Load at 14:33, 14:15 empty to its pickup, Job J25008, 0.46 h, and no Unplanned work', () => {
+      const d = answered(J611, J25008);
+      expect(d.unplanned).toEqual([]);
+      expect(run(d)).toEqual(['14:15 empty a3 Going to the Assignment’s pickup', '14:33 load a3 From and To match the Assignment']);
+      const a3 = d.assignments.find((a) => a.assignmentId === 'a3')!;
+      expect(a3).toMatchObject({ loads: 1, empties: 1, tons: null, truckingHours: 0.46, job: { jobNumber: 'J25008', name: 'Los Flamboyanes' } });
+      // Dave's planned Assignments are as before.
+      expect(d.assignments.map((a) => [a.assignmentId, a.loads, a.truckingHours])).toEqual([
+        ['a1', 4, 3.02],
+        ['a2', 2, 2.4],
+        ['a3', 1, 0.46],
+      ]);
+    });
+
+    it('loaded at J25008: the opposite route, so 14:15 is the Load and 14:33 the way back, Job J611', () => {
+      const d = answered(J25008, J611);
+      expect(d.unplanned).toEqual([]);
+      expect(run(d)).toEqual(['14:15 load a3 From and To match the Assignment', '14:33 empty a3 The way back of the Assignment']);
+      expect(d.assignments[2]).toMatchObject({ loads: 1, truckingHours: 0.46, job: { jobNumber: 'J611' } });
+    });
+
+    it('before its Trips are written, the made Assignment has none yet', () => {
+      expect(answered(J611, J25008, '14:00:59').assignments[2]).toMatchObject({ loads: 0, status: 'none', truckingHours: null });
+    });
+  });
+
   describe('An Assignment’s Job, from its Places', () => {
     const jobs = (id: string, time?: string) => at(id, time).assignments.map((a) => a.job && `${a.job.jobNumber} ${a.job.name}`);
 

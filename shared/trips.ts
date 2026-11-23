@@ -170,6 +170,8 @@ export interface TruckLogColumn {
   tons: number | null;
   /** Null until it has a Trip. */
   truckingHours: number | null;
+  /** Made by Dave from Unplanned work: the column is marked "From the Truck". */
+  fromTheTruck?: boolean;
 }
 
 /**
@@ -277,6 +279,27 @@ export interface TripDay {
   };
 }
 
+/**
+ * "Make an Assignment" (#75): Dave's answer to one piece of Unplanned work.
+ * An ordinary Assignment, From the Truck: Assigned afterwards, never Added.
+ * Its From is where Dave says the Truck loaded; its To, the piece's other Place.
+ */
+export interface MadeAssignment extends TripAssignment {
+  /** The Unplanned work it answers (UnplannedWork.id). */
+  unplannedId: string;
+}
+
+/**
+ * Dave's answers to the day's Unplanned work, as inputs to the Trip builder.
+ * The builder re-matches with them, so Loads, Jobs and hours always come from
+ * the rules, never from Dave typing them. Each kind of answer is its own list
+ * (#76 adds links and Not a haul, #77 splits).
+ */
+export interface UnplannedAnswers {
+  /** "Make an Assignment": each claims only the Trips of the piece it answers. */
+  madeAssignments?: MadeAssignment[];
+}
+
 export interface TripDayInput {
   places: TripPlace[];
   /** The Jobs its Places belong to, for each Assignment's Job. */
@@ -293,6 +316,8 @@ export interface TripDayInput {
   ignition?: IgnitionEvent[];
   /** The day is over (end of day, or its data is all in): the Truck stopped wherever it last stopped. */
   dayOver?: boolean;
+  /** Dave's answers to the Unplanned work; made Assignments are summed after `assignments`. */
+  answers?: UnplannedAnswers;
 }
 
 const ms = (iso: string) => new Date(iso).getTime();
@@ -454,8 +479,8 @@ function jobOf(route: Route, places: TripPlace[], jobs: TripJob[]): TripJob | nu
 }
 
 /** Now, Done or neither (proposal P5): Now while the Truck's latest Trip is its and the Truck is not back at the shop. */
-function summarize(input: TripDayInput, trips: Trip[]): AssignmentTrips[] {
-  const { assignments, places, now } = input;
+function summarize(input: TripDayInput, assignments: TripAssignment[], trips: Trip[]): AssignmentTrips[] {
+  const { places, now } = input;
   const written = trips.filter((t) => t.written);
   const latest = written.at(-1);
   const atShop = latest ? isShopOrYard(kindOf(places, latest.toPlaceId)) : false;
@@ -553,54 +578,109 @@ const BACK_INTO_UNPLANNED: Match = {
 };
 
 /**
- * Take each run of Trips nothing fits as one piece of Unplanned work, with the
- * drives back into it. Every Trip is walked (an unwritten last one is taken
- * back too, so it is never shown as an Assignment's for two minutes); only
- * written Trips make up the pieces.
+ * Each run of Trips nothing fits, with the drives back into it. Every Trip is
+ * walked (an unwritten last one is taken back too, so it is never shown as an
+ * Assignment's for two minutes). Returns the Trips with their matches, and
+ * the runs as index lists into them.
  */
-function withUnplanned(trips: Trip[]): { trips: Trip[]; unplanned: UnplannedWork[] } {
+function unplannedRuns(trips: Trip[]): { trips: Trip[]; runs: number[][] } {
   const out: Trip[] = [];
-  const runs: Trip[][] = [];
-  let open: Trip[] | null = null;
+  const runs: number[][] = [];
+  let open: number[] | null = null;
   const visited = new Set<string>();
   for (const t of trips) {
     const backInto = open !== null && t.match.rule === 4 && visited.has(t.toCode.toLowerCase());
     if (fitsNone(t.match) || backInto) {
-      const trip = backInto ? { ...t, match: BACK_INTO_UNPLANNED } : t;
       if (open === null) {
         open = [];
         runs.push(open);
         visited.clear();
         visited.add(t.fromCode.toLowerCase());
       }
-      open.push(trip);
+      open.push(out.length);
       visited.add(t.toCode.toLowerCase());
-      out.push(trip);
+      out.push(backInto ? { ...t, match: BACK_INTO_UNPLANNED } : t);
     } else {
       open = null;
       out.push(t);
     }
   }
-  const unplanned = runs
-    .map((run) => run.filter((t) => t.written))
-    .filter((run) => run.length > 0)
-    .map((run): UnplannedWork => {
-      const places: UnplannedPlace[] = [];
-      for (const t of run)
-        for (const [placeId, code] of [[t.fromPlaceId, t.fromCode], [t.toPlaceId, t.toCode]] as const)
-          if (!places.some((p) => p.code.toLowerCase() === code.toLowerCase())) places.push({ placeId, code });
-      const leftAt = run[0].leftAt;
-      const arrivedAt = run.at(-1)!.arrivedAt;
-      return { id: leftAt, trips: run, places, leftAt, arrivedAt, truckingHours: round((ms(arrivedAt) - ms(leftAt)) / HOUR) };
-    });
-  return { trips: out, unplanned };
+  return { trips: out, runs };
+}
+
+/** A run's id: its first Trip's leftAt, as UnplannedWork.id. */
+const runId = (trips: Trip[], run: number[]) => trips[run[0]].leftAt;
+
+/**
+ * Match a Trip of a piece of Unplanned work against the Assignment Dave made
+ * for it. Before its first Load, a drive to its pickup is just that (rule 4),
+ * not "the way back" (rule 2): nothing was hauled yet to come back from.
+ */
+function matchMade(trip: Trip, made: MadeAssignment, places: TripPlace[], loaded: boolean): Match {
+  const m = matchTrip(trip, [made], places);
+  if (m.rule === 2 && !loaded) return { kind: 'empty', assignmentId: made.id, rule: 4, reason: 'Going to the Assignment’s pickup' };
+  return m;
+}
+
+/**
+ * Apply "Make an Assignment". The rule that keeps a made Assignment from
+ * claiming earlier Trips (e.g. A1's ways back, when its route is A1's
+ * reversed): it is matched only against the Trips of the Unplanned work it
+ * answers, never against the rest of the day, and Dave's planned Assignments
+ * are matched without it. A Trip of that piece it does not fit stays
+ * Unplanned work.
+ */
+function answerRuns(trips: Trip[], runs: number[][], answers: UnplannedAnswers, places: TripPlace[]): Trip[] {
+  const out = [...trips];
+  for (const made of answers.madeAssignments ?? []) {
+    const run = runs.find((r) => runId(trips, r) === made.unplannedId);
+    if (!run) continue;
+    let loaded = false;
+    for (const i of run) {
+      const m = matchMade(trips[i], made, places, loaded);
+      if (m.assignmentId === null) continue;
+      if (m.kind === 'load') loaded = true;
+      out[i] = { ...trips[i], match: m };
+    }
+  }
+  return out;
+}
+
+/** The pieces of Unplanned work: in each run, the written Trips still nobody's, in rows. */
+function piecesOf(trips: Trip[], runs: number[][]): UnplannedWork[] {
+  const rows: Trip[][] = [];
+  for (const run of runs) {
+    let row: Trip[] | null = null;
+    for (const i of run) {
+      const t = trips[i];
+      if (t.match.assignmentId !== null || !t.written) {
+        row = null;
+        continue;
+      }
+      if (row === null) rows.push((row = []));
+      row.push(t);
+    }
+  }
+  return rows.map((run): UnplannedWork => {
+    const places: UnplannedPlace[] = [];
+    for (const t of run)
+      for (const [placeId, code] of [[t.fromPlaceId, t.fromCode], [t.toPlaceId, t.toCode]] as const)
+        if (!places.some((p) => p.code.toLowerCase() === code.toLowerCase())) places.push({ placeId, code });
+    const leftAt = run[0].leftAt;
+    const arrivedAt = run.at(-1)!.arrivedAt;
+    return { id: leftAt, trips: run, places, leftAt, arrivedAt, truckingHours: round((ms(arrivedAt) - ms(leftAt)) / HOUR) };
+  });
 }
 
 /** One Truck's day as the Worker would know it at `now`. */
 export function buildTripDay(input: TripDayInput): TripDay {
   const known = knownAt(input.visits, input.now);
   const { visits, dropped, merged } = clean(known, input.places);
-  const { trips, unplanned } = withUnplanned(pair(visits, input.now).map((t) => ({ ...t, match: matchTrip(t, input.assignments, input.places) })));
+  const matched = pair(visits, input.now).map((t) => ({ ...t, match: matchTrip(t, input.assignments, input.places) }));
+  const grouped = unplannedRuns(matched);
+  const answers = input.answers ?? {};
+  const trips = answerRuns(grouped.trips, grouped.runs, answers, input.places);
+  const unplanned = piecesOf(trips, grouped.runs);
   // Inside cleaned visits only: a drive-through's miles are already in the Trip across it,
   // and a short exit's miles are inside the joined visit.
   const insidePlaces = round(visits.reduce((sum, v) => sum + (v.exitOdometer === null ? 0 : v.exitOdometer - v.entryOdometer), 0));
@@ -613,7 +693,7 @@ export function buildTripDay(input: TripDayInput): TripDay {
     merged,
     visits,
     trips,
-    assignments: summarize(input, trips),
+    assignments: summarize(input, [...input.assignments, ...(answers.madeAssignments ?? [])], trips),
     unplanned,
     whichAssignment: trips
       .filter((t) => t.written && t.match.candidates)
