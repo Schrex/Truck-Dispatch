@@ -496,6 +496,34 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
       // The planned Assignment keeps its own Trips only.
       expect(columns()[0]).toMatchObject({ 'Pick up': 'Walworth Dolomite', '# of loads': '2', 'Trucking hours': '1.88' });
     });
+
+    it('from Randy’s lane, opens his first piece still to answer: after a split and the first part answered, the second', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      choose('split');
+      split();
+      tap('2 Unplanned work', scheduler());
+      expect(within(answer()).getByText(FIRST)).toBeTruthy();
+      tap('Not a haul');
+      save();
+      tap('1 Unplanned work', scheduler());
+      expect(within(answer()).getByText(SECOND)).toBeTruthy();
+    });
+
+    it('from the lane, skips a piece Dave already answered that its answer did not wholly explain', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      choose('split');
+      tap('Answer', screen.getByRole('group', { name: 'Unplanned work' }));
+      tap('Split at 10:10 · Villager → J25008 Los Flamboyanes');
+      // Loaded at Villager: the made Assignment takes the drive there (09:45), not the drive to J611 before it (09:20).
+      tap('Answer', screen.getByRole('group', { name: 'Unplanned work 1' }));
+      tap('Make an Assignment');
+      tap('Villager');
+      tap('Fill');
+      save();
+      expect(unplannedLog().map((line) => line?.match(/out \d\d:\d\d/)?.[0])).toEqual(['out 09:20', 'out 10:10']);
+      tap('2 Unplanned work', scheduler());
+      expect(within(answer()).getByText(/out 10:10/)).toBeTruthy();
+    });
   });
 
   describe('Driver first: two Drivers’ Assignments name Truck 55 (made up: Sam)', () => {

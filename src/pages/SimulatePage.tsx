@@ -62,6 +62,15 @@ export function SimulatePage() {
   const whoDrove = truckDay.driver === null && truckDay.driverCandidates.length > 1 ? truckDay.driverCandidates : null;
   const placeName = (id: string | null, code: string) => REAL_DAY.places.find((p) => p.id === id)?.name ?? code;
   const answer = useCallback((unplannedId: string) => setAnswering(unplannedId), []);
+  /** Truck 55's Unplanned work is on its Driver's lane; while "Who was driving?" is open, on each who fits. */
+  const lanePieces = (driverId: string) =>
+    (truckDay.driver ? truckDay.driver.id === driverId : truckDay.driverCandidates.some((d) => d.id === driverId)) ? day.truckLog.unplanned : [];
+  /** The lane's marker opens the Driver's first piece Dave has not answered yet (else his first). */
+  const openFromLane = (driverId: string) => {
+    const pieces = lanePieces(driverId);
+    const next = pieces.find((w) => !answers.some((a) => a.unplannedId === w.id)) ?? pieces[0];
+    if (next) answer(next.id);
+  };
   const work = day.tripDay.unplanned.find((w) => w.id === answering);
   const shown = day.truckLog.unplanned.find((w) => w.id === answering);
 
@@ -136,9 +145,8 @@ export function SimulatePage() {
                 assignments={day.assignments}
                 drivers={day.drivers}
                 trucks={[REAL_DAY.truck]}
-                // Truck 55's Unplanned work is on its Driver's lane; while "Who was driving?" is open, on each who fits.
-                unplanned={Object.fromEntries((truckDay.driver ? [truckDay.driver] : truckDay.driverCandidates).map((d) => [d.id, day.truckLog.unplanned.length]))}
-                onUnplanned={() => day.truckLog.unplanned[0] && answer(day.truckLog.unplanned[0].id)}
+                unplanned={Object.fromEntries(day.drivers.map((d) => [d.id, lanePieces(d.id).length]))}
+                onUnplanned={openFromLane}
               />
             </section>
             {/* An Assignment made from Unplanned work sends Randy no notice, so it is not on his phone. */}
