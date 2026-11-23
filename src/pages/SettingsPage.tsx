@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ChevronDown, ChevronUp, ClipboardList } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ORDERED_LISTS, type ListName, type OrderedList } from '../../shared/types';
@@ -151,7 +151,7 @@ export function SettingsPage() {
         <Button
           variant="ghost"
           size="sm"
-          className="h-7 w-7 rounded-full p-0"
+          className="h-9 w-9 rounded-full p-0"
           aria-label={`Move ${name} ${by < 0 ? 'up' : 'down'}`}
           title={by < 0 ? 'Earlier in the list' : 'Later in the list'}
           onClick={() => move(spec, list, inUse, index, by)}
@@ -183,9 +183,10 @@ export function SettingsPage() {
           </Link>
         </Button>
       </PageHeader>
-      <main className="container grid gap-4 py-6 lg:grid-cols-2">
+      <main className="container grid items-start gap-4 py-6 lg:grid-cols-2">
         {SECTIONS.map((spec) => (
-          <Fragment key={spec.list}>
+          // Truck problems shares the Trucks cell, so on two columns it sits right under Trucks.
+          <div key={spec.list} className="space-y-4">
           <ListSection
             spec={spec}
             entries={lists[spec.list] ?? null}
@@ -197,7 +198,7 @@ export function SettingsPage() {
           />
           {/* Under Trucks: what Drivers reported wrong with them, for Dave to mark fixed. */}
           {spec.list === 'trucks' && <TruckProblemsSection />}
-          </Fragment>
+          </div>
         ))}
       </main>
       {open && openSpec && (

@@ -133,7 +133,7 @@ export function DriverPage() {
         subtitle={driver && !asking ? driver.name : 'Driver view'}
         back={
           asking ? undefined : (
-            <button type="button" className="py-1 text-base text-muted-foreground hover:text-foreground" onClick={() => setPicking(true)}>
+            <button type="button" className="-ml-2 inline-flex min-h-11 items-center px-2 text-base text-muted-foreground hover:text-foreground" onClick={() => setPicking(true)}>
               ← Drivers
             </button>
           )
@@ -160,12 +160,12 @@ export function DriverPage() {
           </section>
         ) : (
           <>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <Button
                 type="button"
                 variant="outline"
                 size="icon"
-                className="h-12 w-12 shrink-0"
+                className="h-11 w-11 shrink-0"
                 aria-label="Day before"
                 disabled={!date}
                 onClick={() => date && show(addDays(date, -1))}
@@ -180,7 +180,7 @@ export function DriverPage() {
                       key={tab}
                       type="button"
                       size="lg"
-                      className="px-1"
+                      className="px-0.5 text-base font-medium"
                       variant={on ? 'default' : 'ghost'}
                       aria-pressed={on}
                       disabled={!today}
@@ -195,7 +195,7 @@ export function DriverPage() {
                 type="button"
                 variant="outline"
                 size="icon"
-                className="h-12 w-12 shrink-0"
+                className="h-11 w-11 shrink-0"
                 aria-label="Day after"
                 disabled={!date}
                 onClick={() => date && show(addDays(date, 1))}
@@ -285,7 +285,7 @@ function DaySection({
       {shown === undefined && <Loading what="your day" />}
       {shown === null && <p className="text-destructive">Could not load this day. It tries again when you come back to the page.</p>}
       {shown && shown.assignments.length === 0 && (
-        <p className="text-lg text-muted-foreground">Nothing from Dave yet for {weekdayName(shown.date)}.</p>
+        <p className="rounded-lg border border-dashed bg-card p-5 text-lg text-muted-foreground">Nothing from Dave yet for {weekdayName(shown.date)}.</p>
       )}
       {shown?.assignments.map((assignment) => <DriverCard key={assignment.id} assignment={assignment} onDismiss={onDismiss} />)}
     </section>

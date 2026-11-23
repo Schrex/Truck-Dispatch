@@ -27,11 +27,11 @@ export function PageHeader({
     <header className="border-b bg-background">
       <div className="container py-6">
         {back ?? (
-          <a href={HUB_HOME} className="text-sm text-muted-foreground hover:text-foreground">
+          <a href={HUB_HOME} className="-ml-2 inline-flex min-h-11 items-center px-2 text-sm text-muted-foreground hover:text-foreground">
             ← Hub
           </a>
         )}
-        <div className="mt-4 flex flex-wrap items-end justify-between gap-4">
+        <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="font-display text-3xl font-semibold uppercase tracking-wide">{title}</h1>
             <p className="text-sm text-muted-foreground">{subtitle}</p>

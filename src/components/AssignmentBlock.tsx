@@ -47,7 +47,7 @@ const MARKS: Record<Exclude<SinceSent, null>, { word: string; className: string 
 };
 
 /** The mark on a cancelled block, in place of Changed: greyed like the block itself. */
-const CANCELLED = { word: 'Cancelled', className: 'bg-muted text-muted-foreground' };
+const CANCELLED = { word: 'Cancelled', className: 'border border-muted-foreground/40 bg-background text-muted-foreground' };
 
 /** Now while the Truck is on it, Done once it moved on: from the Trip part, never from Dave or the Driver. */
 const TRIP_STATUS: Record<Exclude<AssignmentTripPart['status'], 'none'>, { word: string; className: string }> = {
@@ -193,18 +193,21 @@ export function AssignmentBlock({
       <TripLine part={assignment.trips} />
     </>
   );
+  // A corner button (Assign or Discard) sits in the frame's last row, so only a block that has one is taller.
+  const cornered = assignable || discardable;
   const frame = cn(
-    'block w-full rounded-md border bg-background px-3 py-2 text-left text-sm shadow-sm',
+    'block h-full w-full rounded-md border bg-background px-3 py-2 text-left text-sm shadow-sm',
     draft && 'border-dashed border-muted-foreground/50',
-    (assignable || discardable) && 'pb-12',
-    assignment.cancelledAt && [cancelledText, 'opacity-60'],
+    cornered && 'pb-14',
+    // Its words are struck through on their own; the frame is only greyed, so the Cancelled mark stays readable.
+    assignment.cancelledAt && 'bg-muted/60 text-muted-foreground shadow-none',
   );
   const discard = discardable && onDiscard && (
     <CornerButton label={`Discard ${words}`} variant="outline" icon={Trash2} word="Discard" onTap={() => onDiscard(assignment)} />
   );
   if (!onEdit)
     return discard ? (
-      <li className="relative">
+      <li className="relative h-full">
         <div className={frame}>{body}</div>
         {discard}
       </li>
@@ -212,12 +215,12 @@ export function AssignmentBlock({
       <li className={frame}>{body}</li>
     );
   return (
-    <li className="relative">
+    <li className="relative h-full">
       <button
         type="button"
         aria-label={`Edit ${words}${mark ? ` · ${mark.word}` : ''}`}
         aria-expanded={open}
-        className={cn(frame, 'hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring', open && 'border-primary ring-1 ring-primary')}
+        className={cn(frame, 'flex flex-col items-stretch justify-start hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring', open && 'border-primary ring-1 ring-primary')}
         onClick={() => onEdit(assignment)}
       >
         {body}

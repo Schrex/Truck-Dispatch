@@ -116,19 +116,22 @@ function CheckedIn({ driver, checkIn, onAgain }: { driver: Driver; checkIn: Chec
     }
   };
 
-  const link = 'font-semibold underline underline-offset-4';
   return (
     <section aria-label="Checked in" className="space-y-3 rounded-lg border bg-card p-4 text-lg">
-      <p>
-        Truck {checkIn.truckNumber} · checked in {clockTime(checkIn.doneAt)} ·{' '}
-        <button type="button" className={link} onClick={() => (setReporting(true), setSent(null))}>
-          Report a problem
-        </button>{' '}
-        ·{' '}
-        <button type="button" className={link} onClick={onAgain}>
-          Check in again
-        </button>
+      {/* Read aloud as one line ("Truck 24 · checked in 6:42 · Report a problem · Check in again"); on screen the two are large buttons. */}
+      <p className="font-medium">
+        Truck {checkIn.truckNumber} · checked in {clockTime(checkIn.doneAt)}
+        <span className="sr-only"> · </span>
       </p>
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" variant="outline" size="lg" className="h-12 flex-1 text-lg" onClick={() => (setReporting(true), setSent(null))}>
+          Report a problem
+        </Button>
+        <span className="sr-only"> · </span>
+        <Button type="button" variant="outline" size="lg" className="h-12 flex-1 text-lg" onClick={onAgain}>
+          Check in again
+        </Button>
+      </div>
       {sent && <p role="status" className="text-base text-muted-foreground">Sent to Dave: {sent}</p>}
       {reporting && (
         <form
@@ -298,13 +301,13 @@ function CheckInCard({ driver, today, onCancel, onCheckedIn }: {
         </p>
       )}
       {trucks && (
-        <div role="group" aria-label="Truck" className="flex flex-wrap gap-2">
+        <div role="group" aria-label="Truck" className="grid grid-cols-3 gap-2">
           {trucks.map((truck) => (
             <Button
               key={truck.id}
               type="button"
               size="lg"
-              className="px-4 text-lg"
+              className="h-12 px-2 text-lg"
               variant={truck.id === truckId ? 'default' : 'outline'}
               aria-pressed={truck.id === truckId}
               disabled={saving}
@@ -318,7 +321,7 @@ function CheckInCard({ driver, today, onCancel, onCheckedIn }: {
 
       {id === null ? (
         <div className="flex flex-wrap gap-2">
-          <Button type="button" size="lg" className="text-lg" disabled={!truckId || !items} onClick={() => setId(crypto.randomUUID())}>
+          <Button type="button" size="lg" className="h-14 flex-1 text-xl" disabled={!truckId || !items} onClick={() => setId(crypto.randomUUID())}>
             Start Inspection
           </Button>
           {onCancel && (
@@ -374,7 +377,7 @@ function CheckInCard({ driver, today, onCancel, onCheckedIn }: {
           </label>
           {failure && <p className="text-destructive">{failure}</p>}
           <div className="flex flex-wrap gap-2">
-            <Button type="button" size="lg" className="text-lg" disabled={!complete || saving} onClick={finish}>
+            <Button type="button" size="lg" className="h-14 flex-1 text-xl" disabled={!complete || saving} onClick={finish}>
               {saving && <Loader2 className="h-4 w-4 animate-spin" />}
               Finish
             </Button>

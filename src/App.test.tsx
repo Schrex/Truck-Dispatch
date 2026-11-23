@@ -1094,7 +1094,7 @@ describe('opening an Assignment', () => {
       expect(await screen.findByText(/^Nothing planned for /)).toBeTruthy();
     });
 
-    it('cancels an Assigned one with ✕: it stays in its place, struck through, greyed and marked Cancelled', async () => {
+    it('cancels an Assigned one with ✕: it stays in its place, its words struck through, greyed and marked Cancelled', async () => {
       assignments = [planned(ASSIGNED), planned({ id: 'a2', note: 'Topsoil haul', position: 1, ...ASSIGNED })];
       open('/?date=2026-11-20');
       fireEvent.click(within(await openBlock('Haul stone')).getByRole('button', { name: 'Cancel' }));
@@ -1105,8 +1105,11 @@ describe('opening an Assignment', () => {
       expect(sent).toEqual([{ delete: 'a1' }]);
       // Off the day, so not counted.
       expect(screen.getByText('1 Assignment')).toBeTruthy();
-      expect(frameOf('Haul stone · Cancelled').className).toMatch(/line-through/);
-      expect(frameOf('Haul stone · Cancelled').className).toMatch(/opacity/);
+      // Greyed, with its words struck through but not its Cancelled mark, which stays readable.
+      const frame = frameOf('Haul stone · Cancelled');
+      expect(frame.className).toMatch(/bg-muted/);
+      expect(within(frame).getByText('Haul stone').className).toMatch(/line-through/);
+      expect(within(frame).getByText('Cancelled').closest('.line-through')).toBeNull();
     });
 
     it('opens a cancelled Assignment only to Put back, which restores it, marked Changed', async () => {

@@ -3,7 +3,7 @@ import { Loader2, X } from 'lucide-react';
 import type { AssignmentTripPart, DriverAssignment, SinceSent } from '../../shared/types';
 import { easternTime } from '../../shared/days';
 import { Button } from '@/components/ui/button';
-import { cancelledText, cn, loadsText, shownTripPart } from '@/lib/utils';
+import { cn, loadsText, shownTripPart } from '@/lib/utils';
 
 /** Whose changes the Driver is told about: the dispatcher, by name, as he knows him. */
 const DISPATCHER = 'Dave';
@@ -73,45 +73,47 @@ export function DriverCard({
   const { materialName, fromPlaceName, toPlaceName, foremanName, note, cancelledAt, sinceSent, was } = assignment;
   const mark = cancelledAt ? CANCELLED : sinceSent && MARKS[sinceSent];
   const truck = truckLine(assignment);
+  const struck = cancelledAt && 'line-through';
   return (
     <article
       aria-label={materialName ?? 'Assignment'}
-      className={cn('rounded-lg border bg-card p-5 text-card-foreground shadow-sm', cancelledAt && 'bg-muted')}
+      className={cn('rounded-lg border bg-card p-5 text-card-foreground shadow-sm', cancelledAt && 'border-destructive/40 bg-muted')}
     >
       {(mark || (cancelledAt && onDismiss)) && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          {mark && <p className={cn('inline-block rounded px-2 py-1 text-base font-semibold', mark.className)}>{mark.word}</p>}
+          {mark && <p className={cn('inline-block rounded px-2 py-1.5 text-base font-semibold', mark.className)}>{mark.word}</p>}
           {cancelledAt && onDismiss && <DismissButton onDismiss={() => onDismiss(assignment)} />}
         </div>
       )}
-      <div className={cn('space-y-3', cancelledAt && cancelledText)}>
+      {/* On a cancelled card the values are struck through, not the labels beside them. */}
+      <div className={cn('space-y-3', cancelledAt && 'text-muted-foreground')}>
         <TripLine part={assignment.trips} />
-        <p className="text-2xl font-semibold">
+        <p className={cn('text-2xl font-semibold', struck)}>
           {materialName ?? 'No Material named'}
           <Was value={was.materialName} />
         </p>
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-lg">
           <dt className="text-muted-foreground">Pick up</dt>
-          <dd className="font-medium">{fromPlaceName ?? '–'}</dd>
+          <dd className={cn('font-medium', struck)}>{fromPlaceName ?? '–'}</dd>
           {'fromPlaceName' in was && <dd className="col-start-2 -mt-2"><Was value={was.fromPlaceName} /></dd>}
           <dt className="text-muted-foreground">Drop off</dt>
-          <dd className="font-medium">{toPlaceName ?? '–'}</dd>
+          <dd className={cn('font-medium', struck)}>{toPlaceName ?? '–'}</dd>
           {'toPlaceName' in was && <dd className="col-start-2 -mt-2"><Was value={was.toPlaceName} /></dd>}
           {(foremanName || 'foremanName' in was) && (
             <>
               <dt className="text-muted-foreground">Foreman</dt>
-              <dd className="font-medium">{foremanName ?? '–'}</dd>
+              <dd className={cn('font-medium', struck)}>{foremanName ?? '–'}</dd>
               {'foremanName' in was && <dd className="col-start-2 -mt-2"><Was value={was.foremanName} /></dd>}
             </>
           )}
         </dl>
         {(note || 'note' in was) && (
-          <p className="whitespace-pre-line text-lg">
+          <p className={cn('whitespace-pre-line text-lg', struck)}>
             {note}
             <Was value={was.note} />
           </p>
         )}
-        {truck && <p className="text-lg font-semibold">{truck}</p>}
+        {truck && <p className={cn('text-lg font-semibold', struck)}>{truck}</p>}
       </div>
     </article>
   );

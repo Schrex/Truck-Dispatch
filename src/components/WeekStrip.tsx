@@ -83,13 +83,13 @@ export function WeekStrip({
   return (
     <nav aria-label="Week" className="space-y-2">
       <div className="flex items-center gap-1">
-        <Button variant="ghost" size="icon" className="h-9 w-9" aria-label="Previous week" onClick={() => onShow(addDays(date, -7))}>
+        <Button variant="ghost" size="icon" className="h-11 w-11" aria-label="Previous week" onClick={() => onShow(addDays(date, -7))}>
           <ChevronLeft className="h-4 w-4" />
         </Button>
         <p role="status" aria-label="Week shown" className="min-w-[8.5rem] text-center text-sm font-medium">
           {weekSpan(monday)}
         </p>
-        <Button variant="ghost" size="icon" className="h-9 w-9" aria-label="Next week" onClick={() => onShow(addDays(date, 7))}>
+        <Button variant="ghost" size="icon" className="h-11 w-11" aria-label="Next week" onClick={() => onShow(addDays(date, 7))}>
           <ChevronRight className="h-4 w-4" />
         </Button>
       </div>
@@ -111,7 +111,8 @@ export function WeekStrip({
                   'flex h-full min-h-[4.5rem] w-full flex-col items-start gap-0.5 rounded-md border px-3 py-2 text-left transition-colors',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
                   chosen ? 'border-primary bg-primary text-primary-foreground' : 'bg-background hover:bg-muted',
-                  day === today && 'ring-2 ring-primary ring-offset-2 ring-offset-background',
+                  // Today is marked quietly, so the chosen day's solid fill is the one signal of what is shown.
+                  day === today && !chosen && 'border-2 border-primary',
                 )}
               >
                 <span className="text-sm font-semibold">{label}</span>
