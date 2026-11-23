@@ -364,6 +364,22 @@ describe('Trucks', () => {
     expect(((await cleared.json()) as { truck: Entry }).truck).toMatchObject({ number: '30', hcssCode: null, hcssGuid: null });
   });
 
+  it('refuse an HCSS code another active Truck has, ignoring case, with a message on the HCSS code', async () => {
+    const taken = { hcssCode: 'This HCSS code is on Truck 21 already. Clear it there first.' };
+    expect(await refusal(await post('/api/trucks', { number: '30', hcssCode: 'sample-21' }))).toEqual(taken);
+    expect(await refusal(await send('PATCH', '/api/trucks/trk-24', { hcssCode: ' SAMPLE-21 ' }))).toEqual(taken);
+    // The Truck that has it can save it again.
+    expect((await send('PATCH', '/api/trucks/trk-21', { hcssCode: 'SAMPLE-21' })).status).toBe(200);
+  });
+
+  it('accept an HCSS code held only by a removed Truck, and refuse to bring that Truck back while another has it', async () => {
+    await send('PATCH', '/api/trucks/trk-21', { active: false });
+    expect((await send('PATCH', '/api/trucks/trk-24', { hcssCode: 'SAMPLE-21' })).status).toBe(200);
+    expect(await refusal(await send('PATCH', '/api/trucks/trk-21', { active: true }))).toEqual({
+      hcssCode: 'This HCSS code is on Truck 24 already. Clear it there first.',
+    });
+  });
+
 
   it('list the seeded Trucks by number, with their HCSS code and id', async () => {
     const response = await get('/api/trucks');

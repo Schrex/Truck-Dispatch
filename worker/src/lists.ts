@@ -79,7 +79,13 @@ export const LISTS: Record<ListName, List> = {
     one: 'truck',
     name: { key: 'number', column: 'number', missing: 'Write the Truck\'s number.', taken: 'There is already a Truck with this number.' },
     fields: [
-      { key: 'hcssCode', column: 'hcss_code', kind: 'text' },
+      // An Import finds its Truck by this code, so two active Trucks may not share it.
+      {
+        key: 'hcssCode',
+        column: 'hcss_code',
+        kind: 'text',
+        uniqueAmongActive: (holder) => `This HCSS code is on Truck ${holder} already. Clear it there first.`,
+      },
       { key: 'hcssGuid', column: 'hcss_guid', kind: 'text' },
     ],
   },

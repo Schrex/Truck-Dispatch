@@ -33,7 +33,7 @@ const FORMATS: FleetExportFormat[] = ['json', 'xlsx'];
 /**
  * Where Imports are allowed (an allow-list: anything else, unset included, is
  * refused), so the unauthenticated Worker can't be fed a real Truck's data in
- * production. ADR 0008 allows one real Truck's data on staging.
+ * production. ADR 0008 (PR #82) allows one real Truck's data on staging.
  */
 const IMPORTS_ALLOWED_IN = ['local', 'preview', 'staging', 'test'];
 

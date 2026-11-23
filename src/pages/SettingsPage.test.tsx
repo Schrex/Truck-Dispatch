@@ -82,6 +82,9 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   // Like the Worker, a geofence code another active Place has is refused, and On the truck map follows from it.
   const holder = list === 'places' && body.geofenceCode ? entries.find((e) => e.id !== id && e.active && String(e.geofenceCode).toLowerCase() === body.geofenceCode.toLowerCase()) : undefined;
   if (holder) return answer({ error: 'invalid', fields: { geofenceCode: `This geofence code is on ${holder.shortName} already. Clear it there first.` } }, 400);
+  // Like the Worker, an HCSS code another active Truck has is refused.
+  const truckHolder = list === 'trucks' && body.hcssCode ? entries.find((e) => e.id !== id && e.active && String(e.hcssCode).toLowerCase() === body.hcssCode.toLowerCase()) : undefined;
+  if (truckHolder) return answer({ error: 'invalid', fields: { hcssCode: `This HCSS code is on Truck ${truckHolder.number} already. Clear it there first.` } }, 400);
   const onMap = list === 'places' && 'geofenceCode' in body ? { onTruckMap: !!body.geofenceCode } : {};
   if (method === 'POST' && !body[name]) return answer({ error: 'invalid', fields: { [name]: 'Write its name.' } }, 400);
   if (method === 'POST' && named) {
@@ -350,6 +353,15 @@ describe('Settings', () => {
       save(panel);
       await closed();
       expect(sent).toEqual([{ method: 'PATCH', path: '/api/trucks/trk-21', body: { hcssCode: null } }]);
+    });
+
+    it('shows why an HCSS code another Truck has is refused, next to that field', async () => {
+      await settings();
+      const panel = open('Trucks', '24');
+      type(panel, /HCSS code/, 'sample-21');
+      save(panel);
+      const message = await within(panel).findByText('This HCSS code is on Truck 21 already. Clear it there first.');
+      expect(message.closest('div')?.querySelector('input')).toBe(within(panel).getByLabelText(/HCSS code/));
     });
 
     it('is added with a number alone, as before', async () => {
