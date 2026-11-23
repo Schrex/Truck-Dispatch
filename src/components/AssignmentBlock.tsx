@@ -46,6 +46,12 @@ const MARKS: Record<Exclude<SinceSent, null>, { word: string; className: string 
   added: { word: 'Added', className: 'bg-success text-success-foreground' },
 };
 
+/**
+ * The mark on an Assignment Dave made afterwards from Unplanned work: outlined,
+ * not green, because it was Assigned after the fact and is never Added.
+ */
+const FROM_THE_TRUCK = { word: 'From the Truck', className: 'border border-foreground/40 bg-background text-foreground' };
+
 /** The mark on a cancelled block, in place of Changed: greyed like the block itself. */
 const CANCELLED = { word: 'Cancelled', className: 'border border-muted-foreground/40 bg-background text-muted-foreground' };
 
@@ -172,6 +178,12 @@ export function AssignmentBlock({
             <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold leading-4', mark.className)}>{mark.word}</span>
           </>
         )}
+        {assignment.fromTheTruck && (
+          <>
+            {SEPARATOR}
+            <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold leading-4', FROM_THE_TRUCK.className)}>{FROM_THE_TRUCK.word}</span>
+          </>
+        )}
       </span>
       {SEPARATOR}
       <span className={cn('block whitespace-pre-line font-medium', !title && 'font-normal text-muted-foreground', assignment.cancelledAt && cancelledText)}>
@@ -218,7 +230,7 @@ export function AssignmentBlock({
     <li className="relative h-full animate-rise">
       <button
         type="button"
-        aria-label={`Edit ${words}${mark ? ` · ${mark.word}` : ''}`}
+        aria-label={`Edit ${words}${mark ? ` · ${mark.word}` : ''}${assignment.fromTheTruck ? ` · ${FROM_THE_TRUCK.word}` : ''}`}
         aria-expanded={open}
         className={cn(
           frame,

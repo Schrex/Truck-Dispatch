@@ -25,6 +25,9 @@ _Avoid_: edited, updated
 **Added**:
 An Assignment that Dave Assigned on its own day, or that was given to a Driver from another Driver after it was Assigned. The Driver sees it marked "Added by Dave". Work Assigned before its day is never Added.
 
+**From the Truck**:
+An Assignment Dave made afterwards from Unplanned work, saying where it loaded and the Material. It is Assigned at once, never Added, and its Driver gets no notice. The rules count only the Trips of that Unplanned work for it.
+
 **Working day**:
 A weekday that is not one of the six Holidays (New Year's Day, Memorial Day, Independence Day, Labor Day, Thanksgiving, Christmas), the same as the Daily Schedule's. The board opens on the next one. Weekends and Holidays can still be planned.
 

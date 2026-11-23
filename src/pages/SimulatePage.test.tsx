@@ -64,7 +64,8 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
     render(<SimulatePage />, { wrapper: MemoryRouter });
     expect(screen.getAllByRole('slider').map((s) => s.getAttribute('aria-label'))).toEqual(['Clock']);
     expect(screen.getAllByRole('combobox').map((s) => s.getAttribute('aria-label'))).toEqual(['Scenario']);
-    expect(screen.getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['Play the day']);
+    // And the Unplanned work's, to answer it from Randy's lane or from the Truck log.
+    expect(screen.getAllByRole('button').map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual(['Play the day', '1 Unplanned work', 'Answer']);
     // Its way back is the Board button, as from Settings; "← Hub" top left, as on every page.
     expect(screen.getAllByRole('link').map((l) => l.textContent?.trim())).toEqual(['← Hub', 'Board']);
     expect(within(screen.getByRole('combobox', { name: 'Scenario' })).getAllByRole('option').map((o) => o.textContent)).toEqual([
@@ -275,6 +276,121 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
         ['14:15', 'for Dave', '–'],
         ['14:33', 'for Dave', '–'],
       ]);
+    });
+  });
+
+  describe('Make an Assignment: Dave answers the Unplanned work', () => {
+    const answer = () => screen.getByRole('dialog', { name: 'Unplanned work' });
+    const tap = (name: string, inside: HTMLElement = answer()) => fireEvent.click(within(inside).getByRole('button', { name }));
+    const row = (name: string) => within(answer()).getByRole('group', { name });
+    const save = () => within(answer()).getByRole('button', { name: 'Save' }) as HTMLButtonElement;
+    /** Open the answer from the Truck log's Unplanned work box, and choose Make an Assignment. */
+    const openFromTruckLog = () => {
+      tap('Answer', screen.getByRole('group', { name: 'Unplanned work' }));
+      tap('Make an Assignment');
+    };
+    const A3_COLUMN = {
+      Job: 'J25008 Los Flamboyanes',
+      'Pick up': 'J611 Bishop Kearney',
+      'Drop off': 'J25008 Los Flamboyanes',
+      Material: 'Top soil',
+      '# of loads': '1',
+      '# of tons': 'from Tickets',
+      'Trucking hours': '0.46',
+    };
+
+    it('asks where he loaded, one tap per Place of the piece, and the Material from the list or typed', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      openFromTruckLog();
+      expect(within(answer()).getByText('J25008 Los Flamboyanes ⇄ J611 Bishop Kearney · out 14:15, back 14:33 · 0.46 h')).toBeTruthy();
+      expect(within(row('Where did he load?')).getAllByRole('button').map((b) => b.textContent)).toEqual(['J25008 Los Flamboyanes', 'J611 Bishop Kearney']);
+      expect(within(row('Material')).getAllByRole('button').map((b) => b.textContent)).toEqual(['Fill', '1&2 stone', 'Top soil', 'Or type it']);
+    });
+
+    it('as planned, "loaded at J611 Bishop Kearney" and "Top soil" make Assignment 3, From the Truck, and the Unplanned work is gone', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      openFromTruckLog();
+      tap('J611 Bishop Kearney');
+      tap('Top soil');
+      fireEvent.click(save());
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(unplannedLog()).toEqual([]);
+      expect(laneUnplanned()).toBeNull();
+      expect(columnNames()).toEqual(['Assignment 1', 'Assignment 2', 'Assignment 3 · From the Truck']);
+      expect(columns()[2]).toEqual(A3_COLUMN);
+      // Assigned, not Added: on the lane it is marked From the Truck and nothing else.
+      expect(randy()[2]).toBe('Then · From the Truck · J611 Bishop Kearney → J25008 Los Flamboyanes · Top soil · Truck 55 (his own) · 1 Load · Done · since 14:15');
+      expect(within(scheduler()).queryByText('Added')).toBeNull();
+      // Randy gets no notice: it is not on his phone.
+      expect(cards()).toHaveLength(2);
+    });
+
+    it('after that answer the Trip log reads 14:15 empty, to its pickup, and 14:33 the Load, both A3’s', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      openFromTruckLog();
+      tap('J611 Bishop Kearney');
+      tap('Top soil');
+      fireEvent.click(save());
+      expect(tripLog().filter((r) => r[0] === '14:15' || r[0] === '14:33').map((r) => [r[0], r[3], r[4], r[5]])).toEqual([
+        ['14:15', 'empty', 'A3', 'Going to the Assignment’s pickup'],
+        ['14:33', 'load', 'A3', 'From and To match the Assignment'],
+      ]);
+    });
+
+    it('"loaded at J25008", from the lane, gives the opposite route, and 14:15 becomes the Load', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      tap('1 Unplanned work', scheduler());
+      tap('Make an Assignment');
+      tap('J25008 Los Flamboyanes');
+      tap('Top soil');
+      fireEvent.click(save());
+      expect(columns()[2]).toMatchObject({ Job: 'J611 Bishop Kearney', 'Pick up': 'J25008 Los Flamboyanes', 'Drop off': 'J611 Bishop Kearney', '# of loads': '1' });
+      expect(tripLog().filter((r) => r[0] === '14:15' || r[0] === '14:33').map((r) => [r[0], r[3], r[4]])).toEqual([
+        ['14:15', 'load', 'A3'],
+        ['14:33', 'empty', 'A3'],
+      ]);
+    });
+
+    it('cannot be saved without both the load Place and the Material', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      openFromTruckLog();
+      expect(save().disabled).toBe(true);
+      tap('J611 Bishop Kearney');
+      expect(save().disabled).toBe(true);
+      tap('J611 Bishop Kearney');
+      tap('Top soil');
+      expect(save().disabled).toBe(true);
+      tap('Or type it');
+      expect(save().disabled).toBe(true);
+      tap('J25008 Los Flamboyanes');
+      fireEvent.change(within(answer()).getByRole('textbox', { name: 'Material, typed' }), { target: { value: '  ' } });
+      expect(save().disabled).toBe(true);
+      fireEvent.change(within(answer()).getByRole('textbox', { name: 'Material, typed' }), { target: { value: 'Mulch' } });
+      expect(save().disabled).toBe(false);
+      fireEvent.click(save());
+      expect(columns()[2]).toMatchObject({ 'Pick up': 'J25008 Los Flamboyanes', Material: 'Mulch' });
+    });
+
+    it('Cancel leaves the Unplanned work as it was', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      openFromTruckLog();
+      tap('J611 Bishop Kearney');
+      tap('Cancel');
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(unplannedLog()).toHaveLength(1);
+      expect(columnNames()).toEqual(['Assignment 1', 'Assignment 2']);
+    });
+
+    it('changing the scenario resets the answer', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      openFromTruckLog();
+      tap('J611 Bishop Kearney');
+      tap('Top soil');
+      fireEvent.click(save());
+      choose('other-way');
+      choose('planned');
+      expect(columnNames()).toEqual(['Assignment 1', 'Assignment 2']);
+      expect(unplannedLog()).toEqual(['J25008 Los Flamboyanes ⇄ J611 Bishop Kearney · out 14:15, back 14:33 · 0.46 h']);
     });
   });
 

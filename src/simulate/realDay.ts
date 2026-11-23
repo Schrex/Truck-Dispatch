@@ -110,6 +110,8 @@ export const REAL_DAY = {
     { id: 'job-j611', jobNumber: 'J611', name: 'Bishop Kearney' },
   ] satisfies TripJob[] as TripJob[],
   visits: VISITS,
+  /** The Materials Dave picks from when he answers Unplanned work ("or type it" for another). */
+  materials: ['Fill', '1&2 stone', 'Top soil'],
   /** The meter readings around the day: 258,050.59 read 15 Nov 21:41 ET, 258,212.20 read 16 Nov 22:12 ET. */
   meter: { startOdometer: 258050.59, endOdometer: 258212.2, endReadAt: '2026-11-17T03:12:00Z' },
   /** From the ping history: Ignition On 06:19:40, Ignition Off 16:12:45 US Eastern. */

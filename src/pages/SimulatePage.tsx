@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ClipboardList, Pause, Play } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Lanes } from '@/components/Lanes';
 import { PageHeader } from '@/components/PageHeader';
 import { TruckLog } from '@/components/TruckLog';
-import { TruckLogAssignments } from '@/components/TruckLogAssignments';
+import { TruckLogAssignments, unplannedLine } from '@/components/TruckLogAssignments';
 import { Button } from '@/components/ui/button';
 import { DriverView } from '@/simulate/DriverView';
 import { TripLog } from '@/simulate/TripLog';
+import { UnplannedAnswerFlow } from '@/simulate/UnplannedAnswerFlow';
+import type { UnplannedAnswer } from '@/simulate/answers';
 import { REAL_DAY } from '@/simulate/realDay';
 import { DAY_END, clockTime, simulateAt } from '@/simulate/simulate';
 
@@ -24,12 +26,17 @@ const PLAY_FROM = 4 * 60;
  * real board lanes) and the Driver view (his Today on the real Driver cards)
  * and the Truck log (the paper Daily Truck Log: header, one column per
  * Assignment, and the Unplanned work), each with what the
- * Trip builder works out at the clock's time. Nothing is saved and the Worker is not asked.
+ * Trip builder works out at the clock's time. Dave answers the Unplanned work
+ * from the lane or the Truck log; the answers are held here, in memory, and
+ * a new scenario starts with none. Nothing is saved and the Worker is not asked.
  */
 export function SimulatePage() {
   const [scenarioId, setScenarioId] = useState(REAL_DAY.scenarios[0].id);
   const [clock, setClock] = useState(DAY_END);
   const [playing, setPlaying] = useState(false);
+  const [answers, setAnswers] = useState<UnplannedAnswer[]>([]);
+  /** The piece of Unplanned work being answered (its id); null when none is. */
+  const [answering, setAnswering] = useState<string | null>(null);
 
   useEffect(() => {
     if (!playing) return;
@@ -44,7 +51,10 @@ export function SimulatePage() {
   }, [playing]);
 
   const scenario = REAL_DAY.scenarios.find((s) => s.id === scenarioId) ?? REAL_DAY.scenarios[0];
-  const day = useMemo(() => simulateAt(scenario, clock), [scenario, clock]);
+  const day = useMemo(() => simulateAt(scenario, clock, answers), [scenario, clock, answers]);
+  const answer = useCallback((unplannedId: string) => setAnswering(unplannedId), []);
+  const work = day.tripDay.unplanned.find((w) => w.id === answering);
+  const shown = day.truckLog.unplanned.find((w) => w.id === answering);
 
   return (
     <div className="min-h-screen bg-surface">
@@ -54,7 +64,12 @@ export function SimulatePage() {
           <select
             aria-label="Scenario"
             value={scenario.id}
-            onChange={(e) => setScenarioId(e.target.value)}
+            onChange={(e) => {
+              setScenarioId(e.target.value);
+              // The answers were to this scenario's Unplanned work: a new scenario starts with none.
+              setAnswers([]);
+              setAnswering(null);
+            }}
             className="h-11 rounded-md border border-input bg-background px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {REAL_DAY.scenarios.map((s) => (
@@ -113,21 +128,41 @@ export function SimulatePage() {
                 trucks={[REAL_DAY.truck]}
                 // Randy drove Truck 55 all day, so all its Unplanned work is on his lane.
                 unplanned={{ [REAL_DAY.driver.id]: day.truckLog.unplanned.length }}
+                onUnplanned={() => day.truckLog.unplanned[0] && answer(day.truckLog.unplanned[0].id)}
               />
             </section>
-            <DriverView driverName={REAL_DAY.driver.name} date={REAL_DAY.date} assignments={day.assignments} />
+            {/* An Assignment made from Unplanned work sends Randy no notice, so it is not on his phone. */}
+            <DriverView driverName={REAL_DAY.driver.name} date={REAL_DAY.date} assignments={day.assignments.filter((a) => !a.fromTheTruck)} />
           </div>
           <div className="min-w-0">
             <TripLog
               trips={day.tripDay.trips}
               places={REAL_DAY.places}
-              assignmentLabels={Object.fromEntries(scenario.assignments.map((a) => [a.id, a.label]))}
+              assignmentLabels={day.labels}
             />
           </div>
         </div>
         <TruckLog truck={REAL_DAY.truck} date={REAL_DAY.date} truckDay={day.tripDay.truckDay}>
-          <TruckLogAssignments columns={day.truckLog.columns} unplanned={day.truckLog.unplanned} shopTrips={day.truckLog.shopTrips} />
+          <TruckLogAssignments columns={day.truckLog.columns} unplanned={day.truckLog.unplanned} shopTrips={day.truckLog.shopTrips} onAnswer={answer} />
         </TruckLog>
+        {work && shown && (
+          <UnplannedAnswerFlow
+            work={{
+              id: work.id,
+              line: unplannedLine(shown),
+              places: work.places.flatMap((p) => {
+                const place = REAL_DAY.places.find((x) => x.id === p.placeId);
+                return place ? [{ id: place.id, name: place.name }] : [];
+              }),
+            }}
+            materials={REAL_DAY.materials}
+            onSave={(next) => {
+              setAnswers((all) => [...all.filter((a) => a.unplannedId !== next.unplannedId), next]);
+              setAnswering(null);
+            }}
+            onClose={() => setAnswering(null)}
+          />
+        )}
       </main>
     </div>
   );

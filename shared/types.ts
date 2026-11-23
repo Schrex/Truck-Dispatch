@@ -212,6 +212,12 @@ export interface Assignment {
    * board block and Driver card look as they always have without it.
    */
   trips?: AssignmentTripPart;
+  /**
+   * Made by Dave afterwards from Unplanned work ("Make an Assignment"):
+   * Assigned, never Added, and its Driver gets no notice. Optional: only the
+   * simulation makes these so far; absent means false.
+   */
+  fromTheTruck?: boolean;
 }
 
 /** Whether the Truck is working on an Assignment now, has finished it, or has made no Trip for it. */

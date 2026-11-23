@@ -131,6 +131,7 @@ function inLane(assignments: Assignment[], openId: string | null | undefined): I
  * Without them the lanes are read-only.
  * With unplanned, a Driver's lane with Unplanned work that day says how many
  * pieces after his blocks ("1 Unplanned work"); with none the lane is as before.
+ * With onUnplanned as well, that marker is a button that opens the answer.
  * On a phone a lane's blocks stack under the Driver; from an iPad in portrait
  * up, the Driver sits on the left and the blocks run beside him.
  */
@@ -150,6 +151,7 @@ export function Lanes({
   composingFor,
   composer,
   unplanned,
+  onUnplanned,
 }: {
   assignments: Assignment[];
   drivers: Driver[] | null;
@@ -175,6 +177,8 @@ export function Lanes({
   composer?: ReactNode;
   /** How many pieces of Unplanned work each Driver (by id) has that day; only the simulation gives it so far. */
   unplanned?: Record<string, number>;
+  /** Dave taps a Driver's Unplanned work marker (by the Driver's id) to answer it. */
+  onUnplanned?: (driverId: string) => void;
 }) {
   const jobSites = new Set((places ?? []).filter((p) => p.kind === 'job_site').map((p) => p.id));
   return (
@@ -260,9 +264,19 @@ export function Lanes({
                   <div className="space-y-2 md:flex-1">
                     {lane.assignments.length > 0 && blocks(false)}
                     {/* Amber, as the Truck log's Unplanned work box: for Dave to answer (docs/design/ui-standards.md). */}
-                    <p className="inline-flex rounded-md border border-warning bg-warning/10 px-3 py-2 text-sm font-semibold">
-                      {unplannedCount} Unplanned work
-                    </p>
+                    {onUnplanned && lane.driverId ? (
+                      <button
+                        type="button"
+                        className="lift inline-flex h-11 items-center rounded-md border border-warning bg-warning/10 px-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        onClick={() => onUnplanned(lane.driverId!)}
+                      >
+                        {unplannedCount} Unplanned work
+                      </button>
+                    ) : (
+                      <p className="inline-flex rounded-md border border-warning bg-warning/10 px-3 py-2 text-sm font-semibold">
+                        {unplannedCount} Unplanned work
+                      </p>
+                    )}
                   </div>
                 );
               })()}

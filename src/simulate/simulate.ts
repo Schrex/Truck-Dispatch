@@ -7,6 +7,7 @@
 import type { Assignment } from '../../shared/types';
 import { buildTripDay, routeAt, type AssignmentTrips, type TripDay, type TripJob, type TruckLogColumn, type TruckLogTrip, type TruckLogUnplanned } from '../../shared/trips';
 import { REAL_DAY, easternIso, type PlannedAssignment, type Scenario } from './realDay';
+import { tripAnswers, type PlannedMadeAssignment, type UnplannedAnswer } from './answers';
 
 /** The last minute of the day: the clock's end, when the day is over. */
 export const DAY_END = 23 * 60 + 59;
@@ -16,12 +17,16 @@ export const clockTime = (minutes: number) => `${String(Math.floor(minutes / 60)
 
 /** Dave Assigned the day the evening before (17:00 ET on Sun 15 Nov). */
 const ASSIGNED_AT = '2026-11-15T22:00:00Z';
+/** Dave answers the Unplanned work next morning (08:00 ET on Tue 17 Nov). */
+const ANSWERED_AT = '2026-11-17T13:00:00Z';
 
 export interface SimulatedDay {
   /** Everything the Trip builder knows at the clock's time, for the Truck log (#60, #61). */
   tripDay: TripDay;
-  /** Randy's Assignments in Dave's order, as GET api/assignments would send them, with their Trip parts. */
+  /** Randy's Assignments in Dave's order, then the ones Dave made from Unplanned work, as GET api/assignments would send them, with their Trip parts. */
   assignments: Assignment[];
+  /** Each Assignment's label ("A1", "A3") by its id, for the Trip log. */
+  labels: Record<string, string>;
   /** The Truck log's body: one column per Assignment, then the Unplanned work, and the drives to and from the shop. */
   truckLog: { columns: TruckLogColumn[]; unplanned: TruckLogUnplanned[]; shopTrips: TruckLogTrip[] };
 }
@@ -30,7 +35,10 @@ const placeName = (id: string | null) => REAL_DAY.places.find((p) => p.id === id
 const jobName = (job: TripJob | null) => (job ? [job.jobNumber, job.name].filter(Boolean).join(' ') : null);
 
 /** One planned Assignment as the API sends it at `now`: its route as it was then, Changed once Dave changed it. */
-function asAssignment(planned: PlannedAssignment, position: number, now: string, trips: AssignmentTrips | undefined): Assignment {
+function asAssignment(planned: PlannedAssignment | PlannedMadeAssignment, position: number, now: string, trips: AssignmentTrips | undefined): Assignment {
+  // Made afterwards from Unplanned work: Assigned when Dave answered, never Added or Changed.
+  const made = 'unplannedId' in planned;
+  const assignedAt = made ? ANSWERED_AT : ASSIGNED_AT;
   const route = routeAt(planned, now);
   const before = (at: string) => Date.parse(at) <= Date.parse(now);
   const changed = planned.changes.map((c) => c.changedAt).filter(before).sort().at(-1) ?? null;
@@ -58,25 +66,31 @@ function asAssignment(planned: PlannedAssignment, position: number, now: string,
     foremanName: null,
     note: null,
     position,
-    createdAt: ASSIGNED_AT,
-    updatedAt: changed ?? ASSIGNED_AT,
+    createdAt: assignedAt,
+    updatedAt: changed ?? assignedAt,
     changedAt: changed,
     cancelledAt: planned.cancelledAt && before(planned.cancelledAt) ? planned.cancelledAt : null,
-    assignedAt: ASSIGNED_AT,
+    assignedAt,
     handedFromId: null,
     sinceSent: changed ? 'changed' : null,
     trips: part,
+    ...(made && { fromTheTruck: true }),
   };
 }
 
-/** The real day under one scenario at `minutes` past midnight, US Eastern. */
-export function simulateAt(scenario: Scenario, minutes: number): SimulatedDay {
+/** The real day under one scenario, with Dave's answers to its Unplanned work, at `minutes` past midnight, US Eastern. */
+export function simulateAt(scenario: Scenario, minutes: number, answers: UnplannedAnswer[] = []): SimulatedDay {
   // The Worker knows the whole of the clock's minute.
   const now = easternIso(REAL_DAY.date, `${clockTime(minutes)}:59`);
+  // Dave answers the whole day's Unplanned work, so a made Assignment keeps its route whatever the clock shows.
+  const wholeDay = answers.length === 0 ? [] : buildTripDay({ places: REAL_DAY.places, visits: REAL_DAY.visits, assignments: scenario.assignments, now: easternIso(REAL_DAY.date, '23:59:59'), dayOver: true }).unplanned;
+  const answered = tripAnswers(answers, wholeDay, scenario.assignments.length);
+  const all = [...scenario.assignments, ...answered.made];
   const tripDay = buildTripDay({
     places: REAL_DAY.places,
     visits: REAL_DAY.visits,
     assignments: scenario.assignments,
+    answers: answered.input,
     now,
     // The reading before the day exists all day; the one after it only once it was taken (22:12 that evening).
     meter: {
@@ -91,10 +105,10 @@ export function simulateAt(scenario: Scenario, minutes: number): SimulatedDay {
     truck: {
       id: REAL_DAY.truck.id,
       drivers: [REAL_DAY.driver],
-      assignments: scenario.assignments.map(() => ({ driverId: REAL_DAY.driver.id, truckId: null })),
+      assignments: all.map(() => ({ driverId: REAL_DAY.driver.id, truckId: null })),
     },
   });
-  const assignments = scenario.assignments.map((planned, i) =>
+  const assignments = all.map((planned, i) =>
     asAssignment(planned, i, now, tripDay.assignments.find((t) => t.assignmentId === planned.id)),
   );
   const columns = assignments.map((a): TruckLogColumn => {
@@ -108,6 +122,7 @@ export function simulateAt(scenario: Scenario, minutes: number): SimulatedDay {
       loads: trips?.loads ?? 0,
       tons: trips?.tons ?? null,
       truckingHours: trips?.truckingHours ?? null,
+      ...(a.fromTheTruck && { fromTheTruck: true }),
     };
   });
   // The Unplanned work: its Places and times only. Which way material went, Dave says.
@@ -128,5 +143,6 @@ export function simulateAt(scenario: Scenario, minutes: number): SimulatedDay {
       miles: t.miles,
     }),
   );
-  return { tripDay, assignments, truckLog: { columns, unplanned, shopTrips } };
+  const labels = Object.fromEntries(all.map((a) => [a.id, a.label]));
+  return { tripDay, assignments, labels, truckLog: { columns, unplanned, shopTrips } };
 }
