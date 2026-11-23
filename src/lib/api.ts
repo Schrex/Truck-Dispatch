@@ -186,3 +186,8 @@ export async function fetchTruckProblems(): Promise<TruckProblem[]> {
 export async function fixTruckProblem(id: string, note?: string): Promise<TruckProblem> {
   return (await request<{ problem: TruckProblem }>(`api/truck-problems/${encodeURIComponent(id)}/fix`, json('POST', note ? { note } : {}))).problem;
 }
+
+/** Report a problem: a Driver reports one during the day on the Truck of his latest check-in today. */
+export async function reportTruckProblem(report: { driverId: string; truckId: string; text: string }): Promise<TruckProblem> {
+  return (await request<{ problem: TruckProblem }>('api/truck-problems', json('POST', report))).problem;
+}
