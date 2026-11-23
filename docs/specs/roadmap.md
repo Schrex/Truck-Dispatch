@@ -4,7 +4,7 @@ Status: draft, last updated 23 Nov 2026. This is the order of work in very small
 
 Legend: ✅ done · 🟡 in review · ⬜ to do · ⛔ blocked
 
-**Now:** phase 1 is built and on staging. Phase 2 is specified and ticketed (#48–#54); building starts with steps 2.1 and 2.2. Steps 1.8 and 1.9 are still open.
+**Now:** phase 1 is built and on staging, with per-Assignment Assign merged ([PR #42](https://github.com/Schrex/Truck-Dispatch/pull/42)). Phase 2 is built and on staging ([PR #62](https://github.com/Schrex/Truck-Dispatch/pull/62), #48–#54), ready to try. Phase 3's Trip builder and simulation page are on staging too ([PR #21](https://github.com/Schrex/Truck-Dispatch/pull/21) and [PR #63](https://github.com/Schrex/Truck-Dispatch/pull/63)), on fake and recorded Fleet data only. Steps 1.8 and 1.10 are still open.
 
 ## Phase 1: Plan (Dave plans, Drivers see it)
 
@@ -16,31 +16,33 @@ Legend: ✅ done · 🟡 in review · ⬜ to do · ⛔ blocked
 6. ✅ Driver view: pick your name, see your Sent day
 7. ✅ Fixes from trying it on staging ([PR #40](https://github.com/Schrex/Truck-Dispatch/pull/40), on staging 23 Nov): Driver view reaches any day, Foreman on cards, Send hint, composer folds on Save, no HCSS wording on Trucks
 8. ⬜ Decide whether Places keep "On the truck map" in Settings (it comes from the HCSS boundary, like the Truck wording that was removed)
-9. 🟡 Assign each Assignment on its own, replacing Send per day (spec #44, ADR 0005)
+9. ✅ Assign each Assignment on its own, replacing Send per day (spec #44, ADR 0005, [PR #42](https://github.com/Schrex/Truck-Dispatch/pull/42), merged 23 Nov; smoke test follow-up in [PR #56](https://github.com/Schrex/Truck-Dispatch/pull/56))
 10. ⬜ Dave uses it for real for one week alongside #trucks, and we fix what he hits (to confirm)
 
 ## Phase 2: Check in (which Truck, Inspection, Truck problems)
 
-Spec: [`phase-2-check-in.md`](phase-2-check-in.md), issue [#47](https://github.com/Schrex/Truck-Dispatch/issues/47). Tried on staging; Inspections become the real record only once Drivers sign in through the Hub. Steps 2.1 and 2.2 can be built in parallel; 2.4 and 2.5 can follow 2.3 in parallel.
+Spec: [`phase-2-check-in.md`](phase-2-check-in.md), issue [#47](https://github.com/Schrex/Truck-Dispatch/issues/47). Tried on staging; Inspections become the real record only once Drivers sign in through the Hub. Steps 2.1 and 2.2 can be built in parallel; 2.4 and 2.5 can follow 2.3 in parallel. Steps 2.1–2.7 were all built in [PR #62](https://github.com/Schrex/Truck-Dispatch/pull/62), merged 23 Nov (ADR 0006: the Inspection is the official, append-only record).
 
-0. ✅ Planning round and spec (23 Nov)
-1. ⬜ Inspection checklist in Settings, starting with the paper form's 12 items ([#48](https://github.com/Schrex/Truck-Dispatch/issues/48), stories 1–5)
-2. ⬜ Browser end-to-end test setup, proved on a phase 1 journey ([#49](https://github.com/Schrex/Truck-Dispatch/issues/49))
-3. ⬜ Driver checks in on Today: pick the Truck, answer each item, notes, Finish; the ADR for the Inspection record ([#50](https://github.com/Schrex/Truck-Dispatch/issues/50), stories 6–10, 12–18, 31–32). Needs 2.1 and 2.2.
-4. ⬜ Board shows each Driver's check-in for today, with "needs repair" ([#51](https://github.com/Schrex/Truck-Dispatch/issues/51), stories 26–28, 30). Needs 2.3.
-5. ⬜ Truck problems from Inspections, with Mark fixed and history in Settings ([#52](https://github.com/Schrex/Truck-Dispatch/issues/52), stories 19, 21–25). Needs 2.3.
-6. ⬜ Report a problem at any time that day ([#53](https://github.com/Schrex/Truck-Dispatch/issues/53), story 20). Needs 2.5.
-7. ⬜ Open problems shown on the lane, the composer's Truck chip and the start of an Inspection ([#54](https://github.com/Schrex/Truck-Dispatch/issues/54), stories 11, 29). Needs 2.4 and 2.5.
+0. ✅ Planning round and spec ([PR #43](https://github.com/Schrex/Truck-Dispatch/pull/43), merged 23 Nov; "Assigned, not Sent" wording in [PR #57](https://github.com/Schrex/Truck-Dispatch/pull/57))
+1. ✅ Inspection checklist in Settings, starting with the paper form's 12 items ([#48](https://github.com/Schrex/Truck-Dispatch/issues/48), stories 1–5)
+2. ✅ Browser end-to-end test setup, proved on a phase 1 journey ([#49](https://github.com/Schrex/Truck-Dispatch/issues/49))
+3. ✅ Driver checks in on Today: pick the Truck, answer each item, notes, Finish; the ADR for the Inspection record ([#50](https://github.com/Schrex/Truck-Dispatch/issues/50), stories 6–10, 12–18, 31–32). Needs 2.1 and 2.2.
+4. ✅ Board shows each Driver's check-in for today, with "needs repair" ([#51](https://github.com/Schrex/Truck-Dispatch/issues/51), stories 26–28, 30). Needs 2.3.
+5. ✅ Truck problems from Inspections, with Mark fixed and history in Settings ([#52](https://github.com/Schrex/Truck-Dispatch/issues/52), stories 19, 21–25). Needs 2.3.
+6. ✅ Report a problem at any time that day ([#53](https://github.com/Schrex/Truck-Dispatch/issues/53), story 20). Needs 2.5.
+7. ✅ Open problems shown on the lane, the composer's Truck chip and the start of an Inspection ([#54](https://github.com/Schrex/Truck-Dispatch/issues/54), stories 11, 29). Needs 2.4 and 2.5.
 
 ## Phase 3: Trips (from the Truck)
 
+The Trip builder and a simulation page that runs Truck 55's real day (17 Nov) or any uploaded Fleet export are on staging: design, Trip builder and simulation in [PR #21](https://github.com/Schrex/Truck-Dispatch/pull/21); Scheduler view, Driver view and Truck log on top of it in [PR #63](https://github.com/Schrex/Truck-Dispatch/pull/63) (which includes #21). Nothing reads live Fleet data yet, so no step below is done.
+
 0. ⬜ Ask HCSS for API access to the Fleet report now, alongside phases 1 and 2, since it is the slowest step and nothing before phase 3 depends on it (to confirm)
 1. ⛔ Read HCSS Fleet place events automatically. Blocked on API access (403); the other routes are polling live position or Fleet's email alerts.
-2. ⬜ Store the raw events; pair them into Trips; clean out pass-throughs and boundary flicker
+2. 🟡 Store the raw events; pair them into Trips; clean out pass-throughs and boundary flicker (pairing and clean-up in the Trip builder, [PR #21](https://github.com/Schrex/Truck-Dispatch/pull/21); storing waits on 3.1)
 3. ⬜ Driver for each Trip = whoever last inspected that Truck
 4. ⬜ A Trip from an Assignment's From to its To is a Load
 5. ⬜ Now and Done on the Board (started, finished, "since 9:40")
-6. ⬜ Daily miles and engine hours from the 4 AM readings
+6. ⬜ Daily miles and engine hours from the Fleet meter readings around the day (the last before it and the first after it; the end reading exists from about 22:12 ET that evening). Worked out on the simulation page in [PR #63](https://github.com/Schrex/Truck-Dispatch/pull/63)
 
 ## Phase 4: Close the day (Tickets, sign-off, Truck log)
 
@@ -48,7 +50,7 @@ Spec: [`phase-2-check-in.md`](phase-2-check-in.md), issue [#47](https://github.c
 2. ⬜ End-of-day sign-off: the Driver confirms his Trips and Tickets
 3. ⬜ Next morning, Dave answers what is left: Trips with no Assignment, "Who was driving?", Assignments with no Trips
 4. ⬜ The Driver's part locks at 9 AM the next day
-5. ⬜ Truck log page per Truck per day, plus CSV
+5. ⬜ Truck log page per Truck per day, plus CSV (header and one column per Assignment prototyped on the simulation page, [PR #63](https://github.com/Schrex/Truck-Dispatch/pull/63))
 
 ## Later (not scheduled)
 
