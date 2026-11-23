@@ -39,6 +39,13 @@ const forDave = () =>
 const A1 = 'First · J25008 Los Flamboyanes → Villager · Fill · Truck 55 (his own)';
 const A2 = 'Then · Walworth Dolomite → J25008 Los Flamboyanes · 1&2 stone · Truck 55 (his own)';
 
+/** The Trip log's rows: Left, From → To, Miles, Kind, Assignment, Why. */
+const tripLog = () =>
+  within(within(screen.getByRole('region', { name: 'Trip log' })).getByRole('table', { name: 'Trips' }))
+    .getAllByRole('row')
+    .slice(1)
+    .map((row) => [...row.querySelectorAll('td')].map((td) => td.textContent));
+
 describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => {
   it('shows nothing but the clock, the scenario picker and the views', () => {
     render(<SimulatePage />);
@@ -50,9 +57,9 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
       'The other way round',
       'Reroute at 11:20',
     ]);
-    expect(screen.queryByRole('table')).toBeNull();
+    expect(screen.getAllByRole('table').map((t) => t.getAttribute('aria-label'))).toEqual(['Trips']);
     expect(document.querySelector('input[type=file]')).toBeNull();
-    expect(screen.getAllByRole('region').map((r) => r.getAttribute('aria-label'))).toEqual(['Scheduler view', 'Driver view', 'Truck log']);
+    expect(screen.getAllByRole('region').map((r) => r.getAttribute('aria-label'))).toEqual(['Scheduler view', 'Driver view', 'Trip log', 'Truck log']);
   });
 
   it('opens at end of day: Randy’s lane with Truck 55, A1 4 Loads Done since 08:24, A2 2 Loads Done', () => {
@@ -204,5 +211,25 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
       ]);
       expect(forDave()).toEqual([]);
     });
+  });
+
+  it('logs every Trip the Truck made, down to the last drive from the job site back to the shop', () => {
+    render(<SimulatePage />);
+    const rows = tripLog();
+    expect(rows[0].slice(0, 2)).toEqual(['06:24', 'Shop → J25008 Los Flamboyanes']);
+    expect(rows.at(-1)!.slice(0, 5)).toEqual(['15:41', 'J25008 Los Flamboyanes → Shop', '18.39', 'empty', '–']);
+    expect(rows.at(-1)![5]).toContain('To or from the shop or a yard');
+    expect(rows.find((r) => r[1] === 'J25008 Los Flamboyanes → J611 Bishop Kearney')!.slice(3, 5)).toEqual(['for Dave', '–']);
+    expect(rows.filter((r) => r[3] === 'load' && r[4] === 'A1')).toHaveLength(4);
+  });
+
+  it('logs only the Trips known at the clock’s time, and follows the scenario', () => {
+    render(<SimulatePage />);
+    setClock(10 * 60 + 2);
+    expect(tripLog().map((r) => r[0])).toEqual(['06:24', '08:24', '08:43', '09:35', '09:50']);
+    setClock(6 * 60);
+    expect(within(screen.getByRole('region', { name: 'Trip log' })).getByText('No Trips yet at this time.')).toBeTruthy();
+    choose('reroute');
+    expect(screen.queryByText('No Trips yet at this time.')).toBeTruthy();
   });
 });
