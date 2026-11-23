@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
-import type { CheckIn as CheckInRead, Driver, InspectionAnswerKind, InspectionItem, NewInspection, Truck } from '../../shared/types';
-import { clockTime } from '../../shared/days';
+import type { CheckIn as CheckInRead, Driver, InspectionAnswerKind, InspectionItem, NewInspection, Truck, TruckProblem } from '../../shared/types';
+import { addDays, businessDateOf, clockTime, shortDate, weekdayName } from '../../shared/days';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { addInspection, fetchList, FieldErrors } from '@/lib/api';
+import { addInspection, fetchList, fetchTruckProblems, FieldErrors } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 /** The three answers, as the Driver taps them. */
@@ -53,6 +53,36 @@ export function CheckIn({ driver, today, checkIn, onCheckedIn }: {
   );
 }
 
+/**
+ * The day a problem was reported, as a Driver says it: "today", the weekday
+ * within the last week ("Fri"), or further back its date ("Fri, Nov 6").
+ */
+function reportedOn(reportedAt: string, today: string): string {
+  const date = businessDateOf(reportedAt);
+  if (date === today) return 'today';
+  for (let back = 1; back < 7; back++) if (addDays(today, -back) === date) return weekdayName(date).slice(0, 3);
+  return shortDate(date);
+}
+
+/**
+ * The open problems of the Truck being inspected, at the top of the
+ * Inspection, so the Driver knows them before driving and does not report
+ * them again: "Mud flap torn · reported Fri by Nate". Nothing when it has none.
+ */
+function OpenProblems({ truck, problems, today }: { truck: Truck | undefined; problems: TruckProblem[]; today: string }) {
+  if (!truck || problems.length === 0) return null;
+  return (
+    <ul aria-label={`Open problems on Truck ${truck.number}`} className="space-y-1 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-lg">
+      {problems.map((problem) => (
+        <li key={problem.id}>
+          <span className="font-semibold text-destructive">{problem.text}</span>
+          {` · reported ${reportedOn(problem.reportedAt, today)}${problem.reportedByName ? ` by ${problem.reportedByName}` : ''}`}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /** One item's answer as the card holds it until Finish. */
 interface Answering {
   answer: InspectionAnswerKind;
@@ -61,7 +91,7 @@ interface Answering {
 
 /**
  * The Check in card: pick the Truck, then Start Inspection shows the
- * checklist, each item answered with one tap, a note for Needs repair, and
+ * Truck's open problems, then the checklist, each item answered with one tap, a note for Needs repair, and
  * Other notes. Finish is allowed once every item that is not optional is
  * answered and every Needs repair has its note. The Inspection's id is made
  * when it starts, so a Finish that failed is retried with the same id and is
@@ -83,6 +113,23 @@ function CheckInCard({ driver, today, onCancel, onCheckedIn }: {
   const [otherNotes, setOtherNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  /** The open problems of the Truck being inspected, read once the Inspection starts and again for another Truck. */
+  const [open, setOpen] = useState<TruckProblem[]>([]);
+  const started = id !== null;
+
+  useEffect(() => {
+    setOpen([]);
+    if (!started || !truckId) return;
+    let stale = false;
+    // One that cannot be read lists nothing: the Inspection goes on without it.
+    fetchTruckProblems({ open: true, truckId }).then(
+      (problems) => !stale && setOpen(problems),
+      () => {},
+    );
+    return () => {
+      stale = true;
+    };
+  }, [started, truckId]);
 
   useEffect(() => {
     let stale = false;
@@ -185,6 +232,7 @@ function CheckInCard({ driver, today, onCancel, onCheckedIn }: {
         </div>
       ) : (
         <>
+          <OpenProblems truck={trucks?.find((t) => t.id === truckId)} problems={open} today={today} />
           <ul className="space-y-4">
             {items?.map((item) => {
               const label = item.optional ? `${item.label} (optional)` : item.label;

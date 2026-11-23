@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Loader2, Settings } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
-import type { Assignment, BusinessDay, CheckIn, Driver, Foreman, Material, Place, Truck } from '../../shared/types';
+import type { Assignment, BusinessDay, CheckIn, Driver, Foreman, Material, Place, Truck, TruckProblem } from '../../shared/types';
 import { isCalendarDate } from '../../shared/days';
 import { AssignmentEditor } from '@/components/AssignmentEditor';
 import { afterSave, Composer, EMPTY_DRAFT, type Draft } from '@/components/Composer';
@@ -14,7 +14,7 @@ import { WeekStrip } from '@/components/WeekStrip';
 import { ViewToggle } from '@/components/ViewToggle';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/sonner';
-import { assignAssignment, fetchBusinessDay, fetchCheckIns, fetchDay, fetchList, Refused } from '@/lib/api';
+import { assignAssignment, fetchBusinessDay, fetchCheckIns, fetchDay, fetchList, fetchTruckProblems, Refused } from '@/lib/api';
 
 /**
  * The board: one day's Assignments, one lane per Driver. The day on
@@ -30,7 +30,9 @@ import { assignAssignment, fetchBusinessDay, fetchCheckIns, fetchDay, fetchList,
  * Each Assignment is Assigned on its own (ADR 0005): a Draft with a Driver
  * has Assign on its block, one tap; there is no Send for the day. Below the
  * header the week strip shows the state of every day of the week.
- * On today each lane shows its Driver's check-in (or "Not checked in").
+ * On today each lane shows its Driver's check-in (or "Not checked in"), and
+ * a red mark when his Truck today has open problems; on any day that can be
+ * changed the composer's Truck chips carry the same mark.
  */
 export function BoardPage() {
   const [search, setSearch] = useSearchParams();
@@ -59,6 +61,9 @@ export function BoardPage() {
   const [checkIns, setCheckIns] = useState<CheckIn[] | null>(null);
   const onToday = Boolean(date && businessDay && date === businessDay.today);
 
+  /** The open Truck problems, read only while the day can be changed; empty until read (or when they cannot be). */
+  const [problems, setProblems] = useState<TruckProblem[]>([]);
+
   const show = useCallback((day: string) => setSearch({ date: day }), [setSearch]);
 
   // Today's check-ins, read again when the page regains the focus (as the week strip is), so they arrive without a reload.
@@ -78,6 +83,24 @@ export function BoardPage() {
       window.removeEventListener('focus', load);
     };
   }, [onToday, businessDay]);
+
+  // Open problems are each Truck's state now, so they matter on any day Dave is planning; read again on focus, so one
+  // marked fixed in Settings loses its mark. One that cannot be read leaves the marks as they were until the next focus.
+  useEffect(() => {
+    if (!editable) return;
+    let stale = false;
+    const load = () =>
+      fetchTruckProblems({ open: true }).then(
+        (open) => !stale && setProblems(open),
+        () => {},
+      );
+    load();
+    window.addEventListener('focus', load);
+    return () => {
+      stale = true;
+      window.removeEventListener('focus', load);
+    };
+  }, [editable]);
 
   useEffect(() => {
     // Inactive entries too, so an Assignment that still uses one shows it in its picker.
@@ -219,6 +242,7 @@ export function BoardPage() {
             trucks={trucks}
             places={places}
             checkIns={onToday ? (checkIns ?? undefined) : undefined}
+            problems={onToday ? problems : undefined}
             onEdit={editable ? (assignment) => setOpenId((current) => (current === assignment.id ? null : assignment.id)) : undefined}
             onAssign={editable ? assign : undefined}
             openId={editable ? openId : null}
@@ -248,6 +272,7 @@ export function BoardPage() {
                   driverId={composingFor ?? null}
                   driverName={composerLane?.name ?? null}
                   lists={{ places, materials, trucks, foremen }}
+                  problems={problems}
                   draft={draft}
                   onDraft={setDraft}
                   onSaved={(assignment) => {

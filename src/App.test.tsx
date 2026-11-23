@@ -25,6 +25,10 @@ let assignRefusal: { status: number; body: unknown } | null = null;
 let failWeeks = false;
 /** Each Driver's check-in on today, as GET api/check-ins answers it (his latest Inspection). */
 let checkIns: Record<string, unknown>[] = [];
+/** Every Truck problem, open or fixed, as GET api/truck-problems lists them (?open=1 leaves out fixed ones). */
+let problems: Record<string, unknown>[] = [];
+/** The query of each read of the Truck problems. */
+const problemReads: string[] = [];
 /** When an Assignment set up by a test was Assigned: 4:15 PM Eastern on Thursday 2026-11-19, before its day. */
 const ASSIGNED_AT = '2026-11-19T21:15:00.000Z';
 /** When the Worker records an Assign the page makes: 5:45 PM Eastern on Thursday 2026-11-19. */
@@ -125,6 +129,13 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   if (url.pathname.endsWith('/api/check-ins')) {
     sent.push({ checkIns: url.searchParams.get('date') });
     return answer({ date: url.searchParams.get('date'), checkIns });
+  }
+  if (url.pathname.endsWith('/api/truck-problems')) {
+    problemReads.push(url.search);
+    const truckId = url.searchParams.get('truckId');
+    return answer({
+      problems: problems.filter((p) => (url.searchParams.get('open') !== '1' || !p.fixedAt) && (!truckId || p.truckId === truckId)),
+    });
   }
   const week = /\/api\/weeks\/([^/]+)$/.exec(url.pathname);
   if (week) {
@@ -285,6 +296,8 @@ beforeEach(() => {
   assignRefusal = null;
   failWeeks = false;
   checkIns = [];
+  problems = [];
+  problemReads.length = 0;
   api.mockClear();
   vi.stubGlobal('fetch', api);
 });
@@ -458,6 +471,7 @@ describe.each([
       `${prefix}/api/materials?include=inactive`,
       `${prefix}/api/places?include=inactive`,
       `${prefix}/api/today`,
+      `${prefix}/api/truck-problems?open=1`,
       `${prefix}/api/trucks?include=inactive`,
       `${prefix}/api/weeks/2026-11-16`,
     ]);
@@ -1545,5 +1559,83 @@ describe("each Driver's check-in on the Board", () => {
     checkIns = [checkIn({ needsRepair: true })];
     act(() => void window.dispatchEvent(new Event('focus')));
     await waitFor(() => expect(about('Sample Driver A')).toBe('Truck 24 · checked in 6:42 · needs repair'));
+  });
+});
+
+describe('open Truck problems on the Board', () => {
+  // The page's today is Thursday 2026-11-19. Sample Driver A's usual Truck is 21, Sample Driver B's is 24.
+  const problem = (fields: Record<string, unknown> = {}) => ({
+    id: 'tp-1', truckId: 'trk-21', truckNumber: '21', reportedByDriverId: 'drv-b', reportedByName: 'Sample Driver B',
+    reportedAt: '2026-11-18T11:42:00.000Z', text: 'Mud flap torn', inspectionId: 'ins-0', fixedAt: null, fixedNote: null, ...fields,
+  });
+  const checkIn = (fields: Record<string, unknown> = {}) => ({
+    driverId: 'drv-a', driverName: 'Sample Driver A', truckId: 'trk-24', truckNumber: '24', inspectionId: 'ins-1',
+    doneAt: '2026-11-19T11:42:00.000Z', needsRepair: false, ...fields,
+  });
+  const mark = (driver: string) => within(lane(driver)).queryByRole('button', { name: /^Open problems on Truck / });
+  const findMark = async (driver: string, truck: string) =>
+    within(await screen.findByRole('article', { name: driver })).findByRole('button', { name: `Open problems on Truck ${truck}` });
+
+  it('marks the lane of a Driver who has not checked in when his usual Truck has an open problem, and tapping it says what they are', async () => {
+    problems = [problem(), problem({ id: 'tp-2', text: 'Left marker out', reportedAt: '2026-11-17T11:42:00.000Z' })];
+    open('/?date=2026-11-19');
+    const red = await findMark('Sample Driver A', '21');
+    expect(red.getAttribute('title')).toBe('Mud flap torn\nLeft marker out');
+    expect(mark('Sample Driver B')).toBeNull();
+    expect(within(lane('Sample Driver A')).queryByRole('list', { name: 'Open problems on Truck 21' })).toBeNull();
+
+    fireEvent.click(red);
+    const list = within(lane('Sample Driver A')).getByRole('list', { name: 'Open problems on Truck 21' });
+    expect(within(list).getAllByRole('listitem').map((item) => item.textContent)).toEqual(['Mud flap torn', 'Left marker out']);
+  });
+
+  it('follows the Truck he checked in to, once he has', async () => {
+    problems = [problem({ truckId: 'trk-24', truckNumber: '24' })];
+    checkIns = [checkIn()];
+    open('/?date=2026-11-19');
+    expect(await findMark('Sample Driver A', '24')).toBeTruthy();
+    // Sample Driver B has not checked in, and 24 is his usual Truck.
+    expect(mark('Sample Driver B')?.getAttribute('aria-label')).toBe('Open problems on Truck 24');
+  });
+
+  it('leaves no mark for a problem on his usual Truck once he checked in to another', async () => {
+    problems = [problem()];
+    checkIns = [checkIn()];
+    open('/?date=2026-11-19');
+    await waitFor(() => expect(lane('Sample Driver A').querySelector('[data-lane-about]')?.textContent).toBe('Truck 24 · checked in 6:42'));
+    await waitFor(() => expect(problemReads).toContain('?open=1'));
+    expect(mark('Sample Driver A')).toBeNull();
+  });
+
+  it('shows no lane mark on any day but today', async () => {
+    problems = [problem()];
+    open('/?date=2026-11-20');
+    await screen.findByText(/^Nothing planned for /);
+    await waitFor(() => expect(problemReads).toContain('?open=1'));
+    expect(mark('Sample Driver A')).toBeNull();
+  });
+
+  it('takes the mark away once the problems are fixed, when the page regains the focus', async () => {
+    problems = [problem()];
+    open('/?date=2026-11-19');
+    expect(await findMark('Sample Driver A', '21')).toBeTruthy();
+    problems = [problem({ fixedAt: '2026-11-19T13:00:00.000Z' })];
+    act(() => void window.dispatchEvent(new Event('focus')));
+    await waitFor(() => expect(mark('Sample Driver A')).toBeNull());
+  });
+
+  it('marks a Truck chip in the composer red while its Truck has an open problem, on a day after today too', async () => {
+    problems = [problem(), problem({ id: 'tp-2', text: 'Left marker out' })];
+    open('/?date=2026-11-20');
+    await screen.findByText(/^Nothing planned for /);
+    fireEvent.click(await within(lane('Sample Driver B')).findByRole('button', { name: 'Add an Assignment for Sample Driver B' }));
+    await waitFor(() => expect(problemReads).toContain('?open=1'));
+    fireEvent.click(within(lane('Sample Driver B')).getByRole('button', { name: 'Note or other truck' }));
+    const truckRow = within(lane('Sample Driver B')).getByRole('group', { name: 'Truck' });
+    const chip = (name: RegExp) => within(truckRow).getByRole('button', { name });
+    const red = within(await waitFor(() => chip(/^21/))).getByRole('img', { name: 'open problems' });
+    expect(red.getAttribute('title')).toBe('Mud flap torn\nLeft marker out');
+    expect(within(chip(/^24/)).queryByRole('img')).toBeNull();
+    expect(within(chip(/^His own/)).queryByRole('img')).toBeNull();
   });
 });

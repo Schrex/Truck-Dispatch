@@ -8,6 +8,7 @@ What the app does as built, page by page. Words in capitals are defined in [`GLO
 - Opens on the next **Working day** (US Eastern; on a Friday, Monday).
 - One lane per Driver (name and usual Truck; a removed Driver only on a day he has work), and an Unassigned lane last.
 - **Check-ins (today only):** when the day on screen is today, each Driver's lane shows his check-in in place of his usual Truck: "Truck 24 · checked in 6:42" (his latest Inspection; US Eastern, 24-hour clock), adding "· needs repair" when that Inspection had a Needs repair item, or "Not checked in" until he has. Two Drivers checked in to one Truck both show it. The Board reads the check-ins again when the page regains the focus; if they cannot be read, the lanes show the usual Truck. On any other day the lanes show the usual Truck as before.
+- **Open Truck problems (today only):** on today a lane gets a red mark beside its Truck line when the Driver's Truck has an open Truck problem: the Truck he checked in to, or his usual Truck before he checks in. Hovering the mark shows the problems' notes; tapping it lists them under the line (tapping again puts them away). The Board reads the open problems again when the page regains the focus, so one marked fixed in Settings loses its mark; if they cannot be read, the marks stay as they were. No lane mark on any other day.
 - Each lane shows that day's **Assignments** as blocks in order, reading "From → To" (or the note), marked First (the first that is not cancelled) and Then.
 - A block shows the Assignment's Foreman beside its job site ("TIUNY (Brody)"), and the Truck: one the Assignment names shows plainly; with none named ("His own", the Driver takes his usual Truck) his usual Truck shows in grey, or nothing if he has none.
 - A **Draft** block has a dashed outline and a small "Draft" tag beside First or Then; an Assigned block looks plain, tagged only once it is Changed or Added (or Cancelled).
@@ -17,7 +18,7 @@ What the app does as built, page by page. Words in capitals are defined in [`GLO
 - The **+** on a lane (Unassigned included) opens the composer in that lane.
 - Pick up and Drop off are rows of Place chips, and "Hauling what?" is Material chips, each with "Or type it" for a name not in the list (found, brought back or added by the Worker).
 - A Foreman chip is filled in with the drop-off's usual Foreman if it is a job site, otherwise the pick-up's; Dave can change or clear it.
-- "Note or other truck" opens the Truck chips ("His own" first, the default) and the note.
+- "Note or other truck" opens the Truck chips ("His own" first, the default) and the note. A Truck with an open Truck problem has a red mark on its chip (hover for the notes), on any day the composer opens, since a problem is the Truck's state now.
 - A sentence previews it. Save needs only the day, puts it last in the lane and folds the composer; the next **+** (any lane) starts with the same Places and Material until **Close**.
 
 ### Changing an Assignment
@@ -60,7 +61,7 @@ What the app does as built, page by page. Words in capitals are defined in [`GLO
 
 ### Check-in (Today only)
 - On **Today**, until he has checked in, a **Check in** card sits at the top, above his Assignments (which still show below it). It is offered whether or not Dave has Assigned him anything, and never on Yesterday, Tomorrow or any other day.
-- **Truck**: every active Truck as a large button, his usual one pre-selected (none when he has none or it was removed). **Start Inspection** then shows the checklist in Dave's order.
+- **Truck**: every active Truck as a large button, his usual one pre-selected (none when he has none or it was removed). **Start Inspection** then lists the Truck's open problems first, before the items, so he knows them before driving and does not report them twice: "Mud flap torn · reported Fri by Sample Driver B" (the day: "today", the weekday within the last week, or the date further back); none listed when it has none, and picking another Truck lists that one's. Then the checklist in Dave's order.
 - Each item is answered with one tap: **OK**, **Needs repair** or **N/A** (an optional item says "(optional)"). Needs repair asks "What needs repair?" for a short note. An optional **Other notes** box follows.
 - Each Needs repair becomes a **Truck problem** on that Truck, with his note, his name and the time, saved together with the Inspection (a refused or retried Finish opens none twice). A Truck with an open problem can still be checked in to and driven: the app reports, it never grounds.
 - **Finish** is allowed once every item that is not optional is answered and every Needs repair has its note. The Worker records the time (its clock) and today's date. A failed Finish says "Could not finish the check-in. Your answers are kept: try Finish again."; trying again sends the same Inspection id, so it is never saved twice.

@@ -1,6 +1,6 @@
-import { useId, useState, type FormEvent } from 'react';
+import { useId, useState, type FormEvent, type ReactNode } from 'react';
 import { ChevronDown, ChevronUp, Loader2, X } from 'lucide-react';
-import type { Assignment, Foreman, Material, NewAssignment, Place, Truck, TypedNames } from '../../shared/types';
+import type { Assignment, Foreman, Material, NewAssignment, Place, Truck, TruckProblem, TypedNames } from '../../shared/types';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -8,6 +8,7 @@ import { toast } from '@/components/ui/sonner';
 import { addAssignment, FieldErrors, Refused } from '@/lib/api';
 import { foremanSite } from '@/lib/lists';
 import { chipClass, OrTypeIt, TypedBox } from '@/components/TypedName';
+import { ChipProblems, openOn } from '@/components/ProblemMark';
 
 /**
  * A Place or Material row of the composer: a chip picked from the list (its
@@ -164,6 +165,8 @@ const ROW_OF: Record<string, string> = {
 interface Chip {
   id: string | null;
   label: string;
+  /** A mark after the label: the red mark of a Truck with open problems. */
+  mark?: ReactNode;
 }
 
 /**
@@ -200,7 +203,7 @@ function ChipRow({
       </p>
       <div className="flex flex-wrap gap-2">
         {chips === null && <span className="py-2 text-sm text-muted-foreground">Loading…</span>}
-        {chips?.map(({ id, label: words }) => {
+        {chips?.map(({ id, label: words, mark }) => {
           const pressed = !typing && picked === id;
           return (
             <Button
@@ -215,6 +218,7 @@ function ChipRow({
               }}
             >
               {words}
+              {mark}
             </Button>
           );
         })}
@@ -243,7 +247,8 @@ function ChipRow({
  * (Unassigned when driverId is null), last in the lane. Pick up and Drop off
  * are rows of Place chips, "Hauling what?" a row of Material chips, each with
  * "Or type it" for a name the Worker finds, brings back or adds; "Note or
- * other truck" opens the Truck chips (His own first) and the note. A sentence
+ * other truck" opens the Truck chips (His own first; a Truck with open
+ * problems carries a red mark) and the note. A sentence
  * previews it. Save needs nothing but the day; a refusal or failure keeps
  * what was typed and says so. Close drops the draft. The draft itself is the
  * Board's, so the Places and Material are remembered for the next lane.
@@ -253,6 +258,7 @@ export function Composer({
   driverId,
   driverName,
   lists,
+  problems,
   draft,
   onDraft,
   onSaved,
@@ -262,6 +268,8 @@ export function Composer({
   driverId: string | null;
   driverName: string | null;
   lists: ComposerLists;
+  /** The open Truck problems: each Truck chip with one is marked red. */
+  problems?: TruckProblem[];
   draft: Draft;
   onDraft: (change: (draft: Draft) => Draft) => void;
   onSaved: (assignment: Assignment) => void;
@@ -287,7 +295,13 @@ export function Composer({
   const active = <T extends { id: string; active: boolean }>(entries: T[] | null, label: (entry: T) => string): Chip[] | null =>
     entries && entries.filter((e) => e.active).map((e) => ({ id: e.id, label: label(e) }));
   const placeChips = active(places, (p) => p.shortName);
-  const truckChips = trucks && [{ id: null, label: 'His own' }, ...(active(trucks, (t) => t.number) ?? [])];
+  const truckChips = trucks && [
+    { id: null, label: 'His own' },
+    ...(active(trucks, (t) => t.number) ?? []).map((chip) => {
+      const open = openOn(chip.id, problems);
+      return open.length ? { ...chip, mark: <ChipProblems problems={open} /> } : chip;
+    }),
+  ];
   const unplaced = Object.entries(errors).filter(([field]) => !ROW_OF[field]).map(([, message]) => message);
   const more = draft.more || Boolean(errors.truckId || errors.note);
 

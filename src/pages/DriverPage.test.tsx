@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../App';
 import { weekDates } from '../../shared/days';
-import type { CheckIn, DriverAssignment, DriverDay, Inspection, NewInspection } from '../../shared/types';
+import type { CheckIn, DriverAssignment, DriverDay, Inspection, NewInspection, TruckProblem } from '../../shared/types';
 
 /**
  * The API as a Driver's phone sees it: today in US Eastern is Thursday
@@ -42,6 +42,10 @@ let checkIns: Record<string, CheckIn[]> = {};
 /** Every Finish the phone sent, and how many to fail before one is saved. */
 const finished: NewInspection[] = [];
 let failFinishes = 0;
+/** Every Truck problem, open or fixed, as GET api/truck-problems lists them, newest first. */
+let problems: TruckProblem[] = [];
+/** The query of each read of the Truck problems. */
+const problemReads: string[] = [];
 /** The Worker's clock when a Finish is saved: 6:42 AM US Eastern. */
 const DONE_AT = '2026-11-19T11:42:00.000Z';
 
@@ -80,6 +84,11 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       { driverId: driver.id, driverName: driver.name, truckId: truck.id, truckNumber: truck.number, inspectionId: body.id, doneAt: DONE_AT, needsRepair },
     ];
     return answer({ inspection }, 201);
+  }
+  if (path.endsWith('/api/truck-problems')) {
+    problemReads.push(url.search);
+    const truckId = url.searchParams.get('truckId');
+    return answer({ problems: problems.filter((p) => (url.searchParams.get('open') !== '1' || !p.fixedAt) && (!truckId || p.truckId === truckId)) });
   }
   if (path.endsWith('/api/trucks')) return answer({ trucks: url.searchParams.get('include') ? trucks : trucks.filter((t) => t.active) });
   if (path.endsWith('/api/inspection-items')) return answer({ 'inspection-items': checklist });
@@ -138,6 +147,8 @@ beforeEach(() => {
   checkIns = {};
   finished.length = 0;
   failFinishes = 0;
+  problems = [];
+  problemReads.length = 0;
   localStorage.clear();
   vi.stubGlobal('fetch', api);
 });
@@ -516,5 +527,49 @@ describe('checking in on Today', () => {
     await day('Sat, Nov 21');
     expect(screen.queryByRole('region', { name: 'Check in' })).toBeNull();
     expect(screen.queryByRole('region', { name: 'Checked in' })).toBeNull();
+  });
+
+  describe("the Truck's open problems", () => {
+    // Today is Thursday 2026-11-19.
+    const problem = (fields: Partial<TruckProblem>): TruckProblem => ({
+      id: 'tp-1', truckId: 'trk-24', truckNumber: '24', reportedByDriverId: 'drv-b', reportedByName: 'Sample Driver B',
+      reportedAt: '2026-11-19T11:05:00.000Z', text: 'Mud flap torn', inspectionId: 'ins-0', fixedAt: null, fixedNote: null, ...fields,
+    });
+    const listed = () => {
+      const list = screen.queryByRole('list', { name: /^Open problems on Truck / });
+      return list && within(list).getAllByRole('listitem').map((entry) => entry.textContent);
+    };
+
+    it('lists them at the top of the Inspection, before the items, with the note, the day and who reported it', async () => {
+      problems = [
+        problem({}),
+        problem({ id: 'tp-2', text: 'Left marker out', reportedAt: '2026-11-17T12:00:00.000Z', reportedByName: 'Sample Driver A' }),
+        problem({ id: 'tp-3', text: 'Cracked mirror', reportedAt: '2026-11-06T12:00:00.000Z' }),
+        problem({ id: 'tp-4', truckId: 'trk-21', truckNumber: '21', text: 'Not this Truck' }),
+      ];
+      open('/');
+      fireEvent.click(within(await truckPicker()).getByRole('button', { name: 'Truck 24' }));
+      expect(listed()).toBeNull();
+      await start();
+      const list = await screen.findByRole('list', { name: 'Open problems on Truck 24' });
+      expect(listed()).toEqual([
+        'Mud flap torn · reported today by Sample Driver B',
+        'Left marker out · reported Tue by Sample Driver A',
+        'Cracked mirror · reported Fri, Nov 6 by Sample Driver B',
+      ]);
+      expect(list.compareDocumentPosition(item('Tires / wheels')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(problemReads).toEqual(['?open=1&truckId=trk-24']);
+    });
+
+    it('lists nothing for a Truck with none open, and follows the Truck when he picks another', async () => {
+      problems = [problem({ fixedAt: '2026-11-19T12:00:00.000Z' }), problem({ id: 'tp-2', truckId: 'trk-27', truckNumber: '27', text: 'Horn weak' })];
+      open('/');
+      fireEvent.click(within(await truckPicker()).getByRole('button', { name: 'Truck 24' }));
+      await start();
+      await waitFor(() => expect(problemReads).toEqual(['?open=1&truckId=trk-24']));
+      expect(listed()).toBeNull();
+      fireEvent.click(within(await truckPicker()).getByRole('button', { name: 'Truck 27' }));
+      await waitFor(() => expect(listed()).toEqual(['Horn weak · reported today by Sample Driver B']));
+    });
   });
 });

@@ -177,9 +177,16 @@ export async function addInspection(inspection: NewInspection): Promise<Inspecti
   return (await request<{ inspection: Inspection }>('api/inspections', json('POST', inspection))).inspection;
 }
 
-/** Every Truck problem: open ones first, then fixed ones, each newest first. */
-export async function fetchTruckProblems(): Promise<TruckProblem[]> {
-  return (await request<{ problems: TruckProblem[] }>('api/truck-problems')).problems;
+/**
+ * Every Truck problem: open ones first, then fixed ones, each newest first.
+ * With open, only the open ones; with truckId, only that Truck's.
+ */
+export async function fetchTruckProblems(only: { open?: boolean; truckId?: string } = {}): Promise<TruckProblem[]> {
+  const query = new URLSearchParams();
+  if (only.open) query.set('open', '1');
+  if (only.truckId) query.set('truckId', only.truckId);
+  const search = query.toString();
+  return (await request<{ problems: TruckProblem[] }>(`api/truck-problems${search ? `?${search}` : ''}`)).problems;
 }
 
 /** Mark fixed: closes a Truck problem, with how it was fixed if Dave says. One already fixed is answered as it is. */
