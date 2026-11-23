@@ -1,8 +1,10 @@
 # Roadmap
 
-Status: draft, 23 Nov 2026. This is the order of work in very small steps. Each step should be one PR that can be shipped and tried on its own, and should leave staging usable. The detailed decisions for each phase are in `docs/design/dispatch-board-decisions.md`.
+Status: draft, last updated 23 Nov 2026. This is the order of work in very small steps. Each step should be one PR that can be shipped and tried on its own, and should leave staging usable. The detailed decisions for each phase are in `docs/design/dispatch-board-decisions.md`.
 
 Legend: ✅ done · 🟡 in review · ⬜ to do · ⛔ blocked
+
+**Now:** phase 1 is built and on staging. Next are steps 1.8 and 1.9, then the phase 2 planning round.
 
 ## Phase 1: Plan (Dave plans, Drivers see it)
 
@@ -12,12 +14,14 @@ Legend: ✅ done · 🟡 in review · ⬜ to do · ⛔ blocked
 4. ✅ Days: Working days, Holidays, week strip, arrows, Start from, Copy to
 5. ✅ Send per day
 6. ✅ Driver view: pick your name, see your Sent day
-7. 🟡 Fixes from trying it on staging (PR #40): Driver view reaches any day, Foreman on cards, Send hint, composer folds on Save
-8. 🟡 Assign each Assignment on its own, replacing Send per day (spec #44, ADR 0005)
-9. ⬜ Dave uses it for real for one week alongside #trucks, and we fix what he hits
+7. ✅ Fixes from trying it on staging ([PR #40](https://github.com/Schrex/Truck-Dispatch/pull/40), on staging 23 Nov): Driver view reaches any day, Foreman on cards, Send hint, composer folds on Save, no HCSS wording on Trucks
+8. ⬜ Decide whether Places keep "On the truck map" in Settings (it comes from the HCSS boundary, like the Truck wording that was removed)
+9. 🟡 Assign each Assignment on its own, replacing Send per day (spec #44, ADR 0005)
+10. ⬜ Dave uses it for real for one week alongside #trucks, and we fix what he hits (to confirm)
 
 ## Phase 2: Check in (which Truck, Inspection, Truck problems)
 
+0. ⬜ Planning round: settle the open points, then write `phase-2-check-in.md` (user stories) in this folder
 1. ⬜ Driver confirms today's Truck, with his usual Truck pre-selected
 2. ⬜ Dave sees on the Board which Truck each Driver took
 3. ⬜ Inspection checklist as a list in Settings
@@ -27,6 +31,7 @@ Legend: ✅ done · 🟡 in review · ⬜ to do · ⛔ blocked
 
 ## Phase 3: Trips (from the Truck)
 
+0. ⬜ Ask HCSS for API access to the Fleet report now, alongside phases 1 and 2, since it is the slowest step and nothing before phase 3 depends on it (to confirm)
 1. ⛔ Read HCSS Fleet place events automatically. Blocked on API access (403); the other routes are polling live position or Fleet's email alerts.
 2. ⬜ Store the raw events; pair them into Trips; clean out pass-throughs and boundary flicker
 3. ⬜ Driver for each Trip = whoever last inspected that Truck
