@@ -5,7 +5,7 @@ import { addDays, businessDateOf, clockTime, shortDate, weekdayName } from '../.
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { addInspection, fetchList, fetchTruckProblems, FieldErrors } from '@/lib/api';
+import { addInspection, fetchList, fetchTruckProblems, FieldErrors, reportTruckProblem } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 /** The three answers, as the Driver taps them. */
@@ -19,8 +19,10 @@ const ANSWERS: { kind: InspectionAnswerKind; word: string }[] = [
  * Check-in on Today in the Driver view (GLOSSARY.md: Check-in, Inspection).
  * Until he has checked in, a Check in card: his Truck (the usual one
  * pre-selected), then the Inspection. Once he has, one line: "Truck 24 ·
- * checked in 6:42 · Check in again", which opens the card again for another
- * Truck, or the same one after a repair. The latest check-in counts.
+ * checked in 6:42 · Report a problem · Check in again". Report a problem
+ * reports a Truck problem, with a note, on that Truck at any time that day;
+ * Check in again opens the card again for another Truck, or the same one after
+ * a repair. The latest check-in counts.
  */
 export function CheckIn({ driver, today, checkIn, onCheckedIn }: {
   driver: Driver;
@@ -31,14 +33,7 @@ export function CheckIn({ driver, today, checkIn, onCheckedIn }: {
 }) {
   const [again, setAgain] = useState(false);
   if (checkIn && !again) {
-    return (
-      <section aria-label="Checked in" className="rounded-lg border bg-card p-4 text-lg">
-        Truck {checkIn.truckNumber} · checked in {clockTime(checkIn.doneAt)} ·{' '}
-        <button type="button" className="font-semibold underline underline-offset-4" onClick={() => setAgain(true)}>
-          Check in again
-        </button>
-      </section>
-    );
+    return <CheckedIn driver={driver} checkIn={checkIn} onAgain={() => setAgain(true)} />;
   }
   return (
     <CheckInCard
@@ -80,6 +75,86 @@ function OpenProblems({ truck, problems, today }: { truck: Truck | undefined; pr
         </li>
       ))}
     </ul>
+  );
+}
+
+/**
+ * The one line once checked in, with Report a problem: a short note, required,
+ * sent for the Truck of this check-in. A failed send says so and keeps the note.
+ */
+function CheckedIn({ driver, checkIn, onAgain }: { driver: Driver; checkIn: CheckInRead; onAgain: () => void }) {
+  const [reporting, setReporting] = useState(false);
+  const [note, setNote] = useState('');
+  const [sending, setSending] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const [sent, setSent] = useState<string | null>(null);
+
+  const close = () => {
+    setReporting(false);
+    setNote('');
+    setFailure(null);
+  };
+  const send = async () => {
+    const text = note.trim();
+    if (!text) return;
+    setSending(true);
+    setFailure(null);
+    try {
+      const problem = await reportTruckProblem({ driverId: driver.id, truckId: checkIn.truckId, text });
+      close();
+      setSent(problem.text);
+    } catch (error) {
+      const said = error instanceof FieldErrors ? Object.values(error.fields).join(' ') : '';
+      setFailure(`Could not send the problem. Your note is kept: try Send to Dave again.${said ? ` ${said}` : ''}`);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const link = 'font-semibold underline underline-offset-4';
+  return (
+    <section aria-label="Checked in" className="space-y-3 rounded-lg border bg-card p-4 text-lg">
+      <p>
+        Truck {checkIn.truckNumber} · checked in {clockTime(checkIn.doneAt)} ·{' '}
+        <button type="button" className={link} onClick={() => (setReporting(true), setSent(null))}>
+          Report a problem
+        </button>{' '}
+        ·{' '}
+        <button type="button" className={link} onClick={onAgain}>
+          Check in again
+        </button>
+      </p>
+      {sent && <p role="status" className="text-base text-muted-foreground">Sent to Dave: {sent}</p>}
+      {reporting && (
+        <form
+          className="space-y-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void send();
+          }}
+        >
+          <Input
+            aria-label="What is the problem?"
+            placeholder={`What is wrong with Truck ${checkIn.truckNumber}?`}
+            className="h-12 text-lg"
+            maxLength={1000}
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            autoFocus
+          />
+          {failure && <p className="text-base text-destructive">{failure}</p>}
+          <div className="flex flex-wrap gap-2">
+            <Button type="submit" size="lg" className="text-lg" disabled={!note.trim() || sending}>
+              {sending && <Loader2 className="h-4 w-4 animate-spin" />}
+              Send to Dave
+            </Button>
+            <Button type="button" size="lg" variant="ghost" className="text-lg" disabled={sending} onClick={close}>
+              Cancel
+            </Button>
+          </div>
+        </form>
+      )}
+    </section>
   );
 }
 

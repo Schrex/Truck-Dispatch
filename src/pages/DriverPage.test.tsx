@@ -46,6 +46,9 @@ let failFinishes = 0;
 let problems: TruckProblem[] = [];
 /** The query of each read of the Truck problems. */
 const problemReads: string[] = [];
+/** Every Report a problem the phone sent, and how many to fail before one is saved. */
+const reports: unknown[] = [];
+let failReports = 0;
 /** The Worker's clock when a Finish is saved: 6:42 AM US Eastern. */
 const DONE_AT = '2026-11-19T11:42:00.000Z';
 
@@ -84,6 +87,20 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       { driverId: driver.id, driverName: driver.name, truckId: truck.id, truckNumber: truck.number, inspectionId: body.id, doneAt: DONE_AT, needsRepair },
     ];
     return answer({ inspection }, 201);
+  }
+  if (path.endsWith('/api/truck-problems') && init?.method === 'POST') {
+    const body = JSON.parse(String(init.body)) as { driverId: string; truckId: string; text: string };
+    reports.push(body);
+    if (failReports > 0) {
+      failReports -= 1;
+      return answer({ error: 'oops' }, 500);
+    }
+    const truck = trucks.find((t) => t.id === body.truckId)!;
+    const driver = drivers.find((d) => d.id === body.driverId)!;
+    return answer({ problem: {
+      id: `tp-${reports.length}`, truckId: truck.id, truckNumber: truck.number, reportedByDriverId: driver.id, reportedByName: driver.name,
+      reportedAt: '2026-11-19T16:05:00.000Z', text: body.text, inspectionId: null, fixedAt: null, fixedNote: null,
+    } }, 201);
   }
   if (path.endsWith('/api/truck-problems')) {
     problemReads.push(url.search);
@@ -149,6 +166,8 @@ beforeEach(() => {
   failFinishes = 0;
   problems = [];
   problemReads.length = 0;
+  reports.length = 0;
+  failReports = 0;
   localStorage.clear();
   vi.stubGlobal('fetch', api);
 });
@@ -462,7 +481,7 @@ describe('checking in on Today', () => {
     fireEvent.click(finish());
 
     const line = await screen.findByRole('region', { name: 'Checked in' });
-    expect(line.textContent).toBe('Truck 24 · checked in 6:42 · Check in again');
+    expect(line.textContent).toBe('Truck 24 · checked in 6:42 · Report a problem · Check in again');
     expect(screen.queryByRole('region', { name: 'Check in' })).toBeNull();
     expect(finished).toEqual([{
       id: expect.stringMatching(/^[0-9a-f-]{36}$/), date: '2026-11-19', driverId: 'drv-a', truckId: 'trk-24', otherNotes: 'Radio crackles',
@@ -493,7 +512,7 @@ describe('checking in on Today', () => {
     checkIns['2026-11-19'] = [LATER_CHECK_IN];
     open('/');
     const line = await screen.findByRole('region', { name: 'Checked in' });
-    expect(line.textContent).toBe('Truck 21 · checked in 6:05 · Check in again');
+    expect(line.textContent).toBe('Truck 21 · checked in 6:05 · Report a problem · Check in again');
     expect(screen.queryByRole('region', { name: 'Check in' })).toBeNull();
 
     fireEvent.click(within(line).getByRole('button', { name: 'Check in again' }));
@@ -502,7 +521,7 @@ describe('checking in on Today', () => {
     tap('Tires / wheels', 'OK');
     tap('Lights', 'OK');
     fireEvent.click(finish());
-    expect((await screen.findByRole('region', { name: 'Checked in' })).textContent).toBe('Truck 27 · checked in 6:42 · Check in again');
+    expect((await screen.findByRole('region', { name: 'Checked in' })).textContent).toBe('Truck 27 · checked in 6:42 · Report a problem · Check in again');
     expect(finished[0].id).not.toBe('earlier');
   });
 
@@ -511,7 +530,75 @@ describe('checking in on Today', () => {
     open('/');
     fireEvent.click(within(await screen.findByRole('region', { name: 'Checked in' })).getByRole('button', { name: 'Check in again' }));
     fireEvent.click(within(await checkInCard()).getByRole('button', { name: 'Cancel' }));
-    expect((await screen.findByRole('region', { name: 'Checked in' })).textContent).toBe('Truck 21 · checked in 6:05 · Check in again');
+    expect((await screen.findByRole('region', { name: 'Checked in' })).textContent).toBe('Truck 21 · checked in 6:05 · Report a problem · Check in again');
+  });
+
+  describe('Report a problem', () => {
+    const line = () => screen.findByRole('region', { name: 'Checked in' });
+    const note = () => screen.getByRole('textbox', { name: 'What is the problem?' }) as HTMLInputElement;
+    const send = () => within(screen.getByRole('region', { name: 'Checked in' })).getByRole('button', { name: 'Send to Dave' }) as HTMLButtonElement;
+    const reportOpen = async () => fireEvent.click(within(await line()).getByRole('button', { name: 'Report a problem' }));
+
+    it('is offered only once he has checked in, not on the Check in card', async () => {
+      open('/');
+      await checkInCard();
+      expect(screen.queryByRole('button', { name: 'Report a problem' })).toBeNull();
+    });
+
+    it('needs a note, then reports it on the Truck of his latest check-in and says it was sent', async () => {
+      checkIns['2026-11-19'] = [{ ...LATER_CHECK_IN, truckId: 'trk-24', truckNumber: '24' }];
+      open('/');
+      await reportOpen();
+      expect(send().disabled).toBe(true);
+      fireEvent.change(note(), { target: { value: '   ' } });
+      expect(send().disabled).toBe(true);
+      fireEvent.change(note(), { target: { value: '  Hydraulics leaking ' } });
+      fireEvent.click(send());
+      expect(await screen.findByText('Sent to Dave: Hydraulics leaking')).toBeTruthy();
+      expect(reports).toEqual([{ driverId: 'drv-a', truckId: 'trk-24', text: 'Hydraulics leaking' }]);
+      expect(screen.queryByRole('textbox', { name: 'What is the problem?' })).toBeNull();
+      expect(within(await line()).getByRole('button', { name: 'Report a problem' })).toBeTruthy();
+    });
+
+    it('says so when the report fails and keeps the note to send again', async () => {
+      checkIns['2026-11-19'] = [LATER_CHECK_IN];
+      failReports = 1;
+      open('/');
+      await reportOpen();
+      fireEvent.change(note(), { target: { value: 'Flat tire' } });
+      fireEvent.click(send());
+      expect(await screen.findByText('Could not send the problem. Your note is kept: try Send to Dave again.')).toBeTruthy();
+      expect(note().value).toBe('Flat tire');
+      fireEvent.click(send());
+      expect(await screen.findByText('Sent to Dave: Flat tire')).toBeTruthy();
+      expect(reports).toEqual([{ driverId: 'drv-a', truckId: 'trk-21', text: 'Flat tire' }, { driverId: 'drv-a', truckId: 'trk-21', text: 'Flat tire' }]);
+    });
+
+    it('can be put away without sending', async () => {
+      checkIns['2026-11-19'] = [LATER_CHECK_IN];
+      open('/');
+      await reportOpen();
+      fireEvent.click(within(await line()).getByRole('button', { name: 'Cancel' }));
+      expect(screen.queryByRole('textbox', { name: 'What is the problem?' })).toBeNull();
+      expect((await line()).textContent).toBe('Truck 21 · checked in 6:05 · Report a problem · Check in again');
+      expect(reports).toEqual([]);
+    });
+
+    it('goes on the Truck he checked in to again, not the earlier one', async () => {
+      checkIns['2026-11-19'] = [LATER_CHECK_IN];
+      open('/');
+      fireEvent.click(within(await line()).getByRole('button', { name: 'Check in again' }));
+      fireEvent.click(await within(await truckPicker()).findByRole('button', { name: 'Truck 27' }));
+      await start();
+      tap('Tires / wheels', 'OK');
+      tap('Lights', 'OK');
+      fireEvent.click(finish());
+      await reportOpen();
+      fireEvent.change(note(), { target: { value: 'Flat tire' } });
+      fireEvent.click(send());
+      await screen.findByText('Sent to Dave: Flat tire');
+      expect(reports).toEqual([{ driverId: 'drv-a', truckId: 'trk-27', text: 'Flat tire' }]);
+    });
   });
 
   it('offers no Check in on Yesterday, Tomorrow or any other day', async () => {
@@ -527,6 +614,18 @@ describe('checking in on Today', () => {
     await day('Sat, Nov 21');
     expect(screen.queryByRole('region', { name: 'Check in' })).toBeNull();
     expect(screen.queryByRole('region', { name: 'Checked in' })).toBeNull();
+  });
+
+  it('offers no Report a problem on other days, even once checked in today', async () => {
+    checkIns['2026-11-19'] = [{ driverId: 'drv-a', driverName: 'Sample Driver A', truckId: 'trk-21', truckNumber: '21', inspectionId: 'earlier', doneAt: '2026-11-19T11:05:00.000Z', needsRepair: false }];
+    open('/');
+    await screen.findByRole('button', { name: 'Report a problem' });
+    await pick('Yesterday');
+    await day('Yesterday, Wed, Nov 18');
+    expect(screen.queryByRole('button', { name: 'Report a problem' })).toBeNull();
+    await pick('Tomorrow');
+    await day('Tomorrow, Fri, Nov 20');
+    expect(screen.queryByRole('button', { name: 'Report a problem' })).toBeNull();
   });
 
   describe("the Truck's open problems", () => {

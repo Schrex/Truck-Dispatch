@@ -605,6 +605,13 @@ describe('Settings', () => {
       expect(lines('Fixed')).toEqual(['Truck 21Flap tornSample Driver A · Tue, Nov 17 16:05Fixed Wed, Nov 18 9:00 · New flap']);
     });
 
+    it('marks one a Driver reported during the day, rather than from an Inspection', async () => {
+      problems = [problem({ id: 'tp-4', reportedAt: '2026-11-19T16:05:00.000Z', text: 'Hydraulics leaking', inspectionId: null }), ...problems];
+      await settings();
+      expect(lines('Open')[0]).toBe('Truck 21Hydraulics leakingSample Driver A · Thu, Nov 19 11:05 · reported during the day Mark fixed');
+      expect(lines('Open')[1]).toBe('Truck 24Tarp rippedSample Driver C · Thu, Nov 19 7:30 Mark fixed');
+    });
+
     it('says when none are open, and when they cannot be loaded', async () => {
       problems = problems.filter((p) => p.fixedAt);
       await settings();

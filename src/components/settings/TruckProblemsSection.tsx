@@ -15,7 +15,8 @@ const nameOf = (problem: TruckProblem) => `Truck ${problem.truckNumber}: ${probl
  * Truck problems in Settings, under Trucks: open ones first, then fixed ones,
  * each newest first, as the Worker lists them. Dave marks one fixed, with an
  * optional note; it stays listed as fixed, so a Truck's history is never lost.
- * Only Drivers report problems, so there is no Add.
+ * Only Drivers report problems (from an Inspection, or during the day), so
+ * there is no Add.
  */
 export function TruckProblemsSection() {
   const [problems, setProblems] = useState<TruckProblem[] | null>(null);
@@ -73,7 +74,7 @@ export function TruckProblemsSection() {
   );
 }
 
-/** Its Truck and note, then who reported it and when. */
+/** Its Truck and note, then who reported it and when, and "reported during the day" when it came from no Inspection. */
 function Reported({ problem }: { problem: TruckProblem }) {
   return (
     <div className="min-w-0">
@@ -81,7 +82,7 @@ function Reported({ problem }: { problem: TruckProblem }) {
         <span className="font-semibold">Truck {problem.truckNumber}</span>
         <span className="ml-2">{problem.text}</span>
       </p>
-      <p className="text-xs text-muted-foreground">{[problem.reportedByName, when(problem.reportedAt)].filter(Boolean).join(' · ')}</p>
+      <p className="text-xs text-muted-foreground">{[problem.reportedByName, when(problem.reportedAt), problem.inspectionId ? null : 'reported during the day'].filter(Boolean).join(' · ')}</p>
     </div>
   );
 }
