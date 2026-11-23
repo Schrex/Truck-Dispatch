@@ -226,6 +226,47 @@ describe('Trip parts on the day read', () => {
   });
 });
 
+const readDriver = async (driverId: string, { date = MONDAY, NOW = TUESDAY }: { date?: string; NOW?: string } = {}) => {
+  const response = await send('GET', `/api/drivers/${driverId}/days/${date}`, undefined, { NOW });
+  expect(response.status).toBe(200);
+  return ((await response.json()) as { assignments: Assignment[] }).assignments;
+};
+
+describe("Trip parts on the Driver's day read", () => {
+  it("gives Randy's cards their Loads and the last one's time once the 16:20 cut is imported", async () => {
+    const { randy, a1, a2 } = await planMonday();
+    await importCut('2026-11-16-cut-1620.json');
+
+    const cards = await readDriver(randy);
+    const part = (id: string) => cards.find((a) => a.id === id)?.trips;
+    expect(part(a1.id)).toMatchObject({ loads: 4, status: 'done' });
+    expect(part(a2.id)).toMatchObject({ loads: 2, status: 'done' });
+    expect([easternTime(part(a1.id)!.lastLoadAt!), easternTime(part(a2.id)!.lastLoadAt!)]).toEqual(['11:25', '13:54']);
+  });
+
+  it('marks A1 Now with only the 10:15 cut stored, later that day', async () => {
+    const { randy, a1, a2 } = await planMonday();
+    await importCut('2026-11-16-cut-1015.json', '2026-11-16T15:20:00.000Z');
+
+    const cards = await readDriver(randy, { NOW: '2026-11-16T20:00:00.000Z' });
+    expect(cards.find((a) => a.id === a1.id)?.trips?.status).toBe('now');
+    expect(cards.find((a) => a.id === a2.id)?.trips?.status).not.toBe('now');
+  });
+
+  it('answers a day with no stored visits exactly as before', async () => {
+    const { randy, placeId } = await planMonday();
+    const tuesday = { date: '2026-11-17', driverId: randy, fromPlaceId: placeId('J25008 Los Flamboyanes'), toPlaceId: placeId('Villager') };
+    const { assignment } = (await (await send('POST', '/api/assignments', tuesday, { NOW: SUNDAY_EVENING })).json()) as { assignment: Assignment };
+    await send('POST', `/api/assignments/${assignment.id}/assign`, undefined, { NOW: SUNDAY_EVENING });
+    const readTuesday = async () => (await send('GET', `/api/drivers/${randy}/days/2026-11-17`, undefined, { NOW: TUESDAY })).text();
+    const before = await readTuesday();
+
+    await importCut('2026-11-16-cut-1620.json');
+
+    expect(await readTuesday()).toBe(before);
+  });
+});
+
 describe('Refusing a Truck log read', () => {
   it('answers 404 for a Truck that does not exist', async () => {
     expect((await send('GET', `/api/trucks/nope/days/${MONDAY}`)).status).toBe(404);
