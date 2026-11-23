@@ -2,11 +2,12 @@ import type { Env } from './app';
 import { DAY_ORDER, SELECT_ASSIGNMENT, marked, type AssignmentRow } from './assignmentQueries';
 import { clock } from './clock';
 import { codesWithNoPlaceIn } from './fleetImports';
+import { LATEST_INSPECTIONS } from './inspectionQueries';
 import { json, refuse } from './http';
 import { addDays, easternMoment, easternTime, isCalendarDate } from '../../shared/days';
 import { buildTripDay, routeAt, type FleetVisit, type TripAssignment, type TripJob, type TripPlace, type TruckCheckIn } from '../../shared/trips';
 import { truckLog } from '../../shared/truckLog';
-import type { Assignment, AssignmentTripPart, TruckLogDay } from '../../shared/types';
+import type { Assignment, AssignmentTripPart, DriverTruckLog, TruckLogDay } from '../../shared/types';
 
 /**
  * A Truck's stored day: its stored Fleet visits and the day's Assignments that
@@ -64,6 +65,27 @@ export async function storedTripParts(env: Env, date: string): Promise<Map<strin
     for (const a of (await storedTruckDay(env, truck, date, null)).assignments) if (a.trips) parts.set(a.id, a.trips);
   }
   return parts;
+}
+
+/**
+ * A Driver's Truck log for the Driver day read: on today only, the Truck he
+ * last checked in to today, else his usual Truck, built as the Truck log route
+ * opens today (as of the latest Import). None on any other day, with no
+ * Truck, or when that Truck has no stored visits today.
+ */
+export async function driverTruckLog(env: Env, driverId: string, date: string): Promise<DriverTruckLog | undefined> {
+  if (date !== clock(env).today) return undefined;
+  const truck = await env.DB.prepare(
+    `SELECT t.id, t.number, t.hcss_code AS hcssCode FROM drivers d
+       LEFT JOIN (${LATEST_INSPECTIONS}) i ON i.driverId = d.id
+       JOIN trucks t ON t.id = COALESCE(i.truckId, d.default_truck_id)
+      WHERE d.id = ?
+        AND EXISTS (SELECT 1 FROM fleet_visits v WHERE v.truck_id = t.id AND v.entered_at >= ? AND v.entered_at < ?)`,
+  )
+    .bind(date, driverId, easternMoment(date, 0, 0), easternMoment(addDays(date, 1), 0, 0))
+    .first<StoredTruck & { hcssCode: string | null }>();
+  if (!truck) return undefined;
+  return { ...(await storedTruckDay(env, truck, date, null)), hcssCode: truck.hcssCode };
 }
 
 /** A Truck's stored day, built at the clock minute `at` (null: the default clock). `date` and `at` are already checked. */
