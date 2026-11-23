@@ -410,6 +410,22 @@ export interface NewFleetImport {
   rows: FleetExportRow[];
 }
 
+/** One US Eastern day an Import touched: the visits entered on it, counted as the Import's are. */
+export interface FleetImportDay {
+  /** YYYY-MM-DD. */
+  date: string;
+  added: number;
+  closed: number;
+  unchanged: number;
+}
+
+/** A geofence code in an Import that no Place has: a Place to set up in Settings, unless it is only driven through. */
+export interface CodeWithNoPlace {
+  code: string;
+  /** Every visit there was a drive-through (closed, under 2 minutes), like "sunset". */
+  driveThrough: boolean;
+}
+
 /**
  * One Import: a Fleet export Dave dropped on the Fleet
  * imports page, for one Truck, and what it did to the stored visits.
@@ -428,8 +444,10 @@ export interface FleetImport {
   closed: number;
   /** Visits it held that were stored already and that it did not close ("already stored"). */
   unchanged: number;
-  /** The US Eastern days (YYYY-MM-DD) its visits were entered on. */
-  days: string[];
+  /** The US Eastern days its visits were entered on, each with its own counts, in date order. */
+  days: FleetImportDay[];
+  /** Every geofence code in it that no Place has, by code; its visits are stored all the same. */
+  codesWithNoPlace: CodeWithNoPlace[];
 }
 
 /** A refusal: each field that is wrong, with a plain message. */

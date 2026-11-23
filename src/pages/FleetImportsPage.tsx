@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Refused, importFleetExport } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { readFleetJson, type FleetExportRow } from '../../shared/fleetExport';
-import type { FleetExportFormat, FleetImport } from '../../shared/types';
+import type { FleetExportFormat, FleetImport, FleetImportDay } from '../../shared/types';
 
 /** A dropped file's text. FileReader, as every browser (and jsdom) has it. */
 function textOf(file: File): Promise<string> {
@@ -35,8 +35,13 @@ async function readExport(file: File): Promise<{ format: FleetExportFormat; rows
   return { format: 'json', rows: readFleetJson(parsed) };
 }
 
+/** "Mon 16 Nov". */
 const dayLabel = (date: string) =>
-  new Date(`${date}T12:00:00Z`).toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' });
+  new Date(`${date}T12:00:00Z`).toLocaleDateString('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' });
+
+/** "Mon 16 Nov: 3 new · 1 closed": a day the Import touched, with its counts (closed and already stored only when there are some). */
+const dayCounts = (day: FleetImportDay) =>
+  `${dayLabel(day.date)}: ${[`${day.added} new`, day.closed > 0 && `${day.closed} closed`, day.unchanged > 0 && `${day.unchanged} already stored`].filter(Boolean).join(' · ')}`;
 
 /** One dropped file: importing, imported with what it changed, or not imported and why. */
 type Drop = { key: number; fileName: string } & ({ state: 'importing' } | { state: 'imported'; result: FleetImport } | { state: 'failed'; reason: string });
@@ -145,8 +150,25 @@ export function FleetImportsPage() {
                         {drop.result.added} new · {drop.result.closed} closed · {drop.result.unchanged} already stored
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        {drop.fileName} · Truck {drop.result.truckNumber} · {drop.result.days.map(dayLabel).join(', ')}
+                        {drop.fileName} · Truck {drop.result.truckNumber}
                       </p>
+                      <p className="text-sm">{drop.result.days.map(dayCounts).join('; ')}</p>
+                      {drop.result.codesWithNoPlace.length > 0 && (
+                        <div className="mt-3">
+                          <h3 id={`no-place-${drop.key}`} className="text-sm font-medium">
+                            Codes with no Place
+                          </h3>
+                          <p className="text-xs text-muted-foreground">Their visits are stored. Give a Place its geofence code in Settings.</p>
+                          <ul aria-labelledby={`no-place-${drop.key}`} className="mt-1 flex flex-wrap gap-2">
+                            {drop.result.codesWithNoPlace.map((c) => (
+                              <li key={c.code} className="rounded-md border px-2 py-0.5 text-sm">
+                                {c.code}
+                                {c.driveThrough && <span className="text-muted-foreground"> · drive-through</span>}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                     </>
                   )}
                   {drop.state === 'failed' && (

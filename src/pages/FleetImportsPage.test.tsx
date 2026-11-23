@@ -14,6 +14,8 @@ import EXPORT_1502 from '../../shared/fixtures/fleet/2026-11-16-1502.json?raw';
 let sent: NewFleetImport[];
 /** What the Worker answers an Import with, when not the stored one. */
 let refusal: { status: number; body: unknown } | null;
+/** What the Worker's answer to an Import says, over the stored one. */
+let answered: Partial<FleetImport>;
 
 /** The Import route as the page sees it: every visit sent is new, on Truck 55. */
 const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -24,7 +26,7 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     sent.push(body);
     if (refusal) return answer(refusal.body, refusal.status);
     return answer({
-      import: { id: 'imp-1', truckId: 'trk-55', truckNumber: '55', fileName: body.fileName, format: body.format, importedAt: '2026-11-16T20:05:00.000Z', added: body.rows.length, closed: 0, unchanged: 0, days: ['2026-11-16'] } satisfies FleetImport,
+      import: { id: 'imp-1', truckId: 'trk-55', truckNumber: '55', fileName: body.fileName, format: body.format, importedAt: '2026-11-16T20:05:00.000Z', added: body.rows.length, closed: 0, unchanged: 0, days: [{ date: '2026-11-16', added: body.rows.length, closed: 0, unchanged: 0 }], codesWithNoPlace: [], ...answered } satisfies FleetImport,
     }, 201);
   }
   return answer({ error: 'not_found' }, 404);
@@ -33,6 +35,7 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 beforeEach(() => {
   sent = [];
   refusal = null;
+  answered = {};
   api.mockClear();
   vi.stubGlobal('fetch', api);
 });
@@ -87,5 +90,33 @@ describe('The Fleet imports page', () => {
     expect(await screen.findByText(message)).toBeTruthy();
     expect(screen.getByText('EntryExit-1502.json was not imported')).toBeTruthy();
     expect(screen.queryByText(/new · .* closed/)).toBeNull();
+  });
+
+  it('names each day the Import touched with its counts', async () => {
+    answered = {
+      added: 8, closed: 1, unchanged: 0,
+      days: [
+        { date: '2026-11-16', added: 3, closed: 1, unchanged: 0 },
+        { date: '2026-11-17', added: 5, closed: 0, unchanged: 0 },
+      ],
+    };
+    await openPage();
+    drop(new File([EXPORT_1502], 'EntryExit-1502.json', { type: 'application/json' }));
+    expect(await screen.findByText('Mon 16 Nov: 3 new · 1 closed; Tue 17 Nov: 5 new')).toBeTruthy();
+  });
+
+  it('lists the codes with no Place, marking the drive-throughs', async () => {
+    answered = { codesWithNoPlace: [{ code: 'BROCKPORT', driveThrough: false }, { code: 'sunset', driveThrough: true }] };
+    await openPage();
+    drop(new File([EXPORT_1502], 'EntryExit-1502.json', { type: 'application/json' }));
+    const list = await screen.findByRole('list', { name: 'Codes with no Place' });
+    expect(Array.from(list.querySelectorAll('li')).map((li) => li.textContent)).toEqual(['BROCKPORT', 'sunset · drive-through']);
+  });
+
+  it('shows no codes with no Place when every code has one', async () => {
+    await openPage();
+    drop(new File([EXPORT_1502], 'EntryExit-1502.json', { type: 'application/json' }));
+    await screen.findByText('18 new · 0 closed · 0 already stored');
+    expect(screen.queryByRole('list', { name: 'Codes with no Place' })).toBeNull();
   });
 });

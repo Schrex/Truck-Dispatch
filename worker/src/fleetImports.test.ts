@@ -29,7 +29,7 @@ describe('Importing a JSON Fleet export', () => {
     const response = await importFile('2026-11-16-1502.json');
     expect(response.status).toBe(201);
     const { import: made } = (await response.json()) as { import: FleetImport };
-    expect(made).toMatchObject({ truckId, truckNumber: '55', fileName: '2026-11-16-1502.json', format: 'json', importedAt: AFTERNOON, added: 18, days: ['2026-11-16'] });
+    expect(made).toMatchObject({ truckId, truckNumber: '55', fileName: '2026-11-16-1502.json', format: 'json', importedAt: AFTERNOON, added: 18, days: [{ date: '2026-11-16', added: 18, closed: 0, unchanged: 0 }] });
 
     const visits = await storedVisits(truckId);
     expect(visits).toHaveLength(18);
@@ -196,5 +196,71 @@ describe('Importing a Fleet export that repeats the day so far', () => {
       expect(await counts(await importVisit('2026-11-16T12:02:00Z'))).toBe('0 new · 0 closed · 1 already stored');
       expect(await storedVisits(truckId)).toEqual([expect.objectContaining({ enteredAt: '2026-11-16T12:02:03.000Z' })]);
     });
+  });
+});
+
+/** The rows of a fixture moved later by whole days, as an export of another day would give them. */
+const movedDays = (rows: ReturnType<typeof fleetRows>, days: number) => {
+  const move = (at: string | null) => (at === null ? null : new Date(Date.parse(at) + days * 86_400_000).toISOString());
+  return rows.map((r) => ({ ...r, enteredAt: move(r.enteredAt)!, exitedAt: move(r.exitedAt) }));
+};
+
+describe('The days an Import touched', () => {
+  it('reports each Eastern day with its own counts, and links the Import to both days', async () => {
+    await setUpTruck55(send);
+    const monday = fleetRows('2026-11-16-cut-1015.json');
+    const rows = [...monday, ...movedDays(monday.slice(0, 3), 1)];
+    const response = await send('POST', '/api/fleet-imports', { fileName: 'two-days.json', format: 'json', rows }, { NOW: AFTERNOON });
+    expect(response.status).toBe(201);
+    const { import: made } = (await response.json()) as { import: FleetImport };
+    expect(made.days).toEqual([
+      { date: '2026-11-16', added: 8, closed: 0, unchanged: 0 },
+      { date: '2026-11-17', added: 3, closed: 0, unchanged: 0 },
+    ]);
+    expect((await d1.database().prepare('SELECT date FROM fleet_import_days WHERE import_id = ? ORDER BY date').bind(made.id).all()).results).toEqual([
+      { date: '2026-11-16' },
+      { date: '2026-11-17' },
+    ]);
+  });
+
+  it('files a visit entered at 23:50 Eastern under that day, though in UTC it is the next day', async () => {
+    await setUpTruck55(send);
+    const [row] = fleetRows('2026-11-16-1502.json');
+    const late = { ...row, enteredAt: '2026-11-17T04:50:00Z', exitedAt: '2026-11-17T05:20:00Z' };
+    const response = await send('POST', '/api/fleet-imports', { fileName: 'late.json', format: 'json', rows: [late] }, { NOW: AFTERNOON });
+    const { import: made } = (await response.json()) as { import: FleetImport };
+    expect(made.days).toEqual([{ date: '2026-11-16', added: 1, closed: 0, unchanged: 0 }]);
+  });
+});
+
+describe('Codes with no Place', () => {
+  it('lists "sunset" from the 16 Nov JSON, marked drive-through, and stores its visits', async () => {
+    const { truckId } = await setUpTruck55(send);
+    const { import: made } = (await (await importFile('2026-11-16-1502.json')).json()) as { import: FleetImport };
+    expect(made.codesWithNoPlace).toEqual([{ code: 'sunset', driveThrough: true }]);
+    expect((await storedVisits(truckId)).filter((v) => v.geofenceCode === 'sunset')).toHaveLength(2);
+  });
+
+  it('lists a code with no Place where the Truck stopped without the drive-through mark', async () => {
+    await setUpTruck55(send);
+    // The Villager plant's visits, as if no Place had its code yet.
+    const rows = fleetRows('2026-11-16-1502.json').map((r) => (r.geofenceCode === 'VILLAGER' ? { ...r, geofenceCode: 'BROCKPORT' } : r));
+    const response = await send('POST', '/api/fleet-imports', { fileName: 'brockport.json', format: 'json', rows }, { NOW: AFTERNOON });
+    expect(response.status).toBe(201);
+    const { import: made } = (await response.json()) as { import: FleetImport };
+    expect(made.codesWithNoPlace).toEqual([
+      { code: 'BROCKPORT', driveThrough: false },
+      { code: 'sunset', driveThrough: true },
+    ]);
+  });
+
+  it('lists none when every code has a Place, matching codes whatever their case', async () => {
+    await setUpTruck55(send);
+    const rows = fleetRows('2026-11-16-1502.json')
+      .filter((r) => r.geofenceCode !== 'sunset')
+      .map((r) => ({ ...r, geofenceCode: r.geofenceCode.toLowerCase() }));
+    const response = await send('POST', '/api/fleet-imports', { fileName: 'lower.json', format: 'json', rows }, { NOW: AFTERNOON });
+    const { import: made } = (await response.json()) as { import: FleetImport };
+    expect(made.codesWithNoPlace).toEqual([]);
   });
 });

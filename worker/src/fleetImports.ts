@@ -3,7 +3,8 @@ import { clock } from './clock';
 import { json, readJson, refuse, text } from './http';
 import { businessDateOf } from '../../shared/days';
 import type { FleetExportRow } from '../../shared/fleetExport';
-import type { FleetExportFormat, FleetImport } from '../../shared/types';
+import { DRIVE_THROUGH_MINUTES } from '../../shared/trips';
+import type { CodeWithNoPlace, FleetExportFormat, FleetImport, FleetImportDay } from '../../shared/types';
 
 /**
  * Fleet imports: Dave drops an HCSS Fleet export on the
@@ -11,7 +12,9 @@ import type { FleetExportFormat, FleetImport } from '../../shared/types';
  * sends them here. The Worker never parses files. The rows' EquipmentCode
  * finds the Truck by its HCSS code. Each visit is kept once for it, keyed by
  * its geofence code and UTC entry minute: new visits are added, open ones
- * closed (see CLOSES and MORE_EXACT), and the Import keeps its counts.
+ * closed (see CLOSES and MORE_EXACT), and the Import keeps its counts. The
+ * answer also counts per US Eastern day touched, and lists the geofence codes
+ * no Place has (their visits are stored all the same).
  *
  *   POST api/fleet-imports  { fileName, format, rows }  → 201 { import }
  *
@@ -87,25 +90,20 @@ async function importExport(request: Request, env: Env): Promise<Response> {
 
   const id = crypto.randomUUID();
   const importedAt = clock(env).now.toISOString();
-  const days = [...new Set(visits.map((v) => businessDateOf(v.enteredAt)))].sort();
   const once = visitsOnce(visits);
   const DB = env.DB;
-  await DB.batch([
-    // The counts first, against the visits stored before this Import: the batch
-    // is one transaction, so they always match what it does below.
+  const [perDay] = await DB.batch([
+    // The counts first, per day, against the visits stored before this Import:
+    // the batch is one transaction, so they always match what it does below.
+    DB.prepare(`SELECT date, added, closed, unchanged FROM (${COUNTS_BY_DAY}) ORDER BY date`).bind(truck.id, JSON.stringify(once)),
     DB.prepare(
       `INSERT INTO fleet_imports (id, truck_id, file_name, format, imported_at, added, closed, unchanged)
-       SELECT ?1, ?2, ?3, ?4, ?5, added, closed, count_all - added - closed FROM (
-         SELECT count(*) AS count_all,
-                total(v.id IS NULL) AS added,
-                total(v.id IS NOT NULL AND v.exited_at IS NULL AND json_extract(r.value, '$.exitedAt') IS NOT NULL) AS closed
-         FROM json_each(?6) r
-         LEFT JOIN fleet_visits v ON v.truck_id = ?2
-           AND v.geofence_code = json_extract(r.value, '$.geofenceCode')
-           AND v.entered_minute = json_extract(r.value, '$.enteredMinute')
-       )`,
-    ).bind(id, truck.id, fileName, format, importedAt, JSON.stringify(once)),
-    ...days.map((date) => DB.prepare('INSERT INTO fleet_import_days (import_id, truck_id, date) VALUES (?, ?, ?)').bind(id, truck.id, date)),
+       SELECT ?3, ?1, ?4, ?5, ?6, total(added), total(closed), total(unchanged) FROM (${COUNTS_BY_DAY})`,
+    ).bind(truck.id, JSON.stringify(once), id, fileName, format, importedAt),
+    DB.prepare(
+      `INSERT INTO fleet_import_days (import_id, truck_id, date)
+       SELECT DISTINCT ?1, ?2, json_extract(value, '$.date') FROM json_each(?3)`,
+    ).bind(id, truck.id, JSON.stringify(once)),
     ...once.map((v) =>
       DB.prepare(
         `INSERT INTO fleet_visits (id, truck_id, geofence_code, entered_minute, entered_at, exited_at, entry_odometer, exit_odometer, import_id)
@@ -120,15 +118,55 @@ async function importExport(request: Request, env: Env): Promise<Response> {
     ),
   ]);
 
-  const counts = await DB.prepare('SELECT added, closed, unchanged FROM fleet_imports WHERE id = ?')
-    .bind(id)
-    .first<{ added: number; closed: number; unchanged: number }>();
-  const { added, closed, unchanged } = counts ?? { added: 0, closed: 0, unchanged: 0 };
+  const days = perDay.results as unknown as FleetImportDay[];
+  const codesWithNoPlace = await codesWithNoPlaceIn(DB, once);
+  const sum = (key: 'added' | 'closed' | 'unchanged') => days.reduce((n, d) => n + d[key], 0);
   return json(
-    { import: { id, truckId: truck.id, truckNumber: truck.number, fileName, format, importedAt, added, closed, unchanged, days } satisfies FleetImport },
+    {
+      import: {
+        id, truckId: truck.id, truckNumber: truck.number, fileName, format, importedAt,
+        added: sum('added'), closed: sum('closed'), unchanged: sum('unchanged'), days, codesWithNoPlace,
+      } satisfies FleetImport,
+    },
     201,
   );
 }
+
+/**
+ * Every geofence code in the Import that no active Place has (ignoring case,
+ * as Settings and the Trip builder match codes), by code. Its visits are
+ * stored all the same. A code is a drive-through when every visit there was
+ * one: closed, and shorter than the Trip builder's DRIVE_THROUGH_MINUTES.
+ */
+async function codesWithNoPlaceIn(DB: D1Database, visits: StoredVisit[]): Promise<CodeWithNoPlace[]> {
+  const { results } = await DB.prepare('SELECT geofence_code AS code FROM places WHERE active = 1 AND geofence_code IS NOT NULL').all<{ code: string }>();
+  const placed = new Set(results.map((p) => p.code.toLowerCase()));
+  const byCode = new Map<string, boolean>();
+  for (const v of visits) {
+    if (placed.has(v.geofenceCode.toLowerCase())) continue;
+    const driveThrough = v.exitedAt !== null && Date.parse(v.exitedAt) - Date.parse(v.enteredAt) < DRIVE_THROUGH_MINUTES * 60_000;
+    byCode.set(v.geofenceCode, (byCode.get(v.geofenceCode) ?? true) && driveThrough);
+  }
+  return [...byCode].map(([code, driveThrough]) => ({ code, driveThrough })).sort((a, b) => a.code.localeCompare(b.code));
+}
+
+/**
+ * What an Import does to the stored visits, per US Eastern day its visits were
+ * entered on: how many it adds, closes and holds already. ?1 is the Truck,
+ * ?2 the Import's visits once (visitsOnce) as JSON.
+ */
+const COUNTS_BY_DAY = `
+  SELECT date, CAST(added AS INTEGER) AS added, CAST(closed AS INTEGER) AS closed, CAST(count_all - added - closed AS INTEGER) AS unchanged FROM (
+    SELECT json_extract(r.value, '$.date') AS date,
+           count(*) AS count_all,
+           total(v.id IS NULL) AS added,
+           total(v.id IS NOT NULL AND v.exited_at IS NULL AND json_extract(r.value, '$.exitedAt') IS NOT NULL) AS closed
+    FROM json_each(?2) r
+    LEFT JOIN fleet_visits v ON v.truck_id = ?1
+      AND v.geofence_code = json_extract(r.value, '$.geofenceCode')
+      AND v.entered_minute = json_extract(r.value, '$.enteredMinute')
+    GROUP BY 1
+  )`;
 
 /**
  * Upsert rules for a visit already stored (fleet_visits) met by a row of a
@@ -143,6 +181,8 @@ const MORE_EXACT = "substr(fleet_visits.entered_at, 17) = ':00.000Z' AND substr(
 /** A visit as stored: times in UTC ISO 8601, keyed by geofence code and entered minute. */
 interface StoredVisit {
   geofenceCode: string;
+  /** The US Eastern day it was entered on, which it is filed under. */
+  date: string;
   enteredMinute: string;
   enteredAt: string;
   exitedAt: string | null;
@@ -162,6 +202,7 @@ function visitsOnce(rows: FleetExportRow[]): StoredVisit[] {
     const exitedAt = row.exitedAt === null ? null : new Date(row.exitedAt).toISOString();
     const visit: StoredVisit = {
       geofenceCode: row.geofenceCode,
+      date: businessDateOf(enteredAt),
       enteredMinute: enteredMinute(enteredAt),
       enteredAt,
       exitedAt,
