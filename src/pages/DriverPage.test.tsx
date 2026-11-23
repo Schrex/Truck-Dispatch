@@ -223,15 +223,18 @@ describe('choosing the Driver view', () => {
     expect(screen.getByRole('button', { name: 'Driver' }).getAttribute('aria-pressed')).toBe('true');
   });
 
-  it('goes back to the Drivers with "← Drivers", so a shared phone can change hands', async () => {
+  it('goes back to the Drivers with Change beside his name, so a shared phone can change hands', async () => {
     open('/');
     fireEvent.click(await screen.findByRole('button', { name: 'Driver' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Sample Driver A' }));
     await day('Today, Thu, Nov 19');
     expect(screen.queryByRole('button', { name: 'Not you?' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '← Drivers' }));
+    // "← Hub" stays top left, as on every page; Change sits with his name.
+    expect(screen.getByRole('link', { name: '← Hub' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Change Driver' }));
     expect(await screen.findByRole('heading', { name: 'Who are you?' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: '← Drivers' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Change Driver' })).toBeNull();
+    expect(screen.getByRole('link', { name: '← Hub' })).toBeTruthy();
     fireEvent.click(await screen.findByRole('button', { name: 'Sample Driver B' }));
     expect(await screen.findByText('Sample Driver B')).toBeTruthy();
     await waitFor(() => expect(read).toContain('drv-b 2026-11-19'));
@@ -241,7 +244,7 @@ describe('choosing the Driver view', () => {
     const first = open('/');
     fireEvent.click(await screen.findByRole('button', { name: 'Driver' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Sample Driver A' }));
-    fireEvent.click(await screen.findByRole('button', { name: '← Drivers' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Change Driver' }));
     await screen.findByRole('heading', { name: 'Who are you?' });
     first.unmount();
 

@@ -53,7 +53,7 @@ What the app does as built, page by page. Words in capitals are defined in [`GLO
 ## Driver view (`/driver`)
 
 - **Scheduler | Driver** in the header switches to it. The first time it asks "Who are you?" with the active Drivers as large buttons; the device remembers the Driver and the view in its browser storage (nothing is saved in the database), so it opens on his day.
-- **← Drivers** (top left) goes back to "Who are you?"; **Scheduler** switches back.
+- Under the title his initials and name, with **Change**, which goes back to "Who are you?" (top left is "← Hub", as on every page); **Scheduler** switches back.
 - It shows one of his days at a time, opening on Today: **Yesterday | Today | Tomorrow** are one tap (calendar days, so on a Friday, Tomorrow is Saturday), and **‹ ›** step one calendar day at a time, weekends included.
 - When Dave has Assigned him work beyond tomorrow (not cancelled), **Next from Dave: Mon, Nov 23 →** goes there.
 - He sees only his Assigned Assignments, never his Drafts; a day with none says "Nothing from Dave yet for Monday."
@@ -73,6 +73,8 @@ What the app does as built, page by page. Words in capitals are defined in [`GLO
 - An Inspection is never changed or deleted (ADR 0006). Until Drivers sign in through the Hub, whoever picked the name on the phone is trusted, so Inspections are tried on staging, not used as the real record.
 
 ## Simulation (`/simulate`)
+
+**Board** (top right) goes back to the Board, as from Settings.
 
 Phase 3 run on one real day: Truck 55 (MCK-55-17), driven by Randy on Mon 16 Nov 2026, on the real HCSS Fleet data. The Trip builder (`shared/trips.ts`) works out everything below from what the Worker would know at the clock's time. Nothing is saved and the Worker is not asked.
 

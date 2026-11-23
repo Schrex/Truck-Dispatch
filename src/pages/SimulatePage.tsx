@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pause, Play } from 'lucide-react';
+import { ClipboardList, Pause, Play } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { Lanes } from '@/components/Lanes';
 import { PageHeader } from '@/components/PageHeader';
 import { TruckLog } from '@/components/TruckLog';
@@ -53,7 +54,7 @@ export function SimulatePage() {
             aria-label="Scenario"
             value={scenario.id}
             onChange={(e) => setScenarioId(e.target.value)}
-            className="h-9 rounded-md border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="h-11 rounded-md border border-input bg-background px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {REAL_DAY.scenarios.map((s) => (
               <option key={s.id} value={s.id}>
@@ -62,6 +63,12 @@ export function SimulatePage() {
             ))}
           </select>
         </label>
+        {/* As from Settings: an outline button named for where it goes (docs/design/ui-standards.md). */}
+        <Button asChild variant="outline" size="lg" className="px-5">
+          <Link to="/">
+            <ClipboardList className="h-4 w-4" /> Board
+          </Link>
+        </Button>
       </PageHeader>
 
       <div className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur">

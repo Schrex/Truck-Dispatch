@@ -33,7 +33,7 @@ function tabFor(date: string, today: string): Tab | null {
  * Dave has Assigned him work beyond tomorrow, "Next from Dave: Mon, Nov 23 →"
  * takes him there, so a weekend never hides Monday. The first time, it asks
  * "Who are you?" with the active Drivers as large buttons; the device then
- * remembers him, and "← Drivers" goes back to that list (the device still
+ * remembers him, and Change (beside his name, under the title) goes back to that list (the device still
  * opens on his day until another Driver is picked). Every time the page comes
  * back into view it reads today again and the day shown, so a phone left
  * overnight on Today moves on to the new day and Dave's latest changes show.
@@ -131,14 +131,7 @@ export function DriverPage() {
     <div className="min-h-screen bg-surface">
       <PageHeader
         title="Dispatch"
-        subtitle={driver && !asking ? driver.name : 'Driver view'}
-        back={
-          asking ? undefined : (
-            <button type="button" className="-ml-2 inline-flex min-h-11 items-center px-2 text-base text-muted-foreground hover:text-foreground" onClick={() => setPicking(true)}>
-              ← Drivers
-            </button>
-          )
-        }
+        subtitle={driver && !asking ? <WhoIsUsing name={driver.name} onChange={() => setPicking(true)} /> : 'Driver view'}
       >
         <ViewToggle current="driver" />
       </PageHeader>
@@ -271,6 +264,28 @@ function Loading({ what }: { what: string }) {
     <p className="flex items-center gap-2 text-muted-foreground">
       <Loader2 className="h-4 w-4 animate-spin" /> Loading {what}…
     </p>
+  );
+}
+
+/**
+ * Who is using the phone, under the title: his initials, his name and Change,
+ * which goes back to "Who are you?" so a shared phone can change hands. It
+ * sits where every page says what it is showing, so "← Hub" stays the one
+ * thing top left (docs/design/ui-standards.md).
+ */
+function WhoIsUsing({ name, onChange }: { name: string; onChange: () => void }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span
+        aria-hidden
+        data-initials={initials(name)}
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary font-display text-xs font-semibold text-primary-foreground before:content-[attr(data-initials)]"
+      />
+      <span className="text-sm font-medium">{name}</span>
+      <Button type="button" variant="ghost" size="sm" aria-label="Change Driver" className="h-11 px-3 text-sm text-muted-foreground underline-offset-4 hover:underline" onClick={onChange}>
+        Change
+      </Button>
+    </div>
   );
 }
 

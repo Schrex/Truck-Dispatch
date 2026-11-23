@@ -348,14 +348,16 @@ describe.each([
   it.each([
     ['Board', '/', 'Dispatch'],
     ['Settings', '/settings', 'Settings'],
-  ])('gives the %s page the Hub header: a "← Hub" link, an uppercase Oswald title and a subtitle, with no bottom nav', (_page, path, title) => {
+    ['Simulation', '/simulate', 'Simulation'],
+  ])('gives the %s page the Hub header: a "← Hub" link, an uppercase Oswald title and a subtitle, with no bottom nav', async (_page, path, title) => {
     open(`${prefix}${path}`);
-    expect(screen.getByRole('link', { name: '← Hub' }).getAttribute('href')).toBe('/');
+    expect((await screen.findByRole('link', { name: '← Hub' })).getAttribute('href')).toBe('/');
     const heading = screen.getByRole('heading', { level: 1, name: title });
     expect(heading.className).toContain('font-display');
     expect(heading.className).toContain('uppercase');
     expect(heading.nextElementSibling?.textContent).toBeTruthy();
-    expect(screen.queryByRole('navigation')).toBeNull();
+    // The Board's week strip is a navigation of its own; no other, and no bottom nav.
+    expect(screen.queryAllByRole('navigation').map((nav) => nav.getAttribute('aria-label'))).toEqual(path === '/' ? ['Week'] : []);
   });
 
   it.each([
