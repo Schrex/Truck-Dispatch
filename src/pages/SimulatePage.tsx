@@ -6,12 +6,12 @@ import { PageHeader } from '@/components/PageHeader';
 import { TruckLog } from '@/components/TruckLog';
 import { TruckLogAssignments, unplannedLine } from '@/components/TruckLogAssignments';
 import { Button } from '@/components/ui/button';
-import { DriverView } from '@/simulate/DriverView';
-import { TripLog } from '@/simulate/TripLog';
+import { DriverView } from '@/components/DriverView';
+import { TripLog } from '@/components/TripLog';
 import { UnplannedAnswerFlow } from '@/simulate/UnplannedAnswerFlow';
 import { madeAssignmentId, type UnplannedAnswer } from '@/simulate/answers';
 import { REAL_DAY, placeName } from '@/simulate/realDay';
-import { ReplayClock } from '@/simulate/ReplayClock';
+import { ReplayClock } from '@/components/ReplayClock';
 import { DAY_END, simulateAt } from '@/simulate/simulate';
 import { easternTime } from '../../shared/days';
 

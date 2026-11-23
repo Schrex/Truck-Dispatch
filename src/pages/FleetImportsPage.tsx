@@ -11,9 +11,9 @@ import { Refused, fetchBusinessDay, fetchList, fetchTruckLogDay, importFleetExpo
 import { cn } from '@/lib/utils';
 import { StoredTruckLog } from '@/components/TruckLog';
 import { Lanes } from '@/components/Lanes';
-import { DriverView } from '@/simulate/DriverView';
-import { ReplayClock } from '@/simulate/ReplayClock';
-import { TripLog } from '@/simulate/TripLog';
+import { DriverView } from '@/components/DriverView';
+import { ReplayClock } from '@/components/ReplayClock';
+import { TripLog } from '@/components/TripLog';
 import { clockTime } from '@/simulate/simulate';
 import { easternTime, shortDate } from '../../shared/days';
 import { EXPORT_ADVICE, countFleetXlsxVisits, readFleetJson, readFleetXlsx, type FleetExportRow, type FleetSheet } from '../../shared/fleetExport';
