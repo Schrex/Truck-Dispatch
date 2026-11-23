@@ -5,8 +5,7 @@ import { easternTime, shortDate, weekdayName } from '../../shared/days';
 import { CalendarDays, tabFor } from '@/components/CalendarDays';
 import { CheckIn } from '@/components/CheckIn';
 import { DriverCard } from '@/components/DriverCard';
-import { TruckLog } from '@/components/TruckLog';
-import { TruckLogAssignments } from '@/components/TruckLogAssignments';
+import { StoredTruckLog } from '@/components/TruckLog';
 import { PageHeader } from '@/components/PageHeader';
 import { ViewToggle } from '@/components/ViewToggle';
 import { Button } from '@/components/ui/button';
@@ -287,9 +286,7 @@ function DaySection({
 function HisTruckLog({ log }: { log: DriverTruckLog }) {
   return (
     <div className="animate-rise space-y-2 pt-2">
-      <TruckLog truck={{ number: log.truckNumber, hcssCode: log.hcssCode }} date={log.date} truckDay={log.tripDay.truckDay} noMeterReadings>
-        <TruckLogAssignments columns={log.truckLog.columns} unplanned={log.truckLog.unplanned} whichAssignment={log.truckLog.whichAssignment} shopTrips={log.truckLog.shopTrips} />
-      </TruckLog>
+      <StoredTruckLog day={log} hcssCode={log.hcssCode} />
       {log.asOf && <p className="text-sm text-muted-foreground">As of the Import at {easternTime(log.asOf)}</p>}
     </div>
   );

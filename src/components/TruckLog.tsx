@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
-import type { Truck } from '../../shared/types';
+import type { Truck, TruckLogDay } from '../../shared/types';
 import { easternTime } from '../../shared/days';
 import type { TruckDay } from '../../shared/trips';
+import { TruckLogAssignments } from '@/components/TruckLogAssignments';
 import { cn } from '@/lib/utils';
 
 /** "Mon 16 Nov 2026" for "2026-11-16", as the paper log's date. */
@@ -78,5 +79,19 @@ export function TruckLog({
         {children}
       </div>
     </section>
+  );
+}
+
+/**
+ * A Truck's stored day as its Truck log (GET api/trucks/:id/days/:date): the
+ * header with no meter readings, and the body from the shared Truck log
+ * function. The same on the Fleet imports page and the Driver's Today.
+ * Unplanned work is shown, not answered.
+ */
+export function StoredTruckLog({ day, hcssCode }: { day: TruckLogDay; hcssCode: string | null }) {
+  return (
+    <TruckLog truck={{ number: day.truckNumber, hcssCode }} date={day.date} truckDay={day.tripDay.truckDay} noMeterReadings>
+      <TruckLogAssignments log={day.truckLog} />
+    </TruckLog>
   );
 }

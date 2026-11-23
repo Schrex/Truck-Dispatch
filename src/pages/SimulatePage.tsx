@@ -127,7 +127,7 @@ export function SimulatePage() {
           </div>
         </div>
         <TruckLog truck={REAL_DAY.truck} date={REAL_DAY.date} truckDay={day.tripDay.truckDay}>
-          <TruckLogAssignments columns={day.truckLog.columns} unplanned={day.truckLog.unplanned} whichAssignment={day.truckLog.whichAssignment} shopTrips={day.truckLog.shopTrips} onAnswer={openAnswer} />
+          <TruckLogAssignments log={day.truckLog} onAnswer={openAnswer} />
         </TruckLog>
         {answeringWork && answeringBox && (
           <UnplannedAnswerFlow

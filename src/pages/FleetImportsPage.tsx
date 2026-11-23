@@ -9,8 +9,7 @@ import { CalendarDays } from '@/components/CalendarDays';
 import { EmptyBox, Loading } from '@/components/States';
 import { Refused, fetchBusinessDay, fetchList, fetchTruckLogDay, importFleetExport } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { TruckLog } from '@/components/TruckLog';
-import { TruckLogAssignments } from '@/components/TruckLogAssignments';
+import { StoredTruckLog } from '@/components/TruckLog';
 import { Lanes } from '@/components/Lanes';
 import { DriverView } from '@/simulate/DriverView';
 import { ReplayClock } from '@/simulate/ReplayClock';
@@ -283,14 +282,7 @@ function StoredDayViews({
           <TripLog trips={day.tripDay.trips} places={day.places} assignmentLabels={day.labels} />
         </div>
       </div>
-      <TruckLog truck={{ number: day.truckNumber, hcssCode: trucks.find((t) => t.id === day.truckId)?.hcssCode ?? null }} date={day.date} truckDay={day.tripDay.truckDay} noMeterReadings>
-        <TruckLogAssignments
-          columns={day.truckLog.columns}
-          unplanned={day.truckLog.unplanned}
-          whichAssignment={day.truckLog.whichAssignment}
-          shopTrips={day.truckLog.shopTrips}
-        />
-      </TruckLog>
+      <StoredTruckLog day={day} hcssCode={trucks.find((t) => t.id === day.truckId)?.hcssCode ?? null} />
     </>
   );
 }

@@ -21,12 +21,12 @@ const tonsBox = () => within(screen.getByRole('group', { name: 'Assignment 1' })
 
 describe('Truck log column: # of tons', () => {
   it('writes the tons from the Tickets once there are some', () => {
-    render(<TruckLogAssignments columns={[column({ tons: 44.5 })]} unplanned={[]} shopTrips={[]} />);
+    render(<TruckLogAssignments log={{ columns: [column({ tons: 44.5 })], unplanned: [], whichAssignment: [], shopTrips: [] }} />);
     expect(tonsBox()).toBe('44.50');
   });
 
   it('is blank, marked "from Tickets", until then', () => {
-    render(<TruckLogAssignments columns={[column({ tons: null })]} unplanned={[]} shopTrips={[]} />);
+    render(<TruckLogAssignments log={{ columns: [column({ tons: null })], unplanned: [], whichAssignment: [], shopTrips: [] }} />);
     expect(tonsBox()).toBe('from Tickets');
   });
 });
@@ -41,7 +41,7 @@ describe('Truck log: Unplanned work', () => {
   });
 
   it('is an amber box after Dave’s columns with its Places and times, never a Pick up or Drop off', () => {
-    render(<TruckLogAssignments columns={[column({})]} unplanned={[work()]} shopTrips={[]} />);
+    render(<TruckLogAssignments log={{ columns: [column({})], unplanned: [work()], whichAssignment: [], shopTrips: [] }} />);
     const box = screen.getByRole('group', { name: 'Unplanned work' });
     expect(box.textContent).toBe('Unplanned workSample Site North ⇄ Sample Site South · out 14:15, back 14:33 · 0.46 h');
     expect(within(box).queryByText('Pick up')).toBeNull();
@@ -50,17 +50,17 @@ describe('Truck log: Unplanned work', () => {
   });
 
   it('says only when it went out while it has one Trip', () => {
-    render(<TruckLogAssignments columns={[]} unplanned={[work({ tripsLeftAt: ['2026-11-16T19:15:43Z'], truckingHours: 0.14 })]} shopTrips={[]} />);
+    render(<TruckLogAssignments log={{ columns: [], unplanned: [work({ tripsLeftAt: ['2026-11-16T19:15:43Z'], truckingHours: 0.14 })], whichAssignment: [], shopTrips: [] }} />);
     expect(screen.getByRole('group', { name: 'Unplanned work' }).textContent).toBe('Unplanned workSample Site North ⇄ Sample Site South · out 14:15 · 0.14 h');
   });
 
   it('numbers the boxes when there is more than one', () => {
-    render(<TruckLogAssignments columns={[]} unplanned={[work(), work({ id: 'b' })]} shopTrips={[]} />);
+    render(<TruckLogAssignments log={{ columns: [], unplanned: [work(), work({ id: 'b' })], whichAssignment: [], shopTrips: [] }} />);
     expect(screen.getAllByRole('group').map((g) => g.getAttribute('aria-label'))).toEqual(['Unplanned work 1', 'Unplanned work 2', 'To and from the shop']);
   });
 
   it('shows no box when there is none', () => {
-    render(<TruckLogAssignments columns={[column({})]} unplanned={[]} shopTrips={[]} />);
+    render(<TruckLogAssignments log={{ columns: [column({})], unplanned: [], whichAssignment: [], shopTrips: [] }} />);
     expect(screen.queryByRole('group', { name: /Unplanned work/ })).toBeNull();
   });
 });

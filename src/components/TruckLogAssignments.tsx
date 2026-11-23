@@ -4,7 +4,8 @@ import { EmptyBox } from '@/components/States';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { easternTime } from '../../shared/days';
-import type { TruckLogColumn, TruckLogTrip, TruckLogUnplanned, TruckLogWhichAssignment } from '../../shared/trips';
+import type { TruckLogUnplanned } from '../../shared/trips';
+import type { TruckLogBody } from '../../shared/truckLog';
 
 /** "J25008 Los Flamboyanes ⇄ J611 Bishop Kearney · out 14:15, back 14:33 · 0.46 h": no direction, as the Truck cannot tell one. */
 export function unplannedLine(work: TruckLogUnplanned): string {
@@ -26,17 +27,11 @@ export function unplannedLine(work: TruckLogUnplanned): string {
  * from the Loads' Tickets (phase 4), so until then the box is blank and says so.
  */
 export function TruckLogAssignments({
-  columns,
-  unplanned,
-  whichAssignment = [],
-  shopTrips,
+  log: { columns, unplanned, whichAssignment, shopTrips },
   onAnswer,
 }: {
-  columns: TruckLogColumn[];
-  unplanned: TruckLogUnplanned[];
-  /** The ties: planned work Dave picks the Assignment of. */
-  whichAssignment?: TruckLogWhichAssignment[];
-  shopTrips: TruckLogTrip[];
+  /** The body from the shared Truck log function (shared/truckLog.ts). */
+  log: TruckLogBody;
   /** Dave taps Answer on a piece of Unplanned work (by its id). */
   onAnswer?: (unplannedId: string) => void;
 }) {
