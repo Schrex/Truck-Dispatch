@@ -9,6 +9,8 @@ import { ORDERED_LISTS, PLACE_KINDS, type ListName } from '../../shared/types';
  *   GET   api/<list>                    active entries, by display name
  *   GET   api/<list>?include=inactive   every entry
  *   POST  api/<list>                    add an entry          → 201 { <one>: entry }
+ *                                       or, when a removed entry has that name, bring it
+ *                                       back with the fields sent → 200 { <one>: entry, broughtBack: true }
  *   PATCH api/<list>/<id>               change any of its fields, including active
  *   PUT   api/<list>/order              Dave's own order of the whole list (ordered lists only)
  *
@@ -27,8 +29,11 @@ import { ORDERED_LISTS, PLACE_KINDS, type ListName } from '../../shared/types';
  */
 
 type Field =
-  /** Optional free text; empty is saved as null. */
-  | { key: string; column: string; kind: 'text' }
+  /**
+   * Optional free text, trimmed; empty is saved as null. With `uniqueAmongActive`,
+   * no two active entries may have it, ignoring case (a removed entry's does not count).
+   */
+  | { key: string; column: string; kind: 'text'; uniqueAmongActive?: (holder: string) => string }
   /**
    * Optional id of an entry in another list. With `removed`, the entry must be
    * active when it is picked (it may be removed later and stay); with
@@ -74,7 +79,13 @@ export const LISTS: Record<ListName, List> = {
     one: 'truck',
     name: { key: 'number', column: 'number', missing: 'Write the Truck\'s number.', taken: 'There is already a Truck with this number.' },
     fields: [
-      { key: 'hcssCode', column: 'hcss_code', kind: 'text' },
+      // An Import finds its Truck by this code, so two active Trucks may not share it.
+      {
+        key: 'hcssCode',
+        column: 'hcss_code',
+        kind: 'text',
+        uniqueAmongActive: (holder) => `This HCSS code is on Truck ${holder} already. Clear it there first.`,
+      },
       { key: 'hcssGuid', column: 'hcss_guid', kind: 'text' },
     ],
   },
@@ -90,6 +101,13 @@ export const LISTS: Record<ListName, List> = {
     name: { key: 'shortName', column: 'short_name', missing: 'Write the Place\'s short name.', taken: 'There is already a Place with this short name.' },
     fields: [
       { key: 'fullName', column: 'full_name', kind: 'text' },
+      // A Trip finds its Place by this code from a Fleet export.
+      {
+        key: 'geofenceCode',
+        column: 'geofence_code',
+        kind: 'text',
+        uniqueAmongActive: (holder) => `This geofence code is on ${holder} already. Clear it there first.`,
+      },
       { key: 'kind', column: 'kind', kind: 'choice', choices: PLACE_KINDS, message: 'Pick plant, job site, shop or yard, or leave it empty.' },
       { key: 'jobId', column: 'job_id', kind: 'ref', list: 'jobs', message: 'Pick a Job from the list.' },
       {
@@ -102,7 +120,7 @@ export const LISTS: Record<ListName, List> = {
         onlyWhen: { column: 'kind', value: 'job_site', message: 'Only a job site can have a usual Foreman.' },
       },
     ],
-    // The geofence code itself comes from HCSS later; Settings only says whether there is one.
+    // On the truck map follows from the geofence code.
     facts: [{ key: 'onTruckMap', sql: 'geofence_code IS NOT NULL' }],
   },
   materials: {
@@ -243,7 +261,7 @@ async function read(env: Env, list: ListName, includeInactive: boolean): Promise
   return json({ [list]: results.map((row) => entry(list, row)) });
 }
 
-/** Adds an entry (id null) or changes the given fields of one. */
+/** Adds an entry (id null), or brings back the removed one with its name, or changes the given fields of one. */
 async function save(request: Request, env: Env, list: ListName, id: string | null): Promise<Response> {
   const spec = LISTS[list];
   if (id !== null && !(await exists(env, list, id))) return json({ error: 'not_found' }, 404);
@@ -253,14 +271,22 @@ async function save(request: Request, env: Env, list: ListName, id: string | nul
 
   const errors: Record<string, string> = {};
   const values: Record<string, string | number | null> = {};
+  /** The removed entry this add brings back, when it has the name sent. */
+  let revived: string | null = null;
 
   if (adding || spec.name.key in body) {
     const name = text(body[spec.name.key]);
     if (!name) errors[spec.name.key] = spec.name.missing;
     else if (name.length > TEXT_LIMIT) errors[spec.name.key] = `Keep it to ${TEXT_LIMIT} characters or fewer.`;
-    else if (await env.DB.prepare(`SELECT 1 FROM ${spec.table} WHERE ${spec.name.column} = ? COLLATE NOCASE AND id IS NOT ?`).bind(name, id).first()) {
-      errors[spec.name.key] = spec.name.taken;
-    } else values[spec.name.column] = name;
+    else {
+      const named = await entryNamed(env, list, name);
+      if (named && named.id !== id && (named.active || !adding)) errors[spec.name.key] = spec.name.taken;
+      else {
+        values[spec.name.column] = name;
+        // Adding a removed entry's name brings that entry back instead (as typing it on an Assignment does).
+        if (adding && named) revived = named.id;
+      }
+    }
   }
 
   for (const field of spec.fields) {
@@ -298,12 +324,30 @@ async function save(request: Request, env: Env, list: ListName, id: string | nul
     else values.active = body.active ? 1 : 0;
   }
 
+  // A field unique among active entries: checked on what the entry will hold once saved,
+  // so bringing a removed entry back is refused too when another active entry has its value now.
+  for (const field of spec.fields) {
+    if (field.kind !== 'text' || !field.uniqueAmongActive || errors[field.key]) continue;
+    const own = id ?? revived;
+    const value = field.column in values ? values[field.column] : own === null ? null : await columnOf(env, list, own, field.column);
+    const active = 'active' in values ? values.active : adding ? 1 : await columnOf(env, list, own!, 'active');
+    if (value == null || active !== 1) continue;
+    const holder = await env.DB.prepare(
+      `SELECT ${spec.name.column} AS name FROM ${spec.table} WHERE ${field.column} = ? COLLATE NOCASE AND active = 1 AND id IS NOT ?`,
+    )
+      .bind(value, own)
+      .first<{ name: string }>();
+    if (holder) errors[field.key] = field.uniqueAmongActive(holder.name);
+  }
+
   if (Object.keys(errors).length > 0) return refuse(errors);
 
+  // Brought back in use, with the fields sent; the ones left out stay as they were.
+  if (revived) values.active = 1;
   const columns = Object.keys(values);
-  const savedId = id ?? crypto.randomUUID();
+  const savedId = id ?? revived ?? crypto.randomUUID();
   try {
-    if (adding) {
+    if (adding && !revived) {
       // A new entry goes last, in the same batch, so it is never saved without its place.
       await env.DB.batch([
         env.DB.prepare(`INSERT INTO ${spec.table} (id, ${columns.join(', ')}) VALUES (?, ${columns.map(() => '?').join(', ')})`).bind(savedId, ...Object.values(values)),
@@ -326,7 +370,7 @@ async function save(request: Request, env: Env, list: ListName, id: string | nul
     throw error;
   }
   const saved = await env.DB.prepare(`${select(list)} WHERE id = ?`).bind(savedId).first<Record<string, unknown>>();
-  return json({ [spec.one]: saved && entry(list, saved) }, adding ? 201 : 200);
+  return json({ [spec.one]: saved && entry(list, saved), ...(revived && { broughtBack: true }) }, adding && !revived ? 201 : 200);
 }
 
 const ORDER_REFUSED = 'Send the entries of the list in order, each once.';

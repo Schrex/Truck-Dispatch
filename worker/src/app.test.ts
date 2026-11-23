@@ -317,6 +317,43 @@ describe.each([
   });
 });
 
+describe('adding a removed entry again', () => {
+  const remove = (path: string) => send('PATCH', path, { active: false });
+
+  it('brings the removed Truck back, keeping what it had unless the add sends it', async () => {
+    const { truck } = (await (await post('/api/trucks', { number: '30', hcssCode: 'T30', hcssGuid: 'guid-30' })).json()) as { truck: { id: string } };
+    await remove(`/api/trucks/${truck.id}`);
+
+    const again = await post('/api/trucks', { number: '30', hcssCode: 'T30-NEW' });
+    expect(again.status).toBe(200);
+    expect(await again.json()).toEqual({ truck: { id: truck.id, number: '30', hcssCode: 'T30-NEW', hcssGuid: 'guid-30', active: true }, broughtBack: true });
+    const { trucks } = (await (await get('/api/trucks')).json()) as { trucks: { number: string }[] };
+    expect(trucks.filter((t) => t.number === '30')).toHaveLength(1);
+  });
+
+  it('finds it ignoring case, takes the name as written now, and puts it last in an ordered list', async () => {
+    await remove('/api/drivers/drv-a');
+    const again = await post('/api/drivers', { name: 'SAMPLE DRIVER A' });
+    expect(again.status).toBe(200);
+    expect(await again.json()).toMatchObject({ driver: { id: 'drv-a', name: 'SAMPLE DRIVER A', active: true }, broughtBack: true });
+    const { drivers } = (await (await get('/api/drivers')).json()) as { drivers: { id: string }[] };
+    expect(drivers.map((d) => d.id)).toEqual(['drv-b', 'drv-c', 'drv-a']);
+  });
+
+  it('still refuses the name of an entry in use, and a rename to a removed entry\'s name', async () => {
+    expect(await refusal(await post('/api/trucks', { number: '21' }))).toEqual({ number: 'There is already a Truck with this number.' });
+    await remove('/api/trucks/trk-21');
+    expect(await refusal(await send('PATCH', '/api/trucks/trk-24', { number: '21' }))).toEqual({ number: 'There is already a Truck with this number.' });
+  });
+
+  it('brings nothing back when another field of the add is refused', async () => {
+    await remove('/api/drivers/drv-a');
+    expect(await refusal(await post('/api/drivers', { name: 'Sample Driver A', defaultTruckId: 'trk-nothing' }))).toEqual({ defaultTruckId: 'Pick a Truck from the list.' });
+    const { drivers } = (await (await get('/api/drivers')).json()) as { drivers: { id: string }[] };
+    expect(drivers.map((d) => d.id)).not.toContain('drv-a');
+  });
+});
+
 describe('Trucks', () => {
   it('save an HCSS code and HCSS id, and clear them', async () => {
     const response = await post('/api/trucks', { number: '30', hcssCode: ' T30 ', hcssGuid: '7f1c' });
@@ -325,6 +362,22 @@ describe('Trucks', () => {
 
     const cleared = await send('PATCH', `/api/trucks/${truck.id}`, { hcssCode: '', hcssGuid: null });
     expect(((await cleared.json()) as { truck: Entry }).truck).toMatchObject({ number: '30', hcssCode: null, hcssGuid: null });
+  });
+
+  it('refuse an HCSS code another active Truck has, ignoring case, with a message on the HCSS code', async () => {
+    const taken = { hcssCode: 'This HCSS code is on Truck 21 already. Clear it there first.' };
+    expect(await refusal(await post('/api/trucks', { number: '30', hcssCode: 'sample-21' }))).toEqual(taken);
+    expect(await refusal(await send('PATCH', '/api/trucks/trk-24', { hcssCode: ' SAMPLE-21 ' }))).toEqual(taken);
+    // The Truck that has it can save it again.
+    expect((await send('PATCH', '/api/trucks/trk-21', { hcssCode: 'SAMPLE-21' })).status).toBe(200);
+  });
+
+  it('accept an HCSS code held only by a removed Truck, and refuse to bring that Truck back while another has it', async () => {
+    await send('PATCH', '/api/trucks/trk-21', { active: false });
+    expect((await send('PATCH', '/api/trucks/trk-24', { hcssCode: 'SAMPLE-21' })).status).toBe(200);
+    expect(await refusal(await send('PATCH', '/api/trucks/trk-21', { active: true }))).toEqual({
+      hcssCode: 'This HCSS code is on Truck 24 already. Clear it there first.',
+    });
   });
 
 
@@ -468,19 +521,54 @@ describe('Jobs', () => {
 });
 
 describe('Places', () => {
-  it('list the seeded Places by short name, with full name, kind, Job and whether each is on the truck map, and no geofence code', async () => {
+  it('list the seeded Places by short name, with full name, kind, Job, geofence code and whether each is on the truck map', async () => {
     const places = await list('/api/places');
     expect(places.map((p) => p.shortName)).toEqual(['Sample Plant', 'Sample Shop', 'Sample Site North', 'Sample Yard']);
-    expect(places[2]).toEqual({ id: 'plc-north', shortName: 'Sample Site North', fullName: 'Sample Job North site', kind: 'job_site', jobId: 'job-n', usualForemanId: null, onTruckMap: false, sortOrder: null, active: true });
-    expect(places.map((p) => p.onTruckMap)).toEqual([true, false, false, false]);
-    for (const place of places) expect(Object.keys(place)).not.toContain('geofenceCode');
+    expect(places[2]).toEqual({ id: 'plc-north', shortName: 'Sample Site North', fullName: 'Sample Job North site', kind: 'job_site', jobId: 'job-n', usualForemanId: null, geofenceCode: null, onTruckMap: false, sortOrder: null, active: true });
+    expect(places.map((p) => [p.geofenceCode, p.onTruckMap])).toEqual([['SAMPLE-PLANT', true], [null, false], [null, false], [null, false]]);
   });
 
-  it('are not on the truck map when added, and cannot be put on it from Settings', async () => {
+  it('are not on the truck map when added without a geofence code, and onTruckMap sent is ignored', async () => {
     const { place } = (await (await post('/api/places', { shortName: 'Sample Pit', onTruckMap: true })).json()) as { place: Entry };
-    expect(place.onTruckMap).toBe(false);
+    expect(place).toMatchObject({ geofenceCode: null, onTruckMap: false });
     const changed = await send('PATCH', `/api/places/${place.id}`, { onTruckMap: true });
     expect(((await changed.json()) as { place: Entry }).place.onTruckMap).toBe(false);
+  });
+
+  it('save a geofence code trimmed, which puts the Place on the truck map, and clearing it takes the Place off', async () => {
+    const added = await post('/api/places', { shortName: 'Sample Pit', geofenceCode: '  J1001 North ' });
+    expect(added.status).toBe(201);
+    const { place } = (await added.json()) as { place: Entry };
+    expect(place).toMatchObject({ geofenceCode: 'J1001 North', onTruckMap: true });
+    expect((await list('/api/places')).find((p) => p.id === place.id)).toMatchObject({ geofenceCode: 'J1001 North', onTruckMap: true });
+
+    const cleared = await send('PATCH', `/api/places/${place.id}`, { geofenceCode: '  ' });
+    expect(((await cleared.json()) as { place: Entry }).place).toMatchObject({ geofenceCode: null, onTruckMap: false });
+  });
+
+  it('refuse a geofence code another active Place has, ignoring case, with a message on the geofence code', async () => {
+    const taken = { geofenceCode: 'This geofence code is on Sample Plant already. Clear it there first.' };
+    expect(await refusal(await post('/api/places', { shortName: 'Sample Pit', geofenceCode: 'sample-plant' }))).toEqual(taken);
+    expect(await refusal(await send('PATCH', '/api/places/plc-yard', { geofenceCode: ' SAMPLE-PLANT ' }))).toEqual(taken);
+    // The Place that has it can save it again.
+    expect((await send('PATCH', '/api/places/plc-plant', { geofenceCode: 'SAMPLE-PLANT', fullName: 'Plant' })).status).toBe(200);
+  });
+
+  it('accept a geofence code held only by a removed Place', async () => {
+    await send('PATCH', '/api/places/plc-plant', { active: false });
+    const moved = await send('PATCH', '/api/places/plc-yard', { geofenceCode: 'SAMPLE-PLANT' });
+    expect(moved.status).toBe(200);
+    expect(((await moved.json()) as { place: Entry }).place).toMatchObject({ geofenceCode: 'SAMPLE-PLANT', onTruckMap: true });
+  });
+
+  it('refuse to bring back a removed Place whose geofence code an active Place now has', async () => {
+    await send('PATCH', '/api/places/plc-plant', { active: false });
+    await send('PATCH', '/api/places/plc-yard', { geofenceCode: 'SAMPLE-PLANT' });
+    expect(await refusal(await send('PATCH', '/api/places/plc-plant', { active: true }))).toEqual({
+      geofenceCode: 'This geofence code is on Sample Yard already. Clear it there first.',
+    });
+    // Brought back with its code cleared, it is fine.
+    expect((await send('PATCH', '/api/places/plc-plant', { active: true, geofenceCode: null })).status).toBe(200);
   });
 
   it('save a short name alone, or with a full name, kind and Job, and clear them', async () => {
@@ -958,6 +1046,46 @@ describe('Assignments and Places', () => {
 
     await change(id, { fromPlaceId: 'plc-yard' });
     expect(await day('2026-11-20')).toEqual([expect.objectContaining({ fromPlaceId: 'plc-yard', fromPlaceName: 'Sample Yard', toPlaceId: 'plc-north', toPlaceName: 'Sample Site North' })]);
+  });
+});
+
+describe('one Assignment for several Drivers', () => {
+  it('makes one for each Driver, the same but for the Driver, last in his lane', async () => {
+    await add({ date: '2026-11-20', driverId: 'drv-b', note: 'Already his' });
+    const created = await post('/api/assignments', { date: '2026-11-20', driverId: 'drv-a', alsoDriverIds: ['drv-b'], fromPlaceName: 'Sample New Pit', note: 'Haul stone' });
+    expect(created.status).toBe(201);
+    const body = (await created.json()) as { assignment: Assignment; assignments: Assignment[] };
+    expect(body.assignments.map((a) => [a.driverId, a.fromPlaceName, a.note, a.position, a.assignedAt])).toEqual([
+      ['drv-a', 'Sample New Pit', 'Haul stone', 0, null],
+      ['drv-b', 'Sample New Pit', 'Haul stone', 1, null],
+    ]);
+    expect(body.assignment).toEqual(body.assignments[0]);
+    expect(body.assignments[0].fromPlaceId).toBe(body.assignments[1].fromPlaceId);
+    expect(body.assignments[0].id).not.toBe(body.assignments[1].id);
+    expect(await day('2026-11-20')).toHaveLength(3);
+  });
+
+  it('saves none when one of the Drivers was removed', async () => {
+    await send('PATCH', '/api/drivers/drv-c', { active: false });
+    const fields = await refusal(await post('/api/assignments', { date: '2026-11-20', driverId: 'drv-a', alsoDriverIds: ['drv-b', 'drv-c'] }));
+    expect(fields).toEqual({ alsoDriverIds: 'One of these Drivers was removed. Pick the Drivers again.' });
+    expect(await day('2026-11-20')).toEqual([]);
+  });
+
+  it.each([
+    ['a Driver named twice', { driverId: 'drv-a', alsoDriverIds: ['drv-b', 'drv-b'] }, 'Pick each Driver once.'],
+    ['the first Driver named again', { driverId: 'drv-a', alsoDriverIds: ['drv-a'] }, 'Pick each Driver once.'],
+    ['others with no first Driver', { alsoDriverIds: ['drv-b'] }, 'Pick each Driver once.'],
+    ['something that is not a list of Drivers', { driverId: 'drv-a', alsoDriverIds: 'drv-b' }, 'Pick the Drivers from the list.'],
+    ['a Driver that does not exist', { driverId: 'drv-a', alsoDriverIds: ['drv-nobody'] }, 'One of these Drivers was removed. Pick the Drivers again.'],
+  ])('refuses %s', async (_what, body, message) => {
+    expect(await refusal(await post('/api/assignments', { date: '2026-11-20', ...body }))).toEqual({ alsoDriverIds: message });
+    expect(await day('2026-11-20')).toEqual([]);
+  });
+
+  it('adds just the one when no others are named', async () => {
+    const created = await post('/api/assignments', { date: '2026-11-20', driverId: 'drv-a', alsoDriverIds: [] });
+    expect(((await created.json()) as { assignments: Assignment[] }).assignments).toHaveLength(1);
   });
 });
 
@@ -2360,7 +2488,7 @@ describe('typed Place and Material names', () => {
   it('add a new entry, a Place with no kind, and link to it, on add and on change', async () => {
     const added = await add({ date: '2026-11-20', fromPlaceName: ' Sample Pit ', materialName: 'Sample Fill' });
     expect(added).toMatchObject({ fromPlaceName: 'Sample Pit', materialName: 'Sample Fill' });
-    expect(await list('/api/places')).toContainEqual({ id: added.fromPlaceId, shortName: 'Sample Pit', fullName: null, kind: null, jobId: null, usualForemanId: null, onTruckMap: false, sortOrder: 5, active: true });
+    expect(await list('/api/places')).toContainEqual({ id: added.fromPlaceId, shortName: 'Sample Pit', fullName: null, kind: null, jobId: null, usualForemanId: null, geofenceCode: null, onTruckMap: false, sortOrder: 5, active: true });
     expect(await list('/api/materials')).toContainEqual({ id: added.materialId, name: 'Sample Fill', sortOrder: 4, active: true });
 
     const changed = await change(added.id, { toPlaceName: 'Sample Dump', materialId: null });

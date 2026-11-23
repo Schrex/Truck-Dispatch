@@ -97,7 +97,8 @@ export function weekDates(monday: string): string[] {
 }
 
 /** "Nov 16": a date as month and day, with no weekday or year. */
-function monthDay(date: string): string {
+/** "Nov 16": a date's month and day, as the week pager names the week it goes to. */
+export function monthDay(date: string): string {
   const [, m, d] = parts(date);
   return `${MONTHS[m - 1]} ${d}`;
 }
@@ -201,6 +202,39 @@ const businessClock = new Intl.DateTimeFormat('en-US', {
 /** "08:24": the time of a moment (ISO 8601) in US Eastern, as screens show times. */
 export function easternTime(iso: string): string {
   return businessClock.format(new Date(iso));
+}
+
+const businessWallClock = new Intl.DateTimeFormat('en-US', {
+  timeZone: BUSINESS_TIME_ZONE,
+  year: 'numeric',
+  month: 'numeric',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: 'numeric',
+  second: 'numeric',
+  hourCycle: 'h23',
+});
+
+/** How far US Eastern's wall clock is from UTC at a moment, in ms (-5 h in EST, -4 h in EDT). */
+function easternOffsetAt(ms: number): number {
+  const parts = businessWallClock.formatToParts(new Date(ms));
+  const part = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((p) => p.type === type)?.value);
+  const wall = Date.UTC(part('year'), part('month') - 1, part('day'), part('hour') % 24, part('minute'), part('second'));
+  return wall - Math.floor(ms / 1000) * 1000;
+}
+
+/**
+ * The moment (ISO 8601, UTC) a US Eastern wall clock reads a time of day on a
+ * date: 2026-11-16 at 07:02:03 → 2026-11-16T12:02:03.000Z. Read in US Eastern
+ * explicitly, never the runtime's own time zone.
+ */
+export function easternMoment(date: string, hour: number, minute: number, second = 0): string {
+  const [y, m, d] = parts(date);
+  const wall = Date.UTC(y, m - 1, d, hour, minute, second);
+  // The offset at the wall time read as UTC is a first guess; the offset at
+  // that guess is right except within the hour daylight saving changes.
+  const guess = wall - easternOffsetAt(wall);
+  return new Date(wall - easternOffsetAt(guess)).toISOString();
 }
 
 const businessTime = new Intl.DateTimeFormat('en-US', {

@@ -1,0 +1,94 @@
+{
+  "Result": [
+    {
+      "EquipmentCode": "MCK-55-17",
+      "EquipmentDescription": "2017 Mack Granite - 55",
+      "GeofenceCode": "SHOP",
+      "GeofenceType": "Other",
+      "GeofenceDescription": "Our shop and equipment yard",
+      "EntryDateTime": "2026-11-16T05:00:00+00:00",
+      "ExitDateTime": "2026-11-16T11:24:46+00:00",
+      "EntryOdometer": 258050.59,
+      "ExitOdometer": 258050.91
+    },
+    {
+      "EquipmentCode": "MCK-55-17",
+      "EquipmentDescription": "2017 Mack Granite - 55",
+      "GeofenceCode": "J25008 Los Flamboyanes",
+      "GeofenceType": "Job",
+      "GeofenceDescription": "Los Flamboyanes - Christa ",
+      "EntryDateTime": "2026-11-16T12:02:03+00:00",
+      "ExitDateTime": "2026-11-16T12:13:29+00:00",
+      "EntryOdometer": 258071.5,
+      "ExitOdometer": 258071.91
+    },
+    {
+      "EquipmentCode": "MCK-55-17",
+      "EquipmentDescription": "2017 Mack Granite - 55",
+      "GeofenceCode": "J25008 Los Flamboyanes",
+      "GeofenceType": "Job",
+      "GeofenceDescription": "Los Flamboyanes - Christa ",
+      "EntryDateTime": "2026-11-16T12:15:31+00:00",
+      "ExitDateTime": "2026-11-16T13:24:26+00:00",
+      "EntryOdometer": 258072.7,
+      "ExitOdometer": 258072.91
+    },
+    {
+      "EquipmentCode": "MCK-55-17",
+      "EquipmentDescription": "2017 Mack Granite - 55",
+      "GeofenceCode": "VILLAGER",
+      "GeofenceType": "Plant",
+      "GeofenceDescription": "Villager City Plant",
+      "EntryDateTime": "2026-11-16T13:34:37+00:00",
+      "ExitDateTime": "2026-11-16T13:43:48+00:00",
+      "EntryOdometer": 258076.3,
+      "ExitOdometer": 258076.59
+    },
+    {
+      "EquipmentCode": "MCK-55-17",
+      "EquipmentDescription": "2017 Mack Granite - 55",
+      "GeofenceCode": "J25008 Los Flamboyanes",
+      "GeofenceType": "Job",
+      "GeofenceDescription": "Los Flamboyanes - Christa ",
+      "EntryDateTime": "2026-11-16T13:56:13+00:00",
+      "ExitDateTime": "2026-11-16T14:35:33+00:00",
+      "EntryOdometer": 258080.2,
+      "ExitOdometer": 258080.3
+    },
+    {
+      "EquipmentCode": "MCK-55-17",
+      "EquipmentDescription": "2017 Mack Granite - 55",
+      "GeofenceCode": "VILLAGER",
+      "GeofenceType": "Plant",
+      "GeofenceDescription": "Villager City Plant",
+      "EntryDateTime": "2026-11-16T14:46:49+00:00",
+      "ExitDateTime": "2026-11-16T14:50:54+00:00",
+      "EntryOdometer": 258083.8,
+      "ExitOdometer": 258084.09
+    },
+    {
+      "EquipmentCode": "MCK-55-17",
+      "EquipmentDescription": "2017 Mack Granite - 55",
+      "GeofenceCode": "sunset",
+      "GeofenceType": "Other",
+      "GeofenceDescription": null,
+      "EntryDateTime": "2026-11-16T14:52:56+00:00",
+      "ExitDateTime": "2026-11-16T14:53:57+00:00",
+      "EntryOdometer": 258084.91,
+      "ExitOdometer": 258085.41
+    },
+    {
+      "EquipmentCode": "MCK-55-17",
+      "EquipmentDescription": "2017 Mack Granite - 55",
+      "GeofenceCode": "J25008 Los Flamboyanes",
+      "GeofenceType": "Job",
+      "GeofenceDescription": "Los Flamboyanes - Christa ",
+      "EntryDateTime": "2026-11-16T15:00:04+00:00",
+      "ExitDateTime": null,
+      "EntryOdometer": 258087.3,
+      "ExitOdometer": null
+    }
+  ],
+  "Status": 5,
+  "IsCompleted": true
+}

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Loader2, Settings } from 'lucide-react';
+import { Loader2, Settings, Upload } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import type { Assignment, BusinessDay, CheckIn, Driver, Foreman, Material, Place, Truck, TruckProblem } from '../../shared/types';
 import { isCalendarDate } from '../../shared/days';
 import { AssignmentEditor } from '@/components/AssignmentEditor';
-import { afterSave, Composer, EMPTY_DRAFT, type Draft } from '@/components/Composer';
+import { Composer, EMPTY_DRAFT, type Draft } from '@/components/Composer';
 import { Lanes } from '@/components/Lanes';
 import { DayNavigation, daySubtitle } from '@/components/DayNavigation';
 import { DayCopy } from '@/components/DayCopy';
@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/sonner';
 import { useReadOnFocus } from '@/lib/useReadOnFocus';
 import { assignAssignment, discardAssignment, fetchBusinessDay, fetchCheckIns, fetchDay, fetchList, fetchTruckProblems, Refused } from '@/lib/api';
+import { Loading } from '@/components/States';
 
 /** Every open Truck problem, for the marks. */
 const readOpenProblems = () => fetchTruckProblems({ open: true });
@@ -176,11 +177,16 @@ export function BoardPage() {
     <div className="min-h-screen bg-surface">
       <PageHeader
         title="Dispatch"
-        subtitle={date ? daySubtitle(date, businessDay?.today ?? null) : 'Loading…'}
+        subtitle={date ? daySubtitle(date, businessDay?.today ?? null) : <Loading />}
         below={date && <WeekStrip date={date} today={businessDay?.today ?? null} refresh={dayShown} onShow={show} />}
       >
         <ViewToggle current="scheduler" />
         <DayNavigation date={date} nextWorkingDay={businessDay?.nextWorkingDay ?? null} onShow={show} />
+        <Button asChild variant="outline" size="lg" className="px-5">
+          <Link to="/fleet-imports">
+            <Upload className="h-4 w-4" /> Fleet imports
+          </Link>
+        </Button>
         <Button asChild variant="outline" size="lg" className="px-5">
           <Link to="/settings">
             <Settings className="h-4 w-4" /> Settings
@@ -248,7 +254,15 @@ export function BoardPage() {
                 actions={<TakeOff assignment={assignment} onDeleted={deleted} onChanged={(a) => changed([a])} />}
               />
             )}
-            onAdd={editable ? setComposingFor : undefined}
+            onAdd={
+              editable
+                ? (driverId) => {
+                    // Another lane's + starts a blank composer: nothing is carried over from the last one.
+                    if (driverId !== composingFor) setDraft(EMPTY_DRAFT);
+                    setComposingFor(driverId);
+                  }
+                : undefined
+            }
             composingFor={editable ? composingFor : undefined}
             composer={
               date && (
@@ -258,13 +272,12 @@ export function BoardPage() {
                   driverId={composingFor ?? null}
                   driverName={composerLane?.name ?? null}
                   usualTruckId={composerLane?.defaultTruckId ?? null}
-                  lists={{ places, materials, trucks, foremen }}
+                  lists={{ drivers, places, materials, trucks, foremen }}
                   problems={problems}
                   draft={draft}
                   onDraft={setDraft}
-                  onSaved={(assignment) => {
-                    setDraft(afterSave);
-                    setComposingFor(undefined);
+                  onSaved={([assignment]) => {
+                    closeComposer();
                     saved(assignment);
                   }}
                   onClose={closeComposer}

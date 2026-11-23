@@ -1,5 +1,6 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { Choice } from '@/lib/lists';
+import { Loading } from '@/components/States';
 
 /** The empty choice. Radix Select cannot use '' as a value. */
 const NONE = 'none';
@@ -34,7 +35,7 @@ export function ListPicker({
   return (
     <Select name={id} value={value ?? NONE} onValueChange={(next) => onChange(next === NONE ? null : next)} disabled={!choices}>
       <SelectTrigger id={id} aria-label={label}>
-        <SelectValue placeholder={choices ? empty : failed ? 'Not available' : 'Loading…'} />
+        <SelectValue placeholder={choices ? empty : failed ? 'Not available' : <Loading />} />
       </SelectTrigger>
       <SelectContent>
         <SelectItem value={NONE}>{empty}</SelectItem>

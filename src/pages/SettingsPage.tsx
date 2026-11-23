@@ -34,17 +34,18 @@ const SECTIONS: SectionSpec<ListName>[] = [
     title: 'Trucks',
     noun: 'Truck',
     name: { key: 'number', label: 'Number' },
-    // Its HCSS code and id stay in the database for counting Trips later; they come from HCSS, so Settings neither shows nor asks for them.
-    fields: [],
+    // An Import finds its Truck by the HCSS code (its EquipmentCode in Fleet). The HCSS id is not asked for.
+    fields: [{ key: 'hcssCode', label: 'HCSS code', kind: 'text' }],
   }),
   section({
     list: 'places',
     title: 'Places',
     noun: 'Place',
     name: { key: 'shortName', label: 'Short name' },
-    // The geofence code is not part of the API: it comes from HCSS for GPS matching later.
     fields: [
       { key: 'fullName', label: 'Full name', kind: 'text' },
+      // A Trip finds its Place by it; with one, the Place is on the truck map.
+      { key: 'geofenceCode', label: 'Geofence code', kind: 'text' },
       {
         key: 'kind',
         label: 'Kind',
@@ -151,7 +152,7 @@ export function SettingsPage() {
         <Button
           variant="ghost"
           size="sm"
-          className="h-11 w-9 rounded-full p-0 text-muted-foreground shadow-none hover:bg-background hover:text-foreground"
+          className="h-11 w-11 rounded-full p-0 text-muted-foreground shadow-none hover:bg-background hover:text-foreground"
           aria-label={`Move ${name} ${by < 0 ? 'up' : 'down'}`}
           title={by < 0 ? 'Earlier in the list' : 'Later in the list'}
           onClick={() => move(spec, list, inUse, index, by)}

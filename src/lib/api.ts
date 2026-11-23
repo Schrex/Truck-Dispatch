@@ -1,4 +1,4 @@
-import type { Assignment, AssignmentChange, BusinessDay, ChangedAssignment, CheckIn, CheckIns, CopiedDay, Day, DriverDay, Inspection, NewInspection, EntryFields, ListName, Lists, NewAssignment, OrderedList, TruckProblem, TypedNames, WeekDay } from '../../shared/types';
+import type { Assignment, AssignmentChange, BusinessDay, ChangedAssignment, CheckIn, CheckIns, CopiedDay, Day, DriverDay, FleetImport, NewFleetImport, Inspection, NewInspection, EntryFields, ListName, Lists, AddAssignment, OrderedList, TruckProblem, WeekDay } from '../../shared/types';
 import { basePath } from './basePath';
 
 // Every call starts at the base path the page was reached under: /api/...
@@ -38,9 +38,14 @@ export async function fetchList<L extends ListName>(list: L, { includeInactive =
   return body[list];
 }
 
-/** Adds an entry to a list. There is no delete: an entry is made inactive with changeEntry. */
-export async function addEntry<L extends ListName>(list: L, fields: EntryFields<L>): Promise<Lists[L]> {
-  return Object.values(await request<Record<string, Lists[L]>>(`api/${list}`, json('POST', fields)))[0];
+/**
+ * Adds an entry to a list. When a removed entry already has that name, the
+ * Worker brings it back instead, with the fields sent (broughtBack). There is
+ * no delete: an entry is made inactive with changeEntry.
+ */
+export async function addEntry<L extends ListName>(list: L, fields: EntryFields<L>): Promise<{ entry: Lists[L]; broughtBack: boolean }> {
+  const { broughtBack, ...one } = await request<Record<string, Lists[L]> & { broughtBack?: boolean }>(`api/${list}`, json('POST', fields));
+  return { entry: Object.values(one)[0] as Lists[L], broughtBack: broughtBack === true };
 }
 
 /** Changes only the given fields of an entry, e.g. its name or { active: false }. */
@@ -85,17 +90,19 @@ export async function assignAssignment(id: string): Promise<Assignment> {
 }
 
 /**
- * Adds an Assignment, last in its lane. A Place or Material may be given by
- * name instead of by id (typed in the composer); the Worker links or adds it.
+ * Adds an Assignment, last in its lane, and the same one for each of
+ * `alsoDriverIds`; answers them all, the first Driver's first. A Place or
+ * Material may be given by name instead of by id (typed in the composer); the
+ * Worker links or adds it.
  */
-export async function addAssignment(assignment: NewAssignment & TypedNames): Promise<Assignment> {
+export async function addAssignment(assignment: AddAssignment): Promise<Assignment[]> {
   return (
-    await request<{ assignment: Assignment }>('api/assignments', {
+    await request<{ assignments: Assignment[] }>('api/assignments', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(assignment),
     })
-  ).assignment;
+  ).assignments;
 }
 
 /**
@@ -207,4 +214,9 @@ export async function fixTruckProblem(id: string, note?: string): Promise<TruckP
 /** Report a problem: a Driver reports one during the day on the Truck of his latest check-in today. */
 export async function reportTruckProblem(report: { driverId: string; truckId: string; text: string }): Promise<TruckProblem> {
   return (await request<{ problem: TruckProblem }>('api/truck-problems', json('POST', report))).problem;
+}
+
+/** Imports a Fleet export's rows, read by the page (shared/fleetExport.ts): what it added, for which Truck and days. */
+export async function importFleetExport(body: NewFleetImport): Promise<FleetImport> {
+  return (await request<{ import: FleetImport }>('api/fleet-imports', json('POST', body))).import;
 }

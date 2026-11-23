@@ -34,7 +34,7 @@ Sources: the "Trucking page · 5 design mocks" export, page **Final · scheduler
 - **Past days are enforced by the Worker** in US Eastern (ADR 0004), not by a lock in the page.
 - **Send per day, with no lock after it** (ADR 0003), because trucking changes Sent days all day. Send has no warnings for now.
 - **✕ deletes on a Draft day and cancels on a Sent day**, so a Driver who has seen an Assignment sees it cancelled rather than gone. A cancelled one stays in its lane until it is Put back or Discarded.
-- **Discard and Dismiss** (23 Nov): once seen, a cancelled Assignment can be cleared out of view. Dave **Discards** it off the Board and the Driver **Dismisses** it off his day, each on their own, so neither hides it from the other. Nothing is deleted, and Put back brings it back for both. Settings lost **Bring back**: a removed entry comes back by typing its name on an Assignment.
+- **Discard and Dismiss** (23 Nov): once seen, a cancelled Assignment can be cleared out of view. Dave **Discards** it off the Board and the Driver **Dismisses** it off his day, each on their own, so neither hides it from the other. Nothing is deleted, and Put back brings it back for both. Settings lost **Bring back**: a removed entry comes back by adding its name again in Settings, or by typing it on an Assignment.
 - **Giving work to another Driver after Send** cancels it for the first Driver and adds it for the second, so each Driver sees what happened to his own day.
 - **Changed and Added.** A field change, a cancel, a Put back, or its own move in the order, after the Send, counts as Changed. Neighbours that shift because of a move are not Changed, so no Driver is told about a change that is not his.
 - **Earlier versions are kept** (add-only) from the Send onwards. The Driver sees "was Cobblestone", and phase 3 can match Trips made before a reroute.
@@ -48,7 +48,7 @@ Sources: the "Trucking page · 5 design mocks" export, page **Final · scheduler
 
 ### After trying it on staging (22 Nov)
 - **Send stays the gate.** Randy's Monday did not show because it was still a Draft. The Board now says so on a Draft day. (Since ADR 0005 the gate is each Assignment's Assign, and Drafts look dashed on the Board.)
-- **The composer folds on Save** but keeps the Places and Material for the next **+**.
+- **The composer folds on Save and every + opens blank.** It first kept the Places and Material for the next **+**, so the same haul could go to a second Driver; Dave found one Driver's work turning up in the next Driver's composer. The same haul for several Drivers is now picked in "Who?" and saved in one go, one Draft each. The lane's own Driver cannot be dropped there, so a lane's **+** always adds to that lane.
 - **Settings says nothing about HCSS on a Truck.** Its code and id stay in the data for Trips later. A Place still shows "On the truck map" (open question).
 - **First** is the first Assignment that is not cancelled, and the day's count leaves cancelled ones out.
 
@@ -100,6 +100,8 @@ truck_problems     id, truck_id, reported_by_driver_id, reported_at, text,
 ```
 
 ### Phase 3: trips
+
+`fleet_imports`, `fleet_import_days` and `fleet_visits` (in place of `fleet_events`, proposal P2 in `telematics-backend.md`) are built (`0018`), filled by dropping Fleet exports on the Fleet imports page. The rest is still to come.
 ```
 fleet_events    id, truck_id, hcss_event_id UNIQUE, geofence_code, place_id?, kind enter|leave, at, odometer?   raw
 trips           id, truck_id, date, from_place_id?, to_place_id?, left_at, arrived_at, miles?,

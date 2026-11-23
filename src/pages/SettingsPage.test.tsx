@@ -18,7 +18,8 @@ const problem = (fields: Partial<TruckProblem>): TruckProblem => ({
 /**
  * The list API as Settings sees it: every list keeps what is added and
  * changed, refuses a name already used (ignoring case) and has no delete. A
- * Driver answers how many later days hold his Assignments. Drivers, Places and
+ * Driver answers how many later days hold his Assignments. A Place's geofence
+ * code is unique among active Places, and puts it on the truck map. Drivers, Places and
  * Materials and the Inspection checklist take a whole new order, the ids
  * first to last, the rest after.
  */
@@ -74,17 +75,32 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   const one = list.slice(0, -1);
   // Like the Worker, a Place that stops being a job site loses its usual Foreman.
   const dropped = list === 'places' && 'kind' in body && body.kind !== 'job_site' ? { usualForemanId: null } : {};
-  if (name in body && entries.some((e) => e.id !== id && String(e[name]).toLowerCase() === String(body[name]).toLowerCase())) {
+  const named = name in body ? entries.find((e) => e.id !== id && String(e[name]).toLowerCase() === String(body[name]).toLowerCase()) : undefined;
+  if (named && (named.active || method === 'PATCH')) {
     return answer({ error: 'invalid', fields: { [name]: 'That one is already in the list.' } }, 400);
   }
+  // Like the Worker, a geofence code another active Place has is refused, and On the truck map follows from it.
+  const holder = list === 'places' && body.geofenceCode ? entries.find((e) => e.id !== id && e.active && String(e.geofenceCode).toLowerCase() === body.geofenceCode.toLowerCase()) : undefined;
+  if (holder) return answer({ error: 'invalid', fields: { geofenceCode: `This geofence code is on ${holder.shortName} already. Clear it there first.` } }, 400);
+  // Like the Worker, an HCSS code another active Truck has is refused.
+  const truckHolder = list === 'trucks' && body.hcssCode ? entries.find((e) => e.id !== id && e.active && String(e.hcssCode).toLowerCase() === body.hcssCode.toLowerCase()) : undefined;
+  if (truckHolder) return answer({ error: 'invalid', fields: { hcssCode: `This HCSS code is on Truck ${truckHolder.number} already. Clear it there first.` } }, 400);
+  const onMap = list === 'places' && 'geofenceCode' in body ? { onTruckMap: !!body.geofenceCode } : {};
+  if (method === 'POST' && !body[name]) return answer({ error: 'invalid', fields: { [name]: 'Write its name.' } }, 400);
+  if (method === 'POST' && named) {
+    // Like the Worker, adding a removed entry's name brings that entry back, last in the list.
+    Object.assign(named, body, onMap, { active: true });
+    lists[list] = [...entries.filter((e) => e !== named), named];
+    return answer({ [one]: named, broughtBack: true });
+  }
   if (method === 'POST') {
-    const entry = { id: `new-${entries.length}`, active: true, ...(list === 'places' ? { onTruckMap: false } : {}), ...body };
+    const entry = { id: `new-${entries.length}`, active: true, ...(list === 'places' ? { geofenceCode: null, onTruckMap: false } : {}), ...body, ...onMap };
     entries.push(entry);
     return answer({ [one]: entry }, 201);
   }
   if (method === 'PATCH') {
     const entry = entries.find((e) => e.id === id)!;
-    Object.assign(entry, body, dropped);
+    Object.assign(entry, body, dropped, onMap);
     return answer({ [one]: entry });
   }
   return answer({ error: 'method_not_allowed' }, 405);
@@ -103,10 +119,10 @@ beforeEach(() => {
       { id: 'trk-99', number: '99', hcssCode: null, hcssGuid: null, active: false },
     ],
     places: [
-      { id: 'plc-plant', shortName: 'Sample Plant', fullName: null, kind: 'plant', jobId: null, onTruckMap: true, active: true },
-      { id: 'plc-north', shortName: 'Sample Site North', fullName: 'Sample Job North site', kind: 'job_site', jobId: 'job-n', usualForemanId: null, onTruckMap: false, active: true },
-      { id: 'plc-yard', shortName: 'Sample Yard', fullName: null, kind: 'yard', jobId: null, onTruckMap: false, active: true },
-      { id: 'plc-x', shortName: 'Sample Old Pit', fullName: null, kind: null, jobId: null, onTruckMap: false, active: false },
+      { id: 'plc-plant', shortName: 'Sample Plant', fullName: null, kind: 'plant', jobId: null, geofenceCode: 'SAMPLE-PLANT', onTruckMap: true, active: true },
+      { id: 'plc-north', shortName: 'Sample Site North', fullName: 'Sample Job North site', kind: 'job_site', jobId: 'job-n', usualForemanId: null, geofenceCode: null, onTruckMap: false, active: true },
+      { id: 'plc-yard', shortName: 'Sample Yard', fullName: null, kind: 'yard', jobId: null, geofenceCode: null, onTruckMap: false, active: true },
+      { id: 'plc-x', shortName: 'Sample Old Pit', fullName: null, kind: null, jobId: null, geofenceCode: 'SAMPLE-OLD', onTruckMap: false, active: false },
     ],
     materials: [
       { id: 'mat-minus', name: '2" minus', active: true },
@@ -156,11 +172,12 @@ const settings = async () => {
   await screen.findByRole('heading', { name: 'Settings', level: 1 });
   await waitFor(() => expect(screen.queryAllByText(/^Loading/)).toEqual([]));
 };
-const section = (title: Title) => screen.getByRole('region', { name: title });
+// hidden: an open panel hides the page behind it from the roles, and the chips are still read then.
+const section = (title: Title) => screen.getByRole('region', { name: title, hidden: true });
 /** The chips listed in use, by name. */
 const chips = (title: Title) => {
-  const list = within(section(title)).queryByRole('list', { name: title });
-  return list ? within(list).getAllByRole('listitem').map((chip) => chip.getAttribute('aria-label')) : [];
+  const list = within(section(title)).queryByRole('list', { name: title, hidden: true });
+  return list ? within(list).getAllByRole('listitem', { hidden: true }).map((chip) => chip.getAttribute('aria-label')) : [];
 };
 const chip = (title: Title, name: string) => within(section(title)).getByRole('listitem', { name });
 /** Taps a chip and answers its edit panel. */
@@ -175,7 +192,9 @@ const add = (title: Title, noun: string) => {
 const type = (panel: HTMLElement, label: string | RegExp, value: string) => fireEvent.change(within(panel).getByLabelText(label), { target: { value } });
 const pick = (panel: HTMLElement, key: string) => panel.querySelector(`select[name="${key}"]`) as HTMLSelectElement;
 const options = (select: HTMLSelectElement) => [...select.options].map((o) => o.textContent);
-const done = (panel: HTMLElement) => fireEvent.click(within(panel).getByRole('button', { name: 'Done' }));
+const save = (panel: HTMLElement) => fireEvent.click(within(panel).getByRole('button', { name: 'Save' }));
+const cancel = (panel: HTMLElement) => fireEvent.click(within(panel).getByRole('button', { name: 'Cancel' }));
+const closed = () => waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
 describe('Settings', () => {
   it('is one page with a section for each list, with no tabs', async () => {
@@ -224,43 +243,62 @@ describe('Settings', () => {
   });
 
   describe('the edit panel', () => {
-    it('saves a rename as Dave types, and the chip follows', async () => {
+    it('saves a rename only on Save, then closes, and the chip follows', async () => {
       await settings();
       const panel = open('Trucks', '24');
       expect((within(panel).getByLabelText('Number') as HTMLInputElement).value).toBe('24');
       type(panel, 'Number', '124');
-      await waitFor(() => expect(sent).toEqual([{ method: 'PATCH', path: '/api/trucks/trk-24', body: { number: '124' } }]));
-      expect(await within(panel).findByText('Saved')).toBeTruthy();
-      done(panel);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      expect(sent).toEqual([]);
+      expect(chips('Trucks')).toEqual(['21', '24']);
+      save(panel);
+      await closed();
+      expect(sent).toEqual([{ method: 'PATCH', path: '/api/trucks/trk-24', body: { number: '124' } }]);
       expect(chips('Trucks')).toEqual(['21', '124']);
+      expect(await screen.findByText('124 saved')).toBeTruthy();
     });
 
-    it('saves only the last of quick keystrokes, once', async () => {
+    it('saves every changed field in one request, and nothing that was not changed', async () => {
       await settings();
       const panel = open('Jobs', 'Sample Job North');
+      type(panel, 'Name', 'Sample Job North 2');
       type(panel, /Job number/, 'S-1');
-      type(panel, /Job number/, 'S-10');
-      type(panel, /Job number/, 'S-1002');
-      await waitFor(() => expect(sent).toHaveLength(1));
-      expect(sent[0]).toEqual({ method: 'PATCH', path: '/api/jobs/job-n', body: { jobNumber: 'S-1002' } });
+      type(panel, /Job number/, ' S-1002 ');
+      save(panel);
+      await closed();
+      expect(sent).toEqual([{ method: 'PATCH', path: '/api/jobs/job-n', body: { name: 'Sample Job North 2', jobNumber: 'S-1002' } }]);
     });
 
-    it('saves what is still being typed when it is closed', async () => {
+    it.each([
+      ['Cancel', (panel: HTMLElement) => cancel(panel)],
+      ['Esc', (panel: HTMLElement) => fireEvent.keyDown(panel, { key: 'Escape' })],
+    ])('drops what was typed on %s, without asking', async (_how, leave) => {
       await settings();
       const panel = open('Materials', '2" minus');
       type(panel, 'Name', '3/4" minus');
-      done(panel);
-      await waitFor(() => expect(sent).toEqual([{ method: 'PATCH', path: '/api/materials/mat-minus', body: { name: '3/4" minus' } }]));
-      expect(chips('Materials')).toEqual(['3/4" minus']);
+      leave(panel);
+      await closed();
+      expect(sent).toEqual([]);
+      expect(chips('Materials')).toEqual(['2" minus']);
+      expect((within(open('Materials', '2" minus')).getByLabelText('Name') as HTMLInputElement).value).toBe('2" minus');
     });
 
-    it('saves a picked usual Truck at once, offering the active Trucks', async () => {
+    it('closes on Save with nothing changed, saving nothing', async () => {
+      await settings();
+      save(open('Trucks', '24'));
+      await closed();
+      expect(sent).toEqual([]);
+    });
+
+    it('saves a picked usual Truck on Save, offering the active Trucks', async () => {
       await settings();
       const panel = open('Drivers', 'Sample Driver C');
       expect(options(pick(panel, 'defaultTruckId'))).toEqual(['No usual Truck', '21', '24']);
       fireEvent.change(pick(panel, 'defaultTruckId'), { target: { value: 'trk-24' } });
-      await waitFor(() => expect(sent).toEqual([{ method: 'PATCH', path: '/api/drivers/drv-c', body: { defaultTruckId: 'trk-24' } }]));
-      done(panel);
+      expect(sent).toEqual([]);
+      save(panel);
+      await closed();
+      expect(sent).toEqual([{ method: 'PATCH', path: '/api/drivers/drv-c', body: { defaultTruckId: 'trk-24' } }]);
       expect(chip('Drivers', 'Sample Driver C').textContent).toContain('Truck 24');
     });
 
@@ -268,18 +306,22 @@ describe('Settings', () => {
       await settings();
       const panel = open('Drivers', 'Sample Driver C');
       type(panel, 'Name', 'sample driver a');
+      save(panel);
       const message = await within(panel).findByText('That one is already in the list.');
       expect(message.closest('div')?.querySelector('input')).toBe(within(panel).getByLabelText('Name'));
-      done(panel);
+      cancel(panel);
       expect(chips('Drivers')).toEqual(['Sample Driver A', 'Sample Driver C']);
     });
 
-    it('says so when a save fails', async () => {
+    it('says so when a save fails, and stays open with what was typed', async () => {
       saveFails = true;
       await settings();
       const panel = open('Foremen', 'Sample Foreman A');
       type(panel, 'Name', 'Sample Foreman B');
+      save(panel);
       expect(await within(panel).findByText('Could not save. Check the connection and try again.')).toBeTruthy();
+      expect((within(panel).getByLabelText('Name') as HTMLInputElement).value).toBe('Sample Foreman B');
+      expect(chips('Foremen')).toEqual(['Sample Foreman A']);
     });
 
     it('says so when the list a picker offers cannot be loaded, rather than loading forever', async () => {
@@ -292,12 +334,44 @@ describe('Settings', () => {
   });
 
   describe('a Truck', () => {
-    it('says nothing about HCSS and asks for no HCSS code or id, which come from HCSS later', async () => {
+    it('saves its HCSS code trimmed, and shows it when the panel is opened again', async () => {
       await settings();
       const panel = open('Trucks', '24');
-      expect(within(panel).queryByText(/HCSS/)).toBeNull();
-      expect(within(panel).queryByText(/linked/i)).toBeNull();
-      expect(screen.queryByText(/HCSS/)).toBeNull();
+      expect((within(panel).getByLabelText(/HCSS code/) as HTMLInputElement).value).toBe('');
+      type(panel, /HCSS code/, ' MCK-55-17 ');
+      save(panel);
+      await closed();
+      expect(sent).toEqual([{ method: 'PATCH', path: '/api/trucks/trk-24', body: { hcssCode: 'MCK-55-17' } }]);
+      expect((within(open('Trucks', '24')).getByLabelText(/HCSS code/) as HTMLInputElement).value).toBe('MCK-55-17');
+    });
+
+    it('clears its HCSS code', async () => {
+      await settings();
+      const panel = open('Trucks', '21');
+      expect((within(panel).getByLabelText(/HCSS code/) as HTMLInputElement).value).toBe('SAMPLE-21');
+      type(panel, /HCSS code/, '');
+      save(panel);
+      await closed();
+      expect(sent).toEqual([{ method: 'PATCH', path: '/api/trucks/trk-21', body: { hcssCode: null } }]);
+    });
+
+    it('shows why an HCSS code another Truck has is refused, next to that field', async () => {
+      await settings();
+      const panel = open('Trucks', '24');
+      type(panel, /HCSS code/, 'sample-21');
+      save(panel);
+      const message = await within(panel).findByText('This HCSS code is on Truck 21 already. Clear it there first.');
+      expect(message.closest('div')?.querySelector('input')).toBe(within(panel).getByLabelText(/HCSS code/));
+    });
+
+    it('is added with a number alone, as before', async () => {
+      await settings();
+      const panel = add('Trucks', 'Truck');
+      type(panel, 'Number', '30');
+      save(panel);
+      await closed();
+      expect(sent).toEqual([{ method: 'POST', path: '/api/trucks', body: { number: '30' } }]);
+      expect(chips('Trucks')).toEqual(['21', '24', '30']);
     });
   });
 
@@ -307,6 +381,7 @@ describe('Settings', () => {
       const panel = open('Places', 'Sample Plant');
       expect(options(pick(panel, 'kind'))).toEqual(['No kind', 'Job site', 'Plant', 'Shop or yard']);
       fireEvent.change(pick(panel, 'kind'), { target: { value: 'shop' } });
+      save(panel);
       await waitFor(() => expect(sent).toEqual([{ method: 'PATCH', path: '/api/places/plc-plant', body: { kind: 'shop' } }]));
     });
 
@@ -315,25 +390,55 @@ describe('Settings', () => {
       const panel = open('Places', 'Sample Yard');
       expect(pick(panel, 'kind').value).toBe('shop');
       type(panel, /Full name/, 'Sample Equipment Yard');
+      save(panel);
       await waitFor(() => expect(sent).toEqual([{ method: 'PATCH', path: '/api/places/plc-yard', body: { fullName: 'Sample Equipment Yard' } }]));
     });
 
-    it('says whether it is on the truck map, and asks for no geofence code', async () => {
+    it('says whether it is on the truck map, from its geofence code', async () => {
       await settings();
-      expect(within(open('Places', 'Sample Plant')).getByText('On the truck map')).toBeTruthy();
-      done(screen.getByRole('dialog'));
-      const north = open('Places', 'Sample Site North');
-      expect(within(north).getByText('Not on the truck map yet')).toBeTruthy();
-      expect(north.textContent).not.toMatch(/geofence/i);
+      const plant = open('Places', 'Sample Plant');
+      expect(within(plant).getByText('On the truck map')).toBeTruthy();
+      expect((within(plant).getByLabelText(/Geofence code/) as HTMLInputElement).value).toBe('SAMPLE-PLANT');
+      cancel(plant);
+      await closed();
+      expect(within(open('Places', 'Sample Site North')).getByText('Not on the truck map yet')).toBeTruthy();
     });
 
-    it('as a job site, picks its usual Foreman from the Foremen in use, saves it at once, and the chip shows him', async () => {
+    it('saves a geofence code trimmed, which puts it on the truck map, and clearing it takes it off', async () => {
+      await settings();
+      const panel = open('Places', 'Sample Site North');
+      type(panel, /Geofence code/, '  J1001 North ');
+      save(panel);
+      await closed();
+      expect(sent).toEqual([{ method: 'PATCH', path: '/api/places/plc-north', body: { geofenceCode: 'J1001 North' } }]);
+      const again = open('Places', 'Sample Site North');
+      expect(within(again).getByText('On the truck map')).toBeTruthy();
+      expect((within(again).getByLabelText(/Geofence code/) as HTMLInputElement).value).toBe('J1001 North');
+
+      type(again, /Geofence code/, '');
+      save(again);
+      await closed();
+      expect(sent.at(-1)).toEqual({ method: 'PATCH', path: '/api/places/plc-north', body: { geofenceCode: null } });
+      expect(within(open('Places', 'Sample Site North')).getByText('Not on the truck map yet')).toBeTruthy();
+    });
+
+    it('shows why a geofence code another Place has is refused, next to that field', async () => {
+      await settings();
+      const panel = open('Places', 'Sample Yard');
+      type(panel, /Geofence code/, 'sample-plant');
+      save(panel);
+      const message = await within(panel).findByText('This geofence code is on Sample Plant already. Clear it there first.');
+      expect(message.closest('div')?.querySelector('input')).toBe(within(panel).getByLabelText(/Geofence code/));
+    });
+
+    it('as a job site, picks its usual Foreman from the Foremen in use, and the chip shows him once saved', async () => {
       await settings();
       const panel = open('Places', 'Sample Site North');
       expect(options(pick(panel, 'usualForemanId'))).toEqual(['No usual Foreman', 'Sample Foreman A']);
       fireEvent.change(pick(panel, 'usualForemanId'), { target: { value: 'frm-a' } });
-      await waitFor(() => expect(sent).toEqual([{ method: 'PATCH', path: '/api/places/plc-north', body: { usualForemanId: 'frm-a' } }]));
-      done(panel);
+      save(panel);
+      await closed();
+      expect(sent).toEqual([{ method: 'PATCH', path: '/api/places/plc-north', body: { usualForemanId: 'frm-a' } }]);
       expect(chip('Places', 'Sample Site North').textContent).toBe('Sample Site NorthJob site · Sample Foreman A');
     });
 
@@ -352,11 +457,11 @@ describe('Settings', () => {
       const panel = open('Places', 'Sample Site North');
       expect(pick(panel, 'usualForemanId').value).toBe('frm-a');
       fireEvent.change(pick(panel, 'kind'), { target: { value: 'plant' } });
-      await waitFor(() => expect(within(panel).getByText('Saved')).toBeTruthy());
       expect(pick(panel, 'usualForemanId')).toBeNull();
-      fireEvent.change(pick(panel, 'kind'), { target: { value: 'job_site' } });
-      expect(pick(panel, 'usualForemanId').value).toBe('none');
-      done(panel);
+      save(panel);
+      await closed();
+      // Only the kind is sent: the Worker empties the usual Foreman itself.
+      expect(sent).toEqual([{ method: 'PATCH', path: '/api/places/plc-north', body: { kind: 'plant' } }]);
       expect(chip('Places', 'Sample Site North').textContent).not.toContain('Sample Foreman A');
     });
 
@@ -370,23 +475,24 @@ describe('Settings', () => {
   describe('an Inspection item', () => {
     const optional = (panel: HTMLElement) => within(panel).getByRole('switch', { name: 'Optional' });
 
-    it('is marked optional, and back, at once, and the chip says so', async () => {
+    it('is marked optional, and back, on Save, and the chip says so', async () => {
       await settings();
       const panel = open('Inspection checklist', 'Lights');
       expect(optional(panel).getAttribute('aria-checked')).toBe('false');
       expect(within(panel).getByText(/new wording is used from the next Inspection on/)).toBeTruthy();
       fireEvent.click(optional(panel));
-      await waitFor(() => expect(sent).toEqual([{ method: 'PATCH', path: '/api/inspection-items/insp-07', body: { optional: true } }]));
       expect(optional(panel).getAttribute('aria-checked')).toBe('true');
-      done(panel);
+      save(panel);
+      await closed();
+      expect(sent).toEqual([{ method: 'PATCH', path: '/api/inspection-items/insp-07', body: { optional: true } }]);
       expect(chip('Inspection checklist', 'Lights').textContent).toContain('Optional');
 
       const again = open('Inspection checklist', 'Lights');
       expect(optional(again).getAttribute('aria-checked')).toBe('true');
       fireEvent.click(optional(again));
-      await waitFor(() => expect(sent).toHaveLength(2));
+      save(again);
+      await closed();
       expect(sent[1].body).toEqual({ optional: false });
-      done(again);
       expect(chip('Inspection checklist', 'Lights').textContent).not.toContain('Optional');
     });
 
@@ -395,8 +501,9 @@ describe('Settings', () => {
       const panel = add('Inspection checklist', 'Inspection item');
       fireEvent.click(optional(panel));
       type(panel, 'Item', 'Horn');
-      await waitFor(() => expect(sent).toEqual([{ method: 'POST', path: '/api/inspection-items', body: { label: 'Horn', optional: true } }]));
-      done(panel);
+      save(panel);
+      await closed();
+      expect(sent).toEqual([{ method: 'POST', path: '/api/inspection-items', body: { label: 'Horn', optional: true } }]);
       expect(chips('Inspection checklist').at(-1)).toBe('Horn');
     });
   });
@@ -410,33 +517,75 @@ describe('Settings', () => {
       ['Jobs', 'Job', 'Name', 'Sample Job East', '/api/jobs', { name: 'Sample Job East' }],
       ['Foremen', 'Foreman', 'Name', 'Sample Foreman D', '/api/foremen', { name: 'Sample Foreman D' }],
       ['Inspection checklist', 'Inspection item', 'Item', 'Horn', '/api/inspection-items', { label: 'Horn' }],
-    ] as const)('adds to %s once a name is typed, last in the section', async (title, noun, label, name, path, body) => {
+    ] as const)('adds to %s on Save, last in the section', async (title, noun, label, name, path, body) => {
       await settings();
       const panel = add(title, noun);
       type(panel, label, name);
-      await waitFor(() => expect(sent).toEqual([{ method: 'POST', path, body }]));
-      done(panel);
+      expect(sent).toEqual([]);
+      save(panel);
+      await closed();
+      expect(sent).toEqual([{ method: 'POST', path, body }]);
       expect(chips(title).at(-1)).toBe(name);
+      expect(await screen.findByText(`${name} added`)).toBeTruthy();
     });
 
-    it('keeps saving the new entry as Dave goes on typing, rather than adding it twice', async () => {
+    it('adds a new entry with everything filled in, in one request', async () => {
       await settings();
       const panel = add('Jobs', 'Job');
       type(panel, 'Name', 'Sample Job 30');
-      await waitFor(() => expect(sent).toHaveLength(1));
       type(panel, /Job number/, 'J-30');
-      await waitFor(() => expect(sent).toHaveLength(2));
-      expect(sent[1]).toEqual({ method: 'PATCH', path: expect.stringMatching(/^\/api\/jobs\//), body: { jobNumber: 'J-30' } });
+      save(panel);
+      await closed();
+      expect(sent).toEqual([{ method: 'POST', path: '/api/jobs', body: { name: 'Sample Job 30', jobNumber: 'J-30' } }]);
     });
 
-    it('saves nothing until there is a name', async () => {
+    it('adds nothing on Cancel', async () => {
+      await settings();
+      const panel = add('Places', 'Place');
+      type(panel, 'Short name', 'Sample Pit');
+      cancel(panel);
+      await closed();
+      expect(sent).toEqual([]);
+      expect(chips('Places')).toEqual(['Sample Plant', 'Sample Site North', 'Sample Yard']);
+    });
+
+    it('asks for the name when Save is tapped without one, and stays open', async () => {
       await settings();
       const panel = add('Places', 'Place');
       type(panel, /Full name/, 'Sample Aggregate Pit');
-      done(panel);
-      await new Promise((resolve) => setTimeout(resolve, 600));
-      expect(sent).toEqual([]);
+      save(panel);
+      expect(await within(panel).findByText('Write its name.')).toBeTruthy();
       expect(chips('Places')).toEqual(['Sample Plant', 'Sample Site North', 'Sample Yard']);
+    });
+
+    it('has no Remove on a new entry', async () => {
+      await settings();
+      expect(within(add('Trucks', 'Truck')).queryByRole('button', { name: 'Remove' })).toBeNull();
+    });
+
+    it('brings a removed Truck back when its number is added again, and says so', async () => {
+      await settings();
+      expect(chips('Trucks')).toEqual(['21', '24']);
+      const panel = add('Trucks', 'Truck');
+      type(panel, 'Number', '99');
+      save(panel);
+      await closed();
+      expect(sent).toEqual([{ method: 'POST', path: '/api/trucks', body: { number: '99' } }]);
+      expect(chips('Trucks')).toEqual(['21', '24', '99']);
+      expect(await screen.findByText('99 brought back')).toBeTruthy();
+    });
+
+    it('removes a Truck and adds its number again, ending with it back in the list', async () => {
+      await settings();
+      fireEvent.click(within(open('Trucks', '24')).getByRole('button', { name: 'Remove' }));
+      fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Remove' }));
+      await waitFor(() => expect(chips('Trucks')).toEqual(['21']));
+      const panel = add('Trucks', 'Truck');
+      type(panel, 'Number', '24');
+      save(panel);
+      await closed();
+      expect(chips('Trucks')).toEqual(['21', '24']);
+      expect(lists.trucks.filter((t) => t.number === '24')).toHaveLength(1);
     });
   });
 
@@ -458,7 +607,7 @@ describe('Settings', () => {
       fireEvent.click(within(panel).getByRole('button', { name: 'Remove' }));
       fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Keep' }));
       expect(screen.queryByRole('alertdialog')).toBeNull();
-      done(panel);
+      cancel(panel);
       expect(sent).toEqual([]);
       expect(chips('Foremen')).toEqual(['Sample Foreman A']);
     });
@@ -477,7 +626,7 @@ describe('Settings', () => {
       fireEvent.click(within(open('Drivers', 'Sample Driver A')).getByRole('button', { name: 'Remove' }));
       expect(await within(screen.getByRole('alertdialog')).findByText('Sample Driver A has Assignments on 1 later day.')).toBeTruthy();
       fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Keep' }));
-      done(screen.getByRole('dialog'));
+      cancel(screen.getByRole('dialog'));
 
       fireEvent.click(within(open('Drivers', 'Sample Driver C')).getByRole('button', { name: 'Remove' }));
       const asking = screen.getByRole('alertdialog');

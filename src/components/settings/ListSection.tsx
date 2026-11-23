@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
-import { Loader2, Plus } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import type { ListName } from '../../../shared/types';
+import { EmptyBox, Loading } from '@/components/States';
 import { Button } from '@/components/ui/button';
 import type { NameOf, Row, SectionSpec } from './spec';
 
@@ -37,17 +38,17 @@ export function ListSection({
         <h2 id={headingId} className="font-display text-xl font-semibold uppercase tracking-wide">
           {spec.title}
         </h2>
-        <Button variant="outline" size="sm" aria-label={`Add ${spec.noun}`} onClick={onAdd} disabled={!entries}>
+        <Button variant="outline" size="sm" className="shrink-0" aria-label={`Add ${spec.noun}`} onClick={onAdd} disabled={!entries}>
           <Plus className="h-4 w-4" /> Add
         </Button>
       </div>
       {failed && <p className="text-sm text-destructive">Could not load the {spec.title}. Reload the page to try again.</p>}
       {!entries && !failed && (
-        <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" /> Loading {spec.title}…
+        <p>
+          <Loading what={spec.title} />
         </p>
       )}
-      {entries && inUse.length === 0 && <p className="text-sm text-muted-foreground">No {spec.title} in use.</p>}
+      {entries && inUse.length === 0 && <EmptyBox>No {spec.title} in use.</EmptyBox>}
       {inUse.length > 0 && (
         <ul aria-label={spec.title} className="flex flex-wrap gap-2">
           {inUse.map((entry, index) => {

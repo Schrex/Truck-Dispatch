@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Loader2, Wrench } from 'lucide-react';
+import { Wrench } from 'lucide-react';
 import { NOTE_LIMIT, type TruckProblem } from '../../../shared/types';
 import { businessDateOf, clockTime, shortDate } from '../../../shared/days';
+import { EmptyBox, Loading } from '@/components/States';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/sonner';
@@ -42,11 +43,11 @@ export function TruckProblemsSection() {
       </h2>
       {failed && <p className="text-sm text-destructive">Could not load the Truck problems. Reload the page to try again.</p>}
       {!problems && !failed && (
-        <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" /> Loading Truck problems…
+        <p>
+          <Loading what="Truck problems" />
         </p>
       )}
-      {problems && open.length === 0 && <p className="text-sm text-muted-foreground">No open Truck problems.</p>}
+      {problems && open.length === 0 && <EmptyBox>No open Truck problems.</EmptyBox>}
       {open.length > 0 && (
         <ul aria-label="Open Truck problems" className="divide-y">
           {open.map((problem) => (
