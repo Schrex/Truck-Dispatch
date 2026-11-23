@@ -6,7 +6,7 @@ What the app does as built, page by page. Words in capitals are defined in [`GLO
 
 ### Lanes
 - Opens on the next **Working day** (US Eastern; on a Friday, Monday).
-- One lane per Driver (his initials in a yellow circle, name and usual Truck; a removed Driver only on a day he has work), and an Unassigned lane last.
+- One lane per Driver (his initials in a yellow circle, name and usual Truck), and an Unassigned lane last. A removed Driver has a lane only on a day he has work: his initials greyed, "Removed · …" before his Truck line, and no **+**. A lane with no Assignments says "Nothing planned yet".
 - **Check-ins (today only):** when the day on screen is today, each Driver's lane shows his check-in in place of his usual Truck: "Truck 24 · checked in 6:42" (his latest Inspection; US Eastern, 24-hour clock), adding "· needs repair" when that Inspection had a Needs repair item, or "Not checked in" until he has. Two Drivers checked in to one Truck both show it. The Board reads the check-ins again when the page regains the focus; if they cannot be read, the lanes show the usual Truck. On any other day the lanes show the usual Truck as before.
 - **Open Truck problems (today only):** on today a lane gets a red mark beside its Truck line when the Driver's Truck has an open Truck problem: the Truck he checked in to, or his usual Truck before he checks in. Hovering the mark shows the problems' notes; tapping it lists them under the line (tapping again puts them away). The Board reads the open problems again when the page regains the focus, so one marked fixed in Settings loses its mark; if they cannot be read, the marks stay as they were. No lane mark on any other day.
 - Each lane shows that day's **Assignments** as blocks in order, reading "From → To" (or the note), marked First (the first that is not cancelled) and Then.
@@ -20,7 +20,7 @@ What the app does as built, page by page. Words in capitals are defined in [`GLO
 - Pick up and Drop off are rows of Place chips, and "Hauling what?" is Material chips, each with "Or type it" for a name not in the list (found, brought back or added by the Worker).
 - A Foreman chip is filled in with the drop-off's usual Foreman if it is a job site, otherwise the pick-up's; Dave can change or clear it.
 - "Note or other truck" opens the Truck chips ("His own" first, the default) and the note. A Truck with an open Truck problem has a red mark on its chip (hover for the notes), and so does His own when the lane's Driver's usual Truck has one, on any day the composer opens, since a problem is the Truck's state now. The open problems are read again when the page regains the focus.
-- A sentence previews it. Save needs only the day, puts it last in the lane and folds the composer; the next **+** (any lane) starts with the same Places and Material until **Close**.
+- A sentence previews it. Save needs only the day, puts it last in the lane and folds the composer; the next **+** (any lane) starts with the same Places and Material until **Close**, or until another day is shown (which closes the composer and any open block).
 
 ### Changing an Assignment
 - Tapping a block opens it in its lane (one at a time; tapping again closes it) as a sentence of chips, Driver, Material, From, To, Truck and Foreman, with its note.
@@ -33,7 +33,9 @@ What the app does as built, page by page. Words in capitals are defined in [`GLO
 ### Days
 - The header shows the day's short date and its word ("Mon, Nov 23 · Next Monday", with a Holiday's name).
 - An arrow each side names the Working day it goes to, skipping weekends and the six Holidays; the left and right arrow keys do the same when no field has the focus. **Back to** returns to the next Working day from any other day.
-- A day with no Assignments at all (cancelled ones count) says "Nothing planned for Mon, Nov 23" and saves nothing just for being looked at.
+- The day on screen is kept in the address (`?date=2026-11-23`), so a reload or a shared link shows the same day.
+- A day with no Assignments at all (cancelled ones count) says "Nothing planned for Mon, Nov 23" (on today or later, adding "Use + on a lane to plan the day.") and saves nothing just for being looked at.
+- A day before today says "This day is before today, so it is read-only.": its lanes have no **+**, its blocks do not open, and it has no Assign; Discard still works on its cancelled blocks.
 - **Start from**: on today or a later empty day, copies the latest earlier day with Assignments ("Start from Thu, Nov 19"): each Assignment's Driver, order, Places, Material, Foreman and named Truck, without notes or cancelled ones, leaving out removed Places, Materials, Trucks and Foremen; a removed Driver's work goes to Unassigned. Every copy is a Draft.
 - **Copy to**: a day before today with Assignments offers to copy it to the next Working day while that day is still empty, by the same rules, then shows it.
 - Neither is offered once the target day has Assignments.
@@ -46,7 +48,7 @@ What the app does as built, page by page. Words in capitals are defined in [`GLO
 
 ### Week strip
 - A tile for each day Monday to Friday and narrow Saturday and Sunday tiles; today's says Today and the next day's Tomorrow; the day on screen is filled and today outlined.
-- Each tile shows the day's state and a Holiday's name: "2 drafts" while it holds Drafts that are not cancelled (Unassigned ones included), otherwise Assigned, or Changed once any Assigned one is Changed, cancelled or Added, or "–" for nothing. A dot in the tile's corner repeats the state at a glance: a hollow ring for drafts, green for Assigned, amber for Changed, none for nothing.
+- Each tile shows the day's state and a Holiday's name: "2 drafts" while it holds Drafts that are not cancelled (Unassigned ones included), otherwise Assigned, or Changed once any Assigned one is Changed, cancelled or Added, or "–" for nothing (a Holiday with nothing planned shows only its name). A dot in the tile's corner repeats the state at a glance: a hollow ring for drafts, green for Assigned, amber for Changed, none for nothing.
 - Tapping a tile shows that day; the pager ("Nov 16 to Nov 22") moves a week at a time keeping the weekday.
 - The strip reads the states again after any change on the Board and when the page regains the focus (if the week cannot be read, it says so under the tiles, which still show their days), and scrolls sideways on a phone.
 
@@ -74,7 +76,7 @@ What the app does as built, page by page. Words in capitals are defined in [`GLO
 
 ## Simulation (`/simulate`)
 
-**Board** (top right) goes back to the Board, as from Settings.
+No page links to it: open it by its address. **Board** (top right) goes back to the Board, as from Settings.
 
 Phase 3 run on one real day: Truck 55 (MCK-55-17), driven by Randy on Mon 16 Nov 2026, on the real HCSS Fleet data. The Trip builder (`shared/trips.ts`) works out everything below from what the Worker would know at the clock's time. Nothing is saved and the Worker is not asked.
 
@@ -86,13 +88,13 @@ Phase 3 run on one real day: Truck 55 (MCK-55-17), driven by Randy on Mon 16 Nov
 - **Truck log** (full width below), the paper Daily Truck Log filled in:
   - Header: Truck, date, start time (first ignition on or first exit from the shop, whichever is earlier), end time (while the day goes on, once the Truck is back at the shop or yard: its arrival, or a later ignition off; at end of day wherever it stopped: the later of its last arrival and last ignition off), start and end miles (the meter readings around the day; the end one from 22:12, when it was read), Driver (the one whose Assignments name the Truck, else whose usual Truck it is), or "Who was driving?" in red when more than one fits, and Total hours. A box is blank until what goes in it is known.
   - One column per Assignment in Dave's order, headed "Assignment 1", "Assignment 2"…: Job (the drop-off's, else the pick-up's), Pick up, Drop off, Material, # of loads, # of tons (from the Loads' Tickets; blank, marked "from Tickets", until they are read) and Trucking hours.
-  - After Dave's, one column per **extra job** no Assignment explains, headed "Assignment 3 · unverified" and outlined in amber: a Trip nothing fits (or two Assignments do), with the way straight back from where it went when that follows. As planned, J25008 → J611 Bishop Kearney and back, 14:15–14:43: Job J611 Bishop Kearney, Pick up J25008, Drop off J611, Material and # of loads "Unknown · Dave decides", tons "from Tickets", Trucking hours 0.46. For Dave to answer next morning (shown, not answerable yet).
+  - After Dave's, one column per **extra job** no Assignment explains, headed "Assignment 3 · unverified" and outlined in amber: a Trip nothing fits (or two Assignments do), with the way straight back from where it went when that follows. As planned, J25008 → J611 Bishop Kearney and back, 14:15–14:43: Job J611 Bishop Kearney, Pick up J25008 Los Flamboyanes, Drop off J611 Bishop Kearney, Material and # of loads "Unknown · Dave decides", tons "from Tickets", Trucking hours 0.46. For Dave to answer next morning (shown, not answerable yet).
   - **To and from the shop**: the drives out of the shop and back to it, as "15:41–16:03 · J25008 Los Flamboyanes → Shop · 18.39 mi · empty" ("None yet" before the Truck leaves). Empty by rule: Fleet cannot see a load, and Trucks do not load at the shop.
 
 ## Settings (`/settings`)
 
 - Every list on one page: Drivers, Trucks, Places, Materials, Jobs, Foremen, and the Inspection checklist; and, under Trucks, **Truck problems**.
-- Each entry is a chip with its key detail: a Truck only its number (its HCSS code and id stay in the data for later and are not shown); a Place its kind, and a job site also its usual Foreman, as in "TIUNY · Job site · Brody", set in its panel.
+- Each entry is a chip with its key detail: a Truck only its number (its HCSS code and id stay in the data for later and are not shown); a Place its kind, and a job site also its usual Foreman, as in "TIUNY · Job site · Brody", set in its panel. A Place's kinds are Plant, Job site and Shop or yard (shop and yard read as one); its panel also says "On the truck map" or "Not on the truck map yet" (whether it has an HCSS boundary, never set from the page).
 - Tapping one opens a panel that saves as you type; **+ Add** adds one.
 - **Remove** makes one inactive after asking (warning how many later days still hold a Driver's Assignments). Removed entries are no longer shown in Settings (there is no Bring back there); nothing is ever deleted, and typing a removed entry's name on an Assignment still brings it back.
 - **▲▼** by each Driver, Place, Material and Inspection item put them in Dave's own order, which the lanes and the composer's chips (and later the Inspection) follow; a new or brought-back entry goes last (also one typed in the composer).
