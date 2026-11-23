@@ -159,7 +159,6 @@ export async function fetchNextAssigned(driverId: string): Promise<string | null
  * Dave's order, cancelled ones included, marked Changed (with what they were)
  * or Added; none while Dave has Assigned him nothing that day.
  */
-
 export function fetchDriverDay(driverId: string, date: string): Promise<DriverDay> {
   return request<DriverDay>(`api/drivers/${encodeURIComponent(driverId)}/days/${encodeURIComponent(date)}`);
 }

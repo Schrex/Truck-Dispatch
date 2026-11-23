@@ -36,7 +36,7 @@ What the app does as built, page by page. Words in capitals are defined in [`GLO
 
 ### Assign
 - Each Assignment is a **Draft** until Dave **Assigns** it on its own (ADR 0005); its Driver sees nothing of a Draft. There is no Send for the day and no "Assign all".
-- On today and later days a Draft block with a Driver has an **Assign** button in its corner: one tap, no confirm. The block then loses its dashed outline and Draft tag, and the week strip reads its states again. If the Worker refuses (a day now past, say) its message shows and the block stays a Draft.
+- On today and later days a Draft block with a Driver (not a removed one, whom no one would reach) has an **Assign** button in its corner: one tap, no confirm. The block then loses its dashed outline and Draft tag, and the week strip reads its states again. If the Worker refuses (a day now past, say) its message shows and the block stays a Draft.
 - An Unassigned Draft has no Assign button; the Unassigned lane says "Pick a Driver to Assign" while it holds Drafts. Days before today show their Drafts but no Assign.
 - Once Assigned, every change reaches the Driver at once, marked Changed (measured from when it was Assigned); one Assigned on its own day is Added. Days Sent before the change were carried over: their Assignments with a Driver are Assigned.
 

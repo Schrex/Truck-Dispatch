@@ -127,6 +127,20 @@ describe('Lanes', () => {
     expect(screen.getAllByText('The composer')).toHaveLength(1);
   });
 
+  it('offers Assign on a Draft in an active Driver\'s lane, never in a removed Driver\'s, whom no one would reach', () => {
+    render(
+      <Lanes
+        assignments={[assignment({ ...a, note: 'Haul stone', assignedAt: null }), assignment({ ...x, note: 'Fill the shop', assignedAt: null })]}
+        drivers={drivers}
+        trucks={trucks}
+        onEdit={vi.fn()}
+        onAssign={vi.fn()}
+      />,
+    );
+    expect(within(screen.getByRole('article', { name: 'Sample Driver A' })).queryAllByRole('button', { name: /^Assign/ })).toHaveLength(1);
+    expect(within(screen.getByRole('article', { name: 'Sample Driver X' })).queryAllByRole('button', { name: /^Assign/ })).toHaveLength(0);
+  });
+
   it('still shows every Assignment, by its Driver\'s name, while the Drivers have not loaded', () => {
     render(<Lanes assignments={[assignment({ ...b, note: 'Fill the shop' })]} drivers={null} trucks={null} />);
     expect(lanes()).toEqual([

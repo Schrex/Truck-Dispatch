@@ -72,7 +72,7 @@ function inLane(assignments: Assignment[], openId: string | null | undefined): I
  * `editor` gives for it under the lane's blocks. With onAdd each lane but a removed
  * Driver's has a + that asks for the composer, which the lane named by
  * composingFor (a Driver's id, or null for Unassigned) shows under its
- * Driver. With onAssign each Draft with a Driver has Assign on its block,
+ * Driver. With onAssign each Draft with an active Driver has Assign on its block,
  * and an Unassigned lane holding Drafts says to pick a Driver to Assign one.
  * Without them the lanes are read-only.
  * On a phone a lane's blocks stack under the Driver; from an iPad in portrait
@@ -159,7 +159,7 @@ export function Lanes({
                       usualTruck={lane.usualTruck}
                       jobSites={jobSites}
                       onEdit={onEdit}
-                      onAssign={onAssign}
+                      onAssign={lane.removed ? undefined : onAssign}
                       open={i === openAt}
                     />
                   ))}

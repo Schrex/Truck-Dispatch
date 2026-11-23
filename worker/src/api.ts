@@ -253,8 +253,8 @@ async function readWeek(env: Env, monday: string): Promise<Response> {
 
 /**
  * Assign: gives an Assignment to its Driver, who sees it from then on, and
- * every change to it after this reaches him (Changed). Only one with a Driver
- * can be Assigned, and never a cancelled one (until it is put back) or one on
+ * every change to it after this reaches him (Changed). Only one with an active
+ * (not removed) Driver can be Assigned, and never a cancelled one (until it is put back) or one on
  * a day before today. One already Assigned is answered as it is, keeping its first time: there is no
  * Assign again. The checks are repeated in the statement, so a change of
  * Driver or a cancel at the same moment cannot slip in between.
@@ -269,14 +269,21 @@ async function assignOne(env: Env, id: string): Promise<Response> {
   const now = clock(env).now.toISOString();
   await env.DB.prepare(
     `UPDATE assignments SET assigned_at = ?1, updated_at = ?1
-      WHERE id = ?2 AND assigned_at IS NULL AND cancelled_at IS NULL AND driver_id IS NOT NULL`,
+      WHERE id = ?2 AND assigned_at IS NULL AND cancelled_at IS NULL
+        AND driver_id IN (SELECT id FROM drivers WHERE active = 1)`,
   )
     .bind(now, id)
     .run();
   const assignment = await findAssignment(env, id);
   if (!assignment) return json({ error: 'not_found' }, 404);
   if (assignment.assignedAt) return json({ assignment });
-  return assignment.cancelledAt ? isCancelled() : isUnassigned();
+  if (assignment.cancelledAt) return isCancelled();
+  if (assignment.driverId) return driverRemoved();
+  return isUnassigned();
+}
+
+function driverRemoved(): Response {
+  return json({ error: 'driver_removed', message: 'This Driver was removed, so he would never see it. Give it another Driver, then Assign it.' }, 409);
 }
 
 function isUnassigned(): Response {

@@ -1248,6 +1248,15 @@ describe('Assigning an Assignment', () => {
     expect((await assign(open.id)).status).toBe(200);
   });
 
+  it('refuses one whose Driver was removed, since no one would see it', async () => {
+    const stone = await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone' });
+    await send('PATCH', '/api/drivers/drv-a', { active: false });
+    await refused(await assign(stone.id), 'driver_removed');
+    expect((await day('2026-11-20'))[0].assignedAt).toBeNull();
+    await send('PATCH', '/api/drivers/drv-a', { active: true });
+    expect((await assign(stone.id)).status).toBe(200);
+  });
+
   it('refuses a cancelled one until it is put back', async () => {
     const stone = await assigned({ date: '2026-11-20', driverId: 'drv-a', note: 'Haul stone' });
     await remove(stone.id, LATER);
@@ -1739,10 +1748,12 @@ describe('reading a week', () => {
 });
 
 describe('Assignments on days already Sent before Assign', () => {
-  /** The statements of the migration that carry Sent days over, run on the database as it now is. */
+  /** The statements of the migrations that carry Sent days over, in order, run on the database as it now is. */
   const carryOver = async () => {
-    const sql = readFileSync('migrations/0012_assignment_assigned_at.sql', 'utf8').replace(/--.*$/gm, '');
-    for (const statement of sql.split(';').filter((s) => /^\s*UPDATE/i.test(s))) await d1.database().prepare(statement).run();
+    for (const file of ['0012_assignment_assigned_at.sql', '0013_cancelled_are_assigned.sql']) {
+      const sql = readFileSync(`migrations/${file}`, 'utf8').replace(/--.*$/gm, '');
+      for (const statement of sql.split(';').filter((s) => /^\s*UPDATE/i.test(s))) await d1.database().prepare(statement).run();
+    }
   };
 
   it('become Assigned when their day was Sent, or when made if that was later, when they have a Driver; the rest stay Drafts', async () => {
@@ -1761,6 +1772,17 @@ describe('Assignments on days already Sent before Assign', () => {
       ['Unassigned', null],
     ]);
     expect((await day('2026-11-23')).map((a) => a.assignedAt)).toEqual([null]);
+  });
+
+  it('make an Unassigned one cancelled on its Sent day Assigned too, so a cancelled Assignment is never a Draft', async () => {
+    const open = await send('POST', '/api/assignments', { date: '2026-11-20', note: 'Cancelled while Unassigned' }, { NOW: '2026-11-19T20:00:00.000Z' });
+    const { assignment } = (await open.json()) as { assignment: Assignment };
+    await d1.database().prepare('UPDATE assignments SET cancelled_at = ? WHERE id = ?').bind('2026-11-19T22:30:00.000Z', assignment.id).run();
+    await d1.database().prepare('INSERT INTO day_sends (date, sent_at) VALUES (?, ?)').bind('2026-11-20', '2026-11-19T21:15:00.000Z').run();
+
+    await carryOver();
+
+    expect((await day('2026-11-20')).map((a) => [a.note, a.assignedAt])).toEqual([['Cancelled while Unassigned', '2026-11-19T21:15:00.000Z']]);
   });
 });
 
