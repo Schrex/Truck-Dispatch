@@ -6,6 +6,7 @@ import { App } from './App';
 // before the first test, so a cold run never waits on that inside a test.
 import './pages/DriverPage';
 import './pages/SettingsPage';
+import './pages/FleetImportsPage';
 import './pages/SimulatePage';
 import { toast } from './components/ui/sonner';
 import { dayState, draftsOn, holidayName, sinceSent, weekDates, type DayTimes } from '../shared/days';
@@ -350,9 +351,23 @@ describe.each([
     expect(window.location.pathname).toBe(`${prefix}/`);
   });
 
+  it('links the Board to Fleet imports, next to Settings, and back', async () => {
+    open(`${prefix}/?date=2026-11-20`);
+    const toImports = screen.getByRole('link', { name: 'Fleet imports' });
+    expect(toImports.getAttribute('href')).toBe(`${prefix}/fleet-imports`);
+    expect(toImports.nextElementSibling).toBe(screen.getByRole('link', { name: 'Settings' }));
+    fireEvent.click(toImports);
+    expect(await screen.findByRole('heading', { level: 1, name: 'Fleet imports' })).toBeTruthy();
+    expect(window.location.pathname).toBe(`${prefix}/fleet-imports`);
+
+    fireEvent.click(screen.getByRole('link', { name: 'Board' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Dispatch' })).toBeTruthy();
+  });
+
   it.each([
     ['Board', '/', 'Dispatch'],
     ['Settings', '/settings', 'Settings'],
+    ['Fleet imports', '/fleet-imports', 'Fleet imports'],
     ['Simulation', '/simulate', 'Simulation'],
   ])('gives the %s page the Hub header: a "← Hub" link, an uppercase Oswald title and a subtitle, with no bottom nav', async (_page, path, title) => {
     open(`${prefix}${path}`);

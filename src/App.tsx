@@ -34,6 +34,7 @@ function lazyPage(load: () => Promise<ComponentType>) {
 
 const DriverPage = lazyPage(() => import('@/pages/DriverPage').then((m) => m.DriverPage));
 const SettingsPage = lazyPage(() => import('@/pages/SettingsPage').then((m) => m.SettingsPage));
+const FleetImportsPage = lazyPage(() => import('@/pages/FleetImportsPage').then((m) => m.FleetImportsPage));
 const SimulatePage = lazyPage(() => import('@/pages/SimulatePage').then((m) => m.SimulatePage));
 
 /**
@@ -83,6 +84,8 @@ export function App() {
         <Route path="/" element={<Home />} />
         <Route path="/driver" element={<DriverPage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        {/* Where Dave drops each HCSS Fleet export; only this page loads the export readers. */}
+        <Route path="/fleet-imports" element={<FleetImportsPage />} />
         {/* One Truck's day with fake data, to see how Trips are built (phase 3 design). */}
         <Route path="/simulate" element={<SimulatePage />} />
       </Routes>

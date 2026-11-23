@@ -1,4 +1,5 @@
 /** Shapes the API takes and returns, shared by the Worker and the page. */
+import type { FleetExportRow } from './fleetExport';
 
 export interface Driver {
   id: string;
@@ -373,7 +374,7 @@ export interface CheckIns {
 }
 
 /**
- * Something wrong with a Truck, reported by a Driver with a note (GLOSSARY.md).
+ * Something wrong with a Truck, reported by a Driver with a note.
  * Open until Dave marks it fixed; kept forever after, with when and how.
  * A Truck with an open problem can still be checked in to and driven.
  */
@@ -394,6 +395,33 @@ export interface TruckProblem {
   fixedAt: string | null;
   /** How it was fixed, if Dave said. */
   fixedNote: string | null;
+}
+
+export type FleetExportFormat = 'json' | 'xlsx';
+
+/** What the Fleet imports page sends: the dropped file's name and format, and its rows read by shared/fleetExport.ts. */
+export interface NewFleetImport {
+  fileName: string;
+  format: FleetExportFormat;
+  rows: FleetExportRow[];
+}
+
+/**
+ * One Import: a Fleet export Dave dropped on the Fleet
+ * imports page, for one Truck, and what it did to the stored visits.
+ */
+export interface FleetImport {
+  id: string;
+  truckId: string;
+  truckNumber: string;
+  fileName: string;
+  format: FleetExportFormat;
+  /** The Worker's clock when it was imported (ISO 8601, UTC). */
+  importedAt: string;
+  /** Visits it stored that were not stored before. */
+  added: number;
+  /** The US Eastern days (YYYY-MM-DD) its visits were entered on. */
+  days: string[];
 }
 
 /** A refusal: each field that is wrong, with a plain message. */

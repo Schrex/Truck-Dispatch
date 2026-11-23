@@ -91,6 +91,16 @@ Phase 3 run on one real day: Truck 55 (MCK-55-17), driven by Randy on Mon 16 Nov
   - After Dave's, one column per **extra job** no Assignment explains, headed "Assignment 3 · unverified" and outlined in amber: a Trip nothing fits (or two Assignments do), with the way straight back from where it went when that follows. As planned, J25008 → J611 Bishop Kearney and back, 14:15–14:43: Job J611 Bishop Kearney, Pick up J25008, Drop off J611, Material and # of loads "Unknown · Dave decides", tons "from Tickets", Trucking hours 0.46. For Dave to answer next morning (shown, not answerable yet).
   - **To and from the shop**: the drives out of the shop and back to it, as "15:41–16:03 · J25008 Los Flamboyanes → Shop · 18.39 mi · empty" ("None yet" before the Truck leaves). Empty by rule: Fleet cannot see a load, and Trucks do not load at the shop.
 
+## Fleet imports (`/fleet-imports`)
+
+Linked from the Board's header as **Fleet imports**, next to Settings; **Board** (top right) goes back. Where Dave drops each HCSS **Fleet export** as it comes, several times a day.
+
+- **Drop zone**: drop the entry/exit report exported from HCSS Fleet as JSON (or tap it to pick one or more files). Each file is one **Import**. The page reads the file itself (the `Result` array, or a bare array, of EquipmentCode, GeofenceCode, Entry/ExitDateTime and Entry/ExitOdometer) and sends the rows to the Worker; the Worker never parses files.
+- The rows' EquipmentCode finds the Truck by its HCSS code. Each visit not stored yet is stored for that Truck, keyed by its geofence code and its entry time to the minute (UTC); a visit still open in the export (no exit) is stored with no exit time. The Import is recorded with the US Eastern days its visits were entered on.
+- Under the drop zone, each Import of this visit, newest first: "18 new" (visits it stored), then the file's name, the Truck and the days ("EntryExit-1502.json · Truck 55 · Mon, Nov 16"). A file that is not an entry/exit export, or a Truck with no such HCSS code, says why it was not imported and stores nothing.
+- For now an Import only adds new visits: a visit already stored is left as it is. Closing open visits, the counts of closed and already stored visits, refusals, codes with no Place and xlsx exports come next (spec #81).
+- Test fixtures (`shared/fixtures/fleet/`): the 16 Nov JSON pulled at 15:02 (18 visits, J25008 from 14:43 still open), cuts of the whole day at 10:15, 13:05 and 16:20 (visits entered by then, later exits blank; 8, 14 and 19 visits), and the real 16 Nov xlsx export.
+
 ## Settings (`/settings`)
 
 - Every list on one page: Drivers, Trucks, Places, Materials, Jobs, Foremen, and the Inspection checklist; and, under Trucks, **Truck problems**.
