@@ -94,14 +94,14 @@ export function simulateAt(scenario: Scenario, minutes: number, answers: Unplann
       ? []
       : buildTripDay({ places: REAL_DAY.places, visits: day.visits, assignments: scenario.assignments, answers: { splits }, now: easternIso(REAL_DAY.date, '23:59:59'), dayOver: true }).unplanned;
   const answered = tripAnswers(answers, wholeDay, scenario.assignments.length, drivers[0].id, splits);
-  // A linked Assignment is rerouted from its Unplanned work's first Trip: shown on its new route, Changed from then.
-  const planned = scenario.assignments.map((a) => {
+  // A linked Assignment, planned or made from another piece, is rerouted from its Unplanned work's first Trip: shown on its new route, Changed from then.
+  const linked = <A extends PlannedAssignment | PlannedMadeAssignment>(a: A) => {
     const link = answered.input.links?.find((l) => l.assignmentId === a.id);
     return link ? linkedAssignment(a, link) : a;
-  });
+  };
   // A made Assignment names Truck 55 unless it is the Driver's own.
   const made = answered.made.map((m) => ({ ...m, truckId: drivers.find((d) => d.id === m.driverId)?.defaultTruckId === REAL_DAY.truck.id ? null : REAL_DAY.truck.id }));
-  const all: (PlannedAssignment | PlannedMadeAssignment)[] = [...planned, ...made];
+  const all: (PlannedAssignment | PlannedMadeAssignment)[] = [...scenario.assignments, ...made].map(linked);
   const tripDay = buildTripDay({
     places: REAL_DAY.places,
     visits: day.visits,

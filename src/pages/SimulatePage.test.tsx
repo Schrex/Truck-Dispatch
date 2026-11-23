@@ -509,6 +509,30 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
       expect(within(answer()).getByText(SECOND)).toBeTruthy();
     });
 
+    it('the second part linked to the Assignment made from the first: it is rerouted there and counts both parts’ Loads', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      choose('split');
+      split();
+      tap('Answer', screen.getByRole('group', { name: 'Unplanned work 1' }));
+      tap('Make an Assignment');
+      tap('J25008 Los Flamboyanes');
+      tap('Top soil');
+      save();
+      tap('Answer', screen.getByRole('group', { name: 'Unplanned work' }));
+      tap('Link to an Assignment');
+      tap('A2 · J25008 Los Flamboyanes → J611 Bishop Kearney');
+      tap('Villager');
+      save();
+      expect(unplannedLog()).toEqual([]);
+      expect(columnNames()).toEqual(['Assignment 1', 'Assignment 2 · From the Truck']);
+      expect(columns()[1]).toMatchObject({ 'Pick up': 'Villager', 'Drop off': 'J25008 Los Flamboyanes', '# of loads': '2', 'Trucking hours': '1.08' });
+      expect(tripLog().filter((r) => ['09:20', '09:45', '10:10'].includes(r[0]!)).map((r) => [r[0], r[3], r[4]])).toEqual([
+        ['09:20', 'load', 'A2'],
+        ['09:45', 'empty', 'A2'],
+        ['10:10', 'load', 'A2'],
+      ]);
+    });
+
     it('from the lane, skips a piece Dave already answered that its answer did not wholly explain', () => {
       render(<SimulatePage />, { wrapper: MemoryRouter });
       choose('split');

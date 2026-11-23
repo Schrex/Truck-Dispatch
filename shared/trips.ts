@@ -315,7 +315,7 @@ export interface MadeAssignment extends TripAssignment {
 export interface UnplannedAnswers {
   /** "Make an Assignment": each claims only the Trips of the piece it answers. */
   madeAssignments?: MadeAssignment[];
-  /** "Link to an Assignment": each reroutes that Assignment from the piece's first Trip. */
+  /** "Link to an Assignment": each reroutes that Assignment (planned, or made from another piece) from the piece's first Trip. */
   links?: UnplannedLink[];
   /** "Not a haul": the pieces whose Trips were no haul, with Dave's note. */
   notHauls?: NotAHaul[];
@@ -782,12 +782,14 @@ export function buildTripDay(input: TripDayInput): TripDay {
   const grouped = unplannedRuns(matched);
   const answers = input.answers ?? {};
   const runs = splitRuns(grouped.trips, grouped.runs, answers.splits ?? []);
-  const trips = answerRuns(grouped.trips, runs, answers, input.assignments, input.places);
+  // A link can name a planned Assignment or one Dave made from another piece.
+  const made = answers.madeAssignments ?? [];
+  const trips = answerRuns(grouped.trips, runs, answers, [...input.assignments, ...made], input.places);
   // A linked Assignment is summed on its new route (its Job follows it), but it only counts the Trips answerRuns gave it.
-  const planned = input.assignments.map((a) => {
+  const linked = <A extends TripAssignment>(a: A) => {
     const link = answers.links?.find((l) => l.assignmentId === a.id);
     return link ? linkedAssignment(a, link) : a;
-  });
+  };
   const unplanned = piecesOf(trips, runs);
   // Inside cleaned visits only: a drive-through's miles are already in the Trip across it,
   // and a short exit's miles are inside the joined visit.
@@ -801,7 +803,7 @@ export function buildTripDay(input: TripDayInput): TripDay {
     merged,
     visits,
     trips,
-    assignments: summarize(input, [...planned, ...(answers.madeAssignments ?? [])], trips),
+    assignments: summarize(input, [...input.assignments, ...made].map(linked), trips),
     unplanned,
     whichAssignment: trips
       .filter((t) => t.written && t.match.candidates)
