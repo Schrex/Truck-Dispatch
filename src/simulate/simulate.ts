@@ -43,7 +43,8 @@ function asAssignment(planned: PlannedAssignment | PlannedMadeAssignment, positi
   const assignedAt = made ? ANSWERED_AT : ASSIGNED_AT;
   const route = routeAt(planned, now);
   const before = (at: string) => Date.parse(at) <= Date.parse(now);
-  const changed = planned.changes.map((c) => c.changedAt).filter(before).sort().at(-1) ?? null;
+  // A link to a made Assignment reroutes it too, but it was made afterwards, so it never shows Changed.
+  const changed = made ? null : (planned.changes.map((c) => c.changedAt).filter(before).sort().at(-1) ?? null);
   const driver = drivers.find((d) => d.id === planned.driverId) ?? REAL_DAY.driver;
   const truckId = planned.truckId ?? null;
   let part: Assignment['trips'];
@@ -94,14 +95,14 @@ export function simulateAt(scenario: Scenario, minutes: number, answers: Unplann
       ? []
       : buildTripDay({ places: REAL_DAY.places, visits: day.visits, assignments: scenario.assignments, answers: { splits }, now: easternIso(REAL_DAY.date, '23:59:59'), dayOver: true }).unplanned;
   const answered = tripAnswers(answers, wholeDay, scenario.assignments.length, drivers[0].id, splits);
-  // A linked Assignment is rerouted from its Unplanned work's first Trip: shown on its new route, Changed from then.
-  const planned = scenario.assignments.map((a) => {
+  // A linked Assignment, planned or made from another piece, is rerouted from its Unplanned work's first Trip: shown on its new route, Changed from then.
+  const linked = <A extends PlannedAssignment | PlannedMadeAssignment>(a: A) => {
     const link = answered.input.links?.find((l) => l.assignmentId === a.id);
     return link ? linkedAssignment(a, link) : a;
-  });
+  };
   // A made Assignment names Truck 55 unless it is the Driver's own.
   const made = answered.made.map((m) => ({ ...m, truckId: drivers.find((d) => d.id === m.driverId)?.defaultTruckId === REAL_DAY.truck.id ? null : REAL_DAY.truck.id }));
-  const all: (PlannedAssignment | PlannedMadeAssignment)[] = [...planned, ...made];
+  const all: (PlannedAssignment | PlannedMadeAssignment)[] = [...scenario.assignments, ...made].map(linked);
   const tripDay = buildTripDay({
     places: REAL_DAY.places,
     visits: day.visits,
