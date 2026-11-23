@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { apiOn } from './testing/api';
-import { fleetRows, setUpTruck55 } from './testing/fleet';
+import { fleetRows, fleetXlsxRows, setUpTruck55 } from './testing/fleet';
 import { localD1 } from './testing/localD1';
 import type { FleetImport } from '../../shared/types';
 
@@ -131,5 +131,38 @@ describe('Importing a Fleet export that repeats the day so far', () => {
       expect(await counts(await importVisit('2026-11-16T12:02:00Z'))).toBe('0 new · 0 closed · 1 already stored');
       expect(await storedVisits(truckId)).toEqual([expect.objectContaining({ enteredAt: '2026-11-16T12:02:03.000Z' })]);
     });
+  });
+});
+
+describe('Importing an xlsx Fleet export', () => {
+  const XLSX = '2026-11-16-EntryExitReport.xlsx';
+  const importXlsx = async () =>
+    send('POST', '/api/fleet-imports', { fileName: XLSX, format: 'xlsx', rows: await fleetXlsxRows(XLSX, 'MCK-55-17') }, { NOW: AFTERNOON });
+
+  it('after the 15:02 JSON, adds the 15 Nov Shop day and the Shop visit at 16:03, and closes J25008 at 15:41', async () => {
+    const { truckId } = await setUpTruck55(send);
+    await importFile('2026-11-16-1502.json');
+    expect(await counts(await importXlsx())).toBe('2 new · 1 closed · 17 already stored');
+
+    const visits = await storedVisits(truckId);
+    expect(visits).toHaveLength(20);
+    expect(visits.find((v) => v.enteredAt === '2026-11-16T19:43:31.000Z')).toMatchObject({ geofenceCode: 'J25008 Los Flamboyanes', exitedAt: '2026-11-16T20:41:56.000Z' });
+    expect(visits.at(-1)).toMatchObject({ geofenceCode: 'SHOP', enteredAt: '2026-11-16T21:03:25.000Z', exitedAt: null });
+  });
+
+  it('stores the xlsx alone as 20 visits, 19 on Mon 16 Nov and the Shop day before, and records its format', async () => {
+    const { truckId } = await setUpTruck55(send);
+    const response = await importXlsx();
+    expect(response.status).toBe(201);
+    const { import: made } = (await response.json()) as { import: FleetImport };
+    expect(made).toMatchObject({ format: 'xlsx', added: 20, closed: 0, unchanged: 0, days: ['2026-11-15', '2026-11-16'] });
+    expect(await d1.database().prepare('SELECT format FROM fleet_imports WHERE id = ?').bind(made.id).first()).toEqual({ format: 'xlsx' });
+    expect(await storedVisits(truckId)).toHaveLength(20);
+  });
+
+  it('adds nothing when the 15:02 JSON comes after the xlsx', async () => {
+    await setUpTruck55(send);
+    await importXlsx();
+    expect(await counts(await importFile('2026-11-16-1502.json'))).toBe('0 new · 0 closed · 18 already stored');
   });
 });
