@@ -190,10 +190,22 @@ interface StoredVisit {
   exitOdometer: number | null;
 }
 
+/** Whether an entry time is given only to the minute (its seconds are :00.000), as MORE_EXACT tells it in SQL. */
+const toTheMinute = (enteredAt: string) => enteredAt.endsWith(':00.000Z');
+
+/**
+ * Of two entry times of one visit, the one to keep: the more exact (with
+ * seconds over minute-only, as MORE_EXACT does for a stored visit), else the earlier.
+ */
+function entryToKeep(a: string, b: string): string {
+  if (toTheMinute(a) !== toTheMinute(b)) return toTheMinute(a) ? b : a;
+  return a < b ? a : b;
+}
+
 /**
  * The export's rows, each visit once. Rows with the same geofence code and
  * entered minute are one visit (a re-entry in the same minute is merged): it
- * keeps the first row's entry and the last row's exit.
+ * keeps the most exact entry (entryToKeep) and the last row's exit.
  */
 function visitsOnce(rows: FleetExportRow[]): StoredVisit[] {
   const byKey = new Map<string, StoredVisit>();
@@ -210,8 +222,8 @@ function visitsOnce(rows: FleetExportRow[]): StoredVisit[] {
       exitOdometer: exitedAt === null ? null : row.exitOdometer,
     };
     const key = `${visit.geofenceCode}\n${visit.enteredMinute}`;
-    const first = byKey.get(key);
-    byKey.set(key, first ? { ...first, enteredAt: first.enteredAt < enteredAt ? first.enteredAt : enteredAt, exitedAt: visit.exitedAt, exitOdometer: visit.exitOdometer } : visit);
+    const earlier = byKey.get(key);
+    byKey.set(key, earlier ? { ...earlier, enteredAt: entryToKeep(earlier.enteredAt, enteredAt), exitedAt: visit.exitedAt, exitOdometer: visit.exitOdometer } : visit);
   }
   return [...byKey.values()];
 }

@@ -196,6 +196,18 @@ describe('Importing a Fleet export that repeats the day so far', () => {
       expect(await counts(await importVisit('2026-11-16T12:02:00Z'))).toBe('0 new · 0 closed · 1 already stored');
       expect(await storedVisits(truckId)).toEqual([expect.objectContaining({ enteredAt: '2026-11-16T12:02:03.000Z' })]);
     });
+
+    it('keeps the seconds when one file gives the visit both ways, in either order', async () => {
+      const [row] = fleetRows('2026-11-16-1502.json').filter((r) => r.enteredAt.startsWith('2026-11-16T12:02'));
+      const { truckId } = await setUpTruck55(send);
+      for (const order of [['2026-11-16T12:02:00Z', '2026-11-16T12:02:03Z'], ['2026-11-16T12:02:03Z', '2026-11-16T12:02:00Z']]) {
+        await d1.database().prepare('DELETE FROM fleet_visits').run();
+        const rows = order.map((enteredAt) => ({ ...row, enteredAt }));
+        const response = await send('POST', '/api/fleet-imports', { fileName: 'twice.json', format: 'json', rows }, { NOW: AFTERNOON });
+        expect(await counts(response)).toBe('1 new · 0 closed · 0 already stored');
+        expect(await storedVisits(truckId)).toEqual([expect.objectContaining({ enteredAt: '2026-11-16T12:02:03.000Z' })]);
+      }
+    });
   });
 });
 
