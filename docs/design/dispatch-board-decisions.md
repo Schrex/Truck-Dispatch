@@ -52,9 +52,9 @@ Sources: the "Trucking page · 5 design mocks" export, page **Final · scheduler
 ## Phases 2 to 4: decided, not built
 
 ### Check-in (phase 2)
-- **The Inspection is the official record.** It is append-only, item by item, with repairs, Driver, Truck and time. A sign-off is its own signed row, and a fix adds a new version. To confirm with whoever owns DOT compliance.
+- **The Inspection is the official record.** It is append-only, item by item, with repairs, Driver, Truck and time. A sign-off is its own signed row, and a fix adds a new version.
 - **The Inspection checklist** is a list in Settings (add, rename, reorder, inactive, optional). Each item is answered OK, Needs repair or N/A, and an Inspection keeps each item's wording. There are no truck types.
-- **Needs repair opens a Truck problem**, shown on the Driver's lane and on that Truck in the composer until Dave marks it fixed. The app never grounds a Truck (to confirm with DOT compliance). No Slack or texts.
+- **Needs repair opens a Truck problem**, shown on the Driver's lane and on that Truck in the composer until Dave marks it fixed. The app never grounds a Truck. No Slack or texts.
 - **The Driver's phone shows the Truck he checked in to**; the scheduler keeps showing his usual Truck in grey.
 
 ### Trips (phase 3)

@@ -37,6 +37,10 @@ _Avoid_: project lead, super
 
 ## Trucks
 
+**Check-in**:
+A Driver picking the Truck he is taking today and doing its Inspection, as one step. He is checked in to that Truck once the Inspection is done; taking another Truck later that day means checking in to it too. Offered only for today, with or without a Sent day.
+_Avoid_: clock-in, sign-in, truck pick
+
 **Inspection**:
 A Driver's walk-around check of a Truck before taking it out that day, item by item, with what needs repair. It is the official record of the Truck's condition: once made it is never changed, only followed by a newer one.
 _Avoid_: truck check, pre-trip, DVIR (in the app)
@@ -52,7 +56,7 @@ The finished record of one Truck for one day: who drove it, its Inspection, its 
 _Avoid_: daily log, timesheet
 
 **Truck problem**:
-Something wrong with a Truck that a Driver reports during the day. It stays open until Dave marks it fixed.
+Something wrong with a Truck, reported by a Driver either as a Needs repair item in an Inspection or at any time that day, always with a note saying what is wrong. It stays open until Dave marks it fixed. A Truck with an open Truck problem can still be driven: the app reports, it never grounds.
 _Avoid_: issue, defect, breakdown
 
 ## Locations
