@@ -1,4 +1,5 @@
-import type { DriverAssignment, SinceSent } from '../../shared/types';
+import type { AssignmentTripPart, DriverAssignment, SinceSent } from '../../shared/types';
+import { easternTime } from '../../shared/trips';
 import { cancelledText, cn } from '@/lib/utils';
 
 /** Whose changes the Driver is told about: the dispatcher, by name, as he knows him. */
@@ -32,10 +33,29 @@ function truckLine({ truckNumber, was }: DriverAssignment): string | null {
 }
 
 /**
+ * The Trip part's line, "4 loads · last 11:25", with Now on the Assignment he
+ * is on now, once the Truck has Trips on it. Without a Trip part, or before its
+ * first Trip, nothing: the card looks as it always has.
+ */
+function TripLine({ trips }: { trips: AssignmentTripPart | undefined }) {
+  if (!trips || trips.status === 'none') return null;
+  return (
+    <p className="flex flex-wrap items-center gap-x-2 text-lg">
+      {trips.status === 'now' && <span className="rounded bg-primary px-2 py-0.5 text-base font-semibold text-primary-foreground">Now</span>}
+      <span className="font-medium">
+        {trips.loads} {trips.loads === 1 ? 'load' : 'loads'}
+        {trips.lastLoadAt && ` · last ${easternTime(trips.lastLoadAt)}`}
+      </span>
+    </p>
+  );
+}
+
+/**
  * One of a Driver's Assignments, large enough to read from the cab: the
  * Material, Pick up and Drop off, the Foreman (when there is one), the note, which Truck when it is not his
  * own, and Dave's changes since Assigning it: Changed (with what it was), Added,
- * or cancelled (struck through).
+ * or cancelled (struck through). When the Assignment has a Trip part, its Loads,
+ * the last one's time and Now.
  */
 export function DriverCard({ assignment }: { assignment: DriverAssignment }) {
   const { materialName, fromPlaceName, toPlaceName, foremanName, note, cancelledAt, sinceSent, was } = assignment;
@@ -48,6 +68,7 @@ export function DriverCard({ assignment }: { assignment: DriverAssignment }) {
     >
       {mark && <p className={cn('mb-3 inline-block rounded px-2 py-1 text-base font-semibold', mark.className)}>{mark.word}</p>}
       <div className={cn('space-y-3', cancelledAt && cancelledText)}>
+        <TripLine trips={assignment.trips} />
         <p className="text-2xl font-semibold">
           {materialName ?? 'No Material named'}
           <Was value={was.materialName} />
