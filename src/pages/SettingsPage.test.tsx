@@ -18,7 +18,8 @@ const problem = (fields: Partial<TruckProblem>): TruckProblem => ({
 /**
  * The list API as Settings sees it: every list keeps what is added and
  * changed, refuses a name already used (ignoring case) and has no delete. A
- * Driver answers how many later days hold his Assignments. Drivers, Places and
+ * Driver answers how many later days hold his Assignments. A Place's geofence
+ * code is unique among active Places, and puts it on the truck map. Drivers, Places and
  * Materials and the Inspection checklist take a whole new order, the ids
  * first to last, the rest after.
  */
@@ -78,21 +79,28 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   if (named && (named.active || method === 'PATCH')) {
     return answer({ error: 'invalid', fields: { [name]: 'That one is already in the list.' } }, 400);
   }
+  // Like the Worker, a geofence code another active Place has is refused, and On the truck map follows from it.
+  const holder = list === 'places' && body.geofenceCode ? entries.find((e) => e.id !== id && e.active && String(e.geofenceCode).toLowerCase() === body.geofenceCode.toLowerCase()) : undefined;
+  if (holder) return answer({ error: 'invalid', fields: { geofenceCode: `This geofence code is on ${holder.shortName} already. Clear it there first.` } }, 400);
+  // Like the Worker, an HCSS code another active Truck has is refused.
+  const truckHolder = list === 'trucks' && body.hcssCode ? entries.find((e) => e.id !== id && e.active && String(e.hcssCode).toLowerCase() === body.hcssCode.toLowerCase()) : undefined;
+  if (truckHolder) return answer({ error: 'invalid', fields: { hcssCode: `This HCSS code is on Truck ${truckHolder.number} already. Clear it there first.` } }, 400);
+  const onMap = list === 'places' && 'geofenceCode' in body ? { onTruckMap: !!body.geofenceCode } : {};
   if (method === 'POST' && !body[name]) return answer({ error: 'invalid', fields: { [name]: 'Write its name.' } }, 400);
   if (method === 'POST' && named) {
     // Like the Worker, adding a removed entry's name brings that entry back, last in the list.
-    Object.assign(named, body, { active: true });
+    Object.assign(named, body, onMap, { active: true });
     lists[list] = [...entries.filter((e) => e !== named), named];
     return answer({ [one]: named, broughtBack: true });
   }
   if (method === 'POST') {
-    const entry = { id: `new-${entries.length}`, active: true, ...(list === 'places' ? { onTruckMap: false } : {}), ...body };
+    const entry = { id: `new-${entries.length}`, active: true, ...(list === 'places' ? { geofenceCode: null, onTruckMap: false } : {}), ...body, ...onMap };
     entries.push(entry);
     return answer({ [one]: entry }, 201);
   }
   if (method === 'PATCH') {
     const entry = entries.find((e) => e.id === id)!;
-    Object.assign(entry, body, dropped);
+    Object.assign(entry, body, dropped, onMap);
     return answer({ [one]: entry });
   }
   return answer({ error: 'method_not_allowed' }, 405);
@@ -111,10 +119,10 @@ beforeEach(() => {
       { id: 'trk-99', number: '99', hcssCode: null, hcssGuid: null, active: false },
     ],
     places: [
-      { id: 'plc-plant', shortName: 'Sample Plant', fullName: null, kind: 'plant', jobId: null, onTruckMap: true, active: true },
-      { id: 'plc-north', shortName: 'Sample Site North', fullName: 'Sample Job North site', kind: 'job_site', jobId: 'job-n', usualForemanId: null, onTruckMap: false, active: true },
-      { id: 'plc-yard', shortName: 'Sample Yard', fullName: null, kind: 'yard', jobId: null, onTruckMap: false, active: true },
-      { id: 'plc-x', shortName: 'Sample Old Pit', fullName: null, kind: null, jobId: null, onTruckMap: false, active: false },
+      { id: 'plc-plant', shortName: 'Sample Plant', fullName: null, kind: 'plant', jobId: null, geofenceCode: 'SAMPLE-PLANT', onTruckMap: true, active: true },
+      { id: 'plc-north', shortName: 'Sample Site North', fullName: 'Sample Job North site', kind: 'job_site', jobId: 'job-n', usualForemanId: null, geofenceCode: null, onTruckMap: false, active: true },
+      { id: 'plc-yard', shortName: 'Sample Yard', fullName: null, kind: 'yard', jobId: null, geofenceCode: null, onTruckMap: false, active: true },
+      { id: 'plc-x', shortName: 'Sample Old Pit', fullName: null, kind: null, jobId: null, geofenceCode: 'SAMPLE-OLD', onTruckMap: false, active: false },
     ],
     materials: [
       { id: 'mat-minus', name: '2" minus', active: true },
@@ -326,12 +334,44 @@ describe('Settings', () => {
   });
 
   describe('a Truck', () => {
-    it('says nothing about HCSS and asks for no HCSS code or id, which come from HCSS later', async () => {
+    it('saves its HCSS code trimmed, and shows it when the panel is opened again', async () => {
       await settings();
       const panel = open('Trucks', '24');
-      expect(within(panel).queryByText(/HCSS/)).toBeNull();
-      expect(within(panel).queryByText(/linked/i)).toBeNull();
-      expect(screen.queryByText(/HCSS/)).toBeNull();
+      expect((within(panel).getByLabelText(/HCSS code/) as HTMLInputElement).value).toBe('');
+      type(panel, /HCSS code/, ' MCK-55-17 ');
+      save(panel);
+      await closed();
+      expect(sent).toEqual([{ method: 'PATCH', path: '/api/trucks/trk-24', body: { hcssCode: 'MCK-55-17' } }]);
+      expect((within(open('Trucks', '24')).getByLabelText(/HCSS code/) as HTMLInputElement).value).toBe('MCK-55-17');
+    });
+
+    it('clears its HCSS code', async () => {
+      await settings();
+      const panel = open('Trucks', '21');
+      expect((within(panel).getByLabelText(/HCSS code/) as HTMLInputElement).value).toBe('SAMPLE-21');
+      type(panel, /HCSS code/, '');
+      save(panel);
+      await closed();
+      expect(sent).toEqual([{ method: 'PATCH', path: '/api/trucks/trk-21', body: { hcssCode: null } }]);
+    });
+
+    it('shows why an HCSS code another Truck has is refused, next to that field', async () => {
+      await settings();
+      const panel = open('Trucks', '24');
+      type(panel, /HCSS code/, 'sample-21');
+      save(panel);
+      const message = await within(panel).findByText('This HCSS code is on Truck 21 already. Clear it there first.');
+      expect(message.closest('div')?.querySelector('input')).toBe(within(panel).getByLabelText(/HCSS code/));
+    });
+
+    it('is added with a number alone, as before', async () => {
+      await settings();
+      const panel = add('Trucks', 'Truck');
+      type(panel, 'Number', '30');
+      save(panel);
+      await closed();
+      expect(sent).toEqual([{ method: 'POST', path: '/api/trucks', body: { number: '30' } }]);
+      expect(chips('Trucks')).toEqual(['21', '24', '30']);
     });
   });
 
@@ -354,13 +394,41 @@ describe('Settings', () => {
       await waitFor(() => expect(sent).toEqual([{ method: 'PATCH', path: '/api/places/plc-yard', body: { fullName: 'Sample Equipment Yard' } }]));
     });
 
-    it('says whether it is on the truck map, and asks for no geofence code', async () => {
+    it('says whether it is on the truck map, from its geofence code', async () => {
       await settings();
-      expect(within(open('Places', 'Sample Plant')).getByText('On the truck map')).toBeTruthy();
-      cancel(screen.getByRole('dialog'));
-      const north = open('Places', 'Sample Site North');
-      expect(within(north).getByText('Not on the truck map yet')).toBeTruthy();
-      expect(north.textContent).not.toMatch(/geofence/i);
+      const plant = open('Places', 'Sample Plant');
+      expect(within(plant).getByText('On the truck map')).toBeTruthy();
+      expect((within(plant).getByLabelText(/Geofence code/) as HTMLInputElement).value).toBe('SAMPLE-PLANT');
+      cancel(plant);
+      await closed();
+      expect(within(open('Places', 'Sample Site North')).getByText('Not on the truck map yet')).toBeTruthy();
+    });
+
+    it('saves a geofence code trimmed, which puts it on the truck map, and clearing it takes it off', async () => {
+      await settings();
+      const panel = open('Places', 'Sample Site North');
+      type(panel, /Geofence code/, '  J1001 North ');
+      save(panel);
+      await closed();
+      expect(sent).toEqual([{ method: 'PATCH', path: '/api/places/plc-north', body: { geofenceCode: 'J1001 North' } }]);
+      const again = open('Places', 'Sample Site North');
+      expect(within(again).getByText('On the truck map')).toBeTruthy();
+      expect((within(again).getByLabelText(/Geofence code/) as HTMLInputElement).value).toBe('J1001 North');
+
+      type(again, /Geofence code/, '');
+      save(again);
+      await closed();
+      expect(sent.at(-1)).toEqual({ method: 'PATCH', path: '/api/places/plc-north', body: { geofenceCode: null } });
+      expect(within(open('Places', 'Sample Site North')).getByText('Not on the truck map yet')).toBeTruthy();
+    });
+
+    it('shows why a geofence code another Place has is refused, next to that field', async () => {
+      await settings();
+      const panel = open('Places', 'Sample Yard');
+      type(panel, /Geofence code/, 'sample-plant');
+      save(panel);
+      const message = await within(panel).findByText('This geofence code is on Sample Plant already. Clear it there first.');
+      expect(message.closest('div')?.querySelector('input')).toBe(within(panel).getByLabelText(/Geofence code/));
     });
 
     it('as a job site, picks its usual Foreman from the Foremen in use, and the chip shows him once saved', async () => {

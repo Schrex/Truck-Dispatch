@@ -1,4 +1,4 @@
-import type { Assignment, AssignmentChange, BusinessDay, ChangedAssignment, CheckIn, CheckIns, CopiedDay, Day, DriverDay, Inspection, NewInspection, EntryFields, ListName, Lists, AddAssignment, OrderedList, TruckProblem, WeekDay } from '../../shared/types';
+import type { Assignment, AssignmentChange, BusinessDay, ChangedAssignment, CheckIn, CheckIns, CopiedDay, Day, DriverDay, FleetImport, NewFleetImport, Inspection, NewInspection, EntryFields, ListName, Lists, AddAssignment, OrderedList, TruckProblem, WeekDay } from '../../shared/types';
 import { basePath } from './basePath';
 
 // Every call starts at the base path the page was reached under: /api/...
@@ -214,4 +214,9 @@ export async function fixTruckProblem(id: string, note?: string): Promise<TruckP
 /** Report a problem: a Driver reports one during the day on the Truck of his latest check-in today. */
 export async function reportTruckProblem(report: { driverId: string; truckId: string; text: string }): Promise<TruckProblem> {
   return (await request<{ problem: TruckProblem }>('api/truck-problems', json('POST', report))).problem;
+}
+
+/** Imports a Fleet export's rows, read by the page (shared/fleetExport.ts): what it added, for which Truck and days. */
+export async function importFleetExport(body: NewFleetImport): Promise<FleetImport> {
+  return (await request<{ import: FleetImport }>('api/fleet-imports', json('POST', body))).import;
 }

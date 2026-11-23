@@ -179,7 +179,7 @@ describe('Lanes', () => {
   it('names an Assignment\'s Foreman beside the job site among the Places', () => {
     const haul = assignment({ ...a, toPlaceId: 'plc-north', toPlaceName: 'Sample Site North', foremanId: 'frm-a', foremanName: 'Sample Foreman A' });
     const places: Place[] = [
-      { id: 'plc-north', shortName: 'Sample Site North', fullName: null, kind: 'job_site', jobId: null, usualForemanId: null, onTruckMap: false, sortOrder: null, active: true },
+      { id: 'plc-north', shortName: 'Sample Site North', fullName: null, kind: 'job_site', jobId: null, usualForemanId: null, geofenceCode: null, onTruckMap: false, sortOrder: null, active: true },
     ];
     render(<Lanes assignments={[haul]} drivers={drivers} trucks={trucks} places={places} />);
     expect(lanes()[0].blocks).toEqual(['First · Sample Site North (Sample Foreman A) · Truck 21 (his own)']);

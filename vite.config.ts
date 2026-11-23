@@ -14,6 +14,8 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig(({ mode }) => ({
   base: '/truck-dispatch/',
   plugins: [react(), ...(mode === 'test' ? [] : [cloudflare()])],
+  // The xlsx Fleet export fixture is imported by tests as a data URL (?inline).
+  assetsInclude: ['**/*.xlsx'],
   resolve: {
     alias: { '@': path.resolve(__dirname, './src') },
   },

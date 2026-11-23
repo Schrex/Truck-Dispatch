@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Loader2, Settings } from 'lucide-react';
+import { Loader2, Settings, Upload } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import type { Assignment, BusinessDay, CheckIn, Driver, Foreman, Material, Place, Truck, TruckProblem } from '../../shared/types';
 import { isCalendarDate } from '../../shared/days';
@@ -182,6 +182,11 @@ export function BoardPage() {
       >
         <ViewToggle current="scheduler" />
         <DayNavigation date={date} nextWorkingDay={businessDay?.nextWorkingDay ?? null} onShow={show} />
+        <Button asChild variant="outline" size="lg" className="px-5">
+          <Link to="/fleet-imports">
+            <Upload className="h-4 w-4" /> Fleet imports
+          </Link>
+        </Button>
         <Button asChild variant="outline" size="lg" className="px-5">
           <Link to="/settings">
             <Settings className="h-4 w-4" /> Settings
