@@ -13,6 +13,6 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["vite.config.ts", "tailwind.config.ts", "scripts/**/*.mjs"],
+  "include": ["vite.config.ts", "tailwind.config.ts", "playwright.config.ts", "e2e/**/*.ts", "scripts/**/*.mjs"],
   "exclude": ["scripts/**/*.test.mjs"]
 }
