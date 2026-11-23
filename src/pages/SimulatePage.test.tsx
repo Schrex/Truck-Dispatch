@@ -642,6 +642,15 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
       ]);
     });
 
+    it('the three ways are a segmented toggle: tapping the chosen one again keeps it chosen', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      tap('Answer', screen.getByRole('group', { name: 'Unplanned work' }));
+      tap('Not a haul');
+      tap('Not a haul');
+      expect(within(row('How does Dave answer?')).getByRole('button', { name: 'Not a haul' }).getAttribute('aria-pressed')).toBe('true');
+      expect(save().disabled).toBe(false);
+    });
+
     it('linking offers only Randy’s Assignments on 16 Nov, and asks where he loaded', () => {
       render(<SimulatePage />, { wrapper: MemoryRouter });
       open('Link to an Assignment');

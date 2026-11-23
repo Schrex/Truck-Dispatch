@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { chipClass, OrTypeIt, TypedBox } from '@/components/TypedName';
+import { SegmentedToggle } from '@/components/SegmentedToggle';
 import type { UnplannedAnswer } from './answers';
 
 /** A piece of Unplanned work as the answer shows it. */
@@ -167,7 +168,7 @@ function NotAHaulQuestions({ work, onReady }: WayProps) {
   );
 }
 
-/** The ways Dave can answer Unplanned work, in the order offered; each is a chip and its questions. */
+/** The ways Dave can answer Unplanned work, in the order offered on a segmented toggle; each is a segment and its questions. */
 const WAYS: { kind: UnplannedAnswer['kind']; label: string; Questions: (props: WayProps) => JSX.Element }[] = [
   { kind: 'make', label: 'Make an Assignment', Questions: MakeAnAssignmentQuestions },
   { kind: 'link', label: 'Link to an Assignment', Questions: LinkQuestions },
@@ -223,12 +224,13 @@ export function UnplannedAnswerFlow({
         {askDriver && <ChipRow label="Who was driving?" chips={drivers!.map((d) => ({ id: d.id, label: d.name }))} picked={pickedDriverId} onPick={setPickedDriverId} />}
         {(!askDriver || pickedDriverId) && (
           <>
-            <ChipRow
+            <SegmentedToggle
               label="How does Dave answer?"
-              chips={WAYS.map((w) => ({ id: w.kind, label: w.label }))}
-              picked={way}
-              onPick={(id) => {
-                setWay(id as UnplannedAnswer['kind'] | null);
+              options={WAYS.map((w) => ({ value: w.kind, label: w.label }))}
+              value={way}
+              onChange={(kind) => {
+                if (kind === way) return;
+                setWay(kind);
                 setAnswer(null);
               }}
             />
