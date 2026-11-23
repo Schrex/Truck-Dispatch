@@ -28,8 +28,25 @@ These come from the simulation spec (#55) and are built in the Trip builder (`sh
 - **Trucking hours** of an Assignment run from the leave time of its first linked Trip to the arrive time of its last, loaded or empty. On 16 Nov as planned, A1 runs 08:24 to its last Load at 11:25 (3.02 h) and A2 11:30 to 13:54 (2.40 h). The empty drive from Bishop Kearney back to J25008 at 14:33 would fit rule 4 ("going to A1's pickup") and stretch A1 to 14:43, overlapping A2; it is the way back from a Trip nothing explains, so it goes to Dave with that Trip instead (see the rules below).
 - **Total hours** run from the Truck's day's start time to its end time (see build order 1).
 - **Tons** are the sum of the Ticket quantities on an Assignment's Loads (phase 4). Until Tickets exist the Truck log shows them blank, marked "from Tickets". Nobody types them.
-- **Trips with no Assignment** (none fits, or two do), each with its way straight back when that follows, are an **extra job**: an extra Truck log column after Dave's Assignments, "Assignment 3 · unverified", with its Job (of where it went, else where it came from), Pick up, Drop off and Trucking hours. Whether it was a Load and of what Material is Dave's to decide next morning, so both read "Unknown · Dave decides". In the simulation they are shown, not answerable.
+- **Trips with no Assignment** (none fits) are **Unplanned work**: see the next section, which replaces the "Assignment 3 · unverified" column built first.
 - **To and from the shop**: below the columns, the Truck log lists the drives out of the shop in the morning and back to it at the end of the day, with times and miles.
+
+## Decided: Unplanned work (23 Nov 2026)
+
+On 16 Nov Randy drove empty from J25008 Los Flamboyanes to J611 Bishop Kearney at 14:15, loaded top soil there, and hauled it back to J25008 at 14:33. Dave had not Assigned it. Words as in `GLOSSARY.md` (**Unplanned work**); the past-day rule is [ADR 0007](../adr/0007-answering-unplanned-work-on-a-past-day.md).
+
+- **What it is.** Every Trip in a row that no Assignment explains, between the last Trip an Assignment explains and the next one (or the shop), is one piece of Unplanned work.
+- **Never guess the direction.** The Truck cannot tell which way material went. Unplanned work shows its Places and times only, "J25008 Los Flamboyanes ⇄ J611 Bishop Kearney · out 14:15, back 14:33", and asks "Where did he load?" with its Places as one-tap answers.
+- **Where Dave meets it.** On the board next morning, after the Driver's Assignments on that day's lane ("1 Unplanned work"), and on the Truck log. Dave answers; the Driver is not asked yet (that waits for sign-off).
+- **Dave's three answers:**
+  - **Make an Assignment.** Dave picks where it loaded and the Material, both required (Material from the list, or new). Driver, Truck, day and Places come from the Trips. The Assignment is Assigned at once, not Added, marked "From the Truck", and the Driver gets no notice. The matching rules then count its Trips: on 16 Nov the 14:15 drive is empty (to its pickup) and the 14:33 drive 1 Load. It becomes an ordinary Truck log column with Loads, Job and Trucking hours worked out.
+  - **Link to an Assignment.** Recorded as a change to that Assignment's route from the time of the work's first Trip, as if Dave had rerouted it, so the rules count its Loads. Only that Driver's Assignments that day are offered.
+  - **Not a haul** (fuel, repair, personal), with an optional note. Its Trips stay, count in Total hours, and belong to no Assignment.
+- **Split.** A run that held two hauls is split at a Trip Dave taps; each part is answered on its own.
+- **Driver first.** When the Truck log asks "Who was driving?", answering Unplanned work first asks for the Driver.
+- **A tie is not Unplanned work.** When two Assignments fit a Trip equally, the Truck did planned work; Dave picks which ("Which Assignment? A1 or A2") without rerouting.
+- **Past day.** Answering is allowed on the past day it belongs to, only for its own Driver, Truck and day (ADR 0007). Everything else on a past day is still refused (ADR 0004).
+- **Order.** Shown and answered in the simulation first (nothing saved); the Worker, database and real board follow.
 
 ## What one real day shows (MCK-55-17, Mon 16 Nov 2026)
 
