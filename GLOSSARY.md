@@ -77,6 +77,14 @@ _Avoid_: site, project
 
 ## Work
 
+**Fleet export**:
+A file of one Truck's entries into and exits from Places, downloaded from HCSS Fleet and dropped into the app. Each newer one repeats the day so far.
+_Avoid_: location file, sheet, report
+
+**Import**:
+One Fleet export dropped into the app, kept with what it added and what it closed. Dropping the same export again adds nothing.
+_Avoid_: upload, sync
+
 **Trip**:
 One movement of a Truck from one Place to another, as the Truck records it, loaded or empty. Nobody enters Trips.
 _Avoid_: run, leg
