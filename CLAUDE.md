@@ -15,3 +15,7 @@ Single-context: root `GLOSSARY.md` + `docs/adr/`. See `docs/agents/domain.md`.
 ### Where the docs are
 
 `docs/README.md` is the index. Mission and roadmap: `docs/specs/`. What the app does today: `docs/how-it-works.md`; API: `docs/api.md`. Keep those two current in the same PR as any behaviour or API change.
+
+### Attribution
+
+Do not add `Co-Authored-By`, `Claude-Session` or "Generated with Claude Code" lines to commit messages, PR descriptions or GitHub comments. `.claude/settings.json` turns them off too.
