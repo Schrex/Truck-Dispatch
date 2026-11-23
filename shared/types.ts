@@ -272,6 +272,9 @@ export interface Week {
   days: WeekDay[];
 }
 
+/** The most characters a note may have: an Assignment's, an Inspection's, a Truck problem's or a fix's. */
+export const NOTE_LIMIT = 1000;
+
 /** How a Driver answers one Inspection item: OK, Needs repair or N/A. */
 export const INSPECTION_ANSWERS = ['ok', 'repair', 'na'] as const;
 export type InspectionAnswerKind = (typeof INSPECTION_ANSWERS)[number];

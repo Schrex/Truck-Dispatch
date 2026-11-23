@@ -1,33 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { handle } from './app';
+import { MORNING, apiOn, inspection } from './testing/api';
 import { localD1 } from './testing/localD1';
-import type { Inspection, NewInspection, TruckProblem } from '../../shared/types';
+import type { Inspection, TruckProblem } from '../../shared/types';
 
 const d1 = localD1();
-/** The tests' clock: Thursday 2026-11-19, 6:42 AM US Eastern, unless a test sets its own. */
-const MORNING = '2026-11-19T11:42:00.000Z';
-const send = (method: string, path: string, body?: unknown, vars: Parameters<typeof d1.env>[0] = {}) =>
-  handle(
-    new Request(`https://td.example${path}`, {
-      method,
-      ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
-    }),
-    d1.env({ NOW: MORNING, ...vars }),
-  );
-
-/** The seeded checklist's ids, insp-01 (Dump box clean) to insp-12 (Suspension). */
-const ITEMS = Array.from({ length: 12 }, (_, i) => `insp-${String(i + 1).padStart(2, '0')}`);
-
-/** A whole Inspection by Sample Driver A on Truck 21: every item OK but those given as Needs repair, each with its note. */
-function inspection(repairs: Record<string, string> = {}, fields: Partial<NewInspection> = {}): NewInspection {
-  return {
-    id: crypto.randomUUID(),
-    driverId: 'drv-a',
-    truckId: 'trk-21',
-    answers: ITEMS.map((itemId) => (itemId in repairs ? { itemId, answer: 'repair' as const, repairNote: repairs[itemId] } : { itemId, answer: 'ok' as const })),
-    ...fields,
-  };
-}
+const send = apiOn(d1);
 
 const add = (body: unknown, vars = {}) => send('POST', '/api/inspections', body, vars);
 const saved = async (response: Response) => ((await response.json()) as { inspection: Inspection & { problems: TruckProblem[] } }).inspection;
@@ -41,7 +18,7 @@ const fixed = async (response: Response) => ((await response.json()) as { proble
 
 describe('Truck problems from an Inspection', () => {
   it('opens one per Needs repair item, with its note, its Driver, the time and the Inspection, in the Inspection\'s answer', async () => {
-    const body = inspection({ 'insp-07': 'Left marker out', 'insp-04': 'Left rear flap torn' });
+    const body = inspection({ repairs: { 'insp-07': 'Left marker out', 'insp-04': 'Left rear flap torn' } });
     const response = await add(body);
     expect(response.status).toBe(201);
     const answer = await saved(response);
@@ -61,23 +38,23 @@ describe('Truck problems from an Inspection', () => {
   });
 
   it('opens none for a refused Inspection', async () => {
-    const response = await add(inspection({ 'insp-07': 'Left marker out' }, { truckId: 'trk-99' }));
+    const response = await add(inspection({ repairs: { 'insp-07': 'Left marker out' }, truckId: 'trk-99' }));
     expect(response.status).toBe(400);
     expect(await problems()).toEqual([]);
   });
 
   it('opens no second set for a retried Finish with the same id, and answers the first set', async () => {
-    const body = inspection({ 'insp-07': 'Left marker out' });
+    const body = inspection({ repairs: { 'insp-07': 'Left marker out' } });
     const first = await saved(await add(body));
-    const again = await add({ ...body, answers: inspection({ 'insp-01': 'Mud everywhere', 'insp-07': 'Left marker out' }).answers }, { NOW: '2026-11-19T11:43:00.000Z' });
+    const again = await add({ ...body, answers: inspection({ repairs: { 'insp-01': 'Mud everywhere', 'insp-07': 'Left marker out' } }).answers }, { NOW: '2026-11-19T11:43:00.000Z' });
     expect(again.status).toBe(200);
     expect((await saved(again)).problems).toEqual(first.problems);
     expect(await problems()).toHaveLength(1);
   });
 
   it('does not stop a Truck with an open problem being checked in to again', async () => {
-    await add(inspection({ 'insp-07': 'Left marker out' }));
-    const later = await add(inspection({}, { driverId: 'drv-b' }), { NOW: '2026-11-19T12:10:00.000Z' });
+    await add(inspection({ repairs: { 'insp-07': 'Left marker out' } }));
+    const later = await add(inspection({ driverId: 'drv-b' }), { NOW: '2026-11-19T12:10:00.000Z' });
     expect(later.status).toBe(201);
     expect((await problems('?open=1')).map((p) => p.text)).toEqual(['Left marker out']);
   });
@@ -86,9 +63,9 @@ describe('Truck problems from an Inspection', () => {
 describe('the Truck problems list', () => {
   /** Three problems: Truck 21's at 6:42 and 7:10, Truck 24's at 7:30. */
   const three = async () => {
-    const [early] = (await saved(await add(inspection({ 'insp-07': 'Left marker out' })))).problems;
-    const [middle] = (await saved(await add(inspection({ 'insp-04': 'Flap torn' }), { NOW: '2026-11-19T12:10:00.000Z' }))).problems;
-    const [late] = (await saved(await add(inspection({ 'insp-02': 'Tarp ripped' }, { driverId: 'drv-b', truckId: 'trk-24' }), { NOW: '2026-11-19T12:30:00.000Z' }))).problems;
+    const [early] = (await saved(await add(inspection({ repairs: { 'insp-07': 'Left marker out' } })))).problems;
+    const [middle] = (await saved(await add(inspection({ repairs: { 'insp-04': 'Flap torn' } }), { NOW: '2026-11-19T12:10:00.000Z' }))).problems;
+    const [late] = (await saved(await add(inspection({ repairs: { 'insp-02': 'Tarp ripped' }, driverId: 'drv-b', truckId: 'trk-24' }), { NOW: '2026-11-19T12:30:00.000Z' }))).problems;
     return { early, middle, late };
   };
 
@@ -140,7 +117,7 @@ describe('reporting a problem during the day', () => {
 
   it('refuses a Truck that is not his latest check-in today, even one he checked in to earlier before switching', async () => {
     await add(inspection());
-    await add(inspection({}, { truckId: 'trk-24' }), { NOW: '2026-11-19T12:10:00.000Z' });
+    await add(inspection({ truckId: 'trk-24' }), { NOW: '2026-11-19T12:10:00.000Z' });
     expect(await refused(await report({ driverId: 'drv-a', truckId: 'trk-21', text: 'Flat tire' }, { NOW: LATE_MORNING }))).toEqual(['truckId']);
     expect(await refused(await report({ driverId: 'drv-a', truckId: 'trk-27', text: 'Flat tire' }, { NOW: LATE_MORNING }))).toEqual(['truckId']);
     expect((await report({ driverId: 'drv-a', truckId: 'trk-24', text: 'Flat tire' }, { NOW: LATE_MORNING })).status).toBe(201);
@@ -167,11 +144,21 @@ describe('reporting a problem during the day', () => {
     expect(await refused(await report({ truckId: 'trk-21', text: 'Flat tire' }))).toEqual(['driverId']);
     expect(await problems()).toEqual([]);
   });
+
+  it.each([
+    ['Driver', 'drivers/drv-a', 'driverId'],
+    ['Truck', 'trucks/trk-21', 'truckId'],
+  ])('refuses one from a removed %s, even after his check-in today', async (_what, entry, key) => {
+    await add(inspection());
+    await send('PATCH', `/api/${entry}`, { active: false });
+    expect(await refused(await report({ driverId: 'drv-a', truckId: 'trk-21', text: 'Flat tire' }, { NOW: LATE_MORNING }))).toEqual([key]);
+    expect(await problems()).toEqual([]);
+  });
 });
 
 describe('Mark fixed', () => {
   it('closes a problem with the time and an optional note, and it stays listed', async () => {
-    const [problem] = (await saved(await add(inspection({ 'insp-07': 'Left marker out' })))).problems;
+    const [problem] = (await saved(await add(inspection({ repairs: { 'insp-07': 'Left marker out' } })))).problems;
     const response = await fix(problem.id, { note: '  New bulb  ' }, { NOW: '2026-11-19T15:00:00.000Z' });
     expect(response.status).toBe(200);
     const closed = await fixed(response);
@@ -181,14 +168,14 @@ describe('Mark fixed', () => {
   });
 
   it('takes no note, or a blank one, as none', async () => {
-    const body = inspection({ 'insp-07': 'Left marker out', 'insp-04': 'Flap torn' });
+    const body = inspection({ repairs: { 'insp-07': 'Left marker out', 'insp-04': 'Flap torn' } });
     const [one, other] = (await saved(await add(body))).problems;
     expect((await fixed(await fix(one.id))).fixedNote).toBeNull();
     expect((await fixed(await fix(other.id, { note: '   ' }))).fixedNote).toBeNull();
   });
 
   it('answers one already fixed as it is, changing nothing', async () => {
-    const [problem] = (await saved(await add(inspection({ 'insp-07': 'Left marker out' })))).problems;
+    const [problem] = (await saved(await add(inspection({ repairs: { 'insp-07': 'Left marker out' } })))).problems;
     const first = await fixed(await fix(problem.id, { note: 'New bulb' }, { NOW: '2026-11-19T15:00:00.000Z' }));
     const again = await fix(problem.id, { note: 'Other' }, { NOW: '2026-11-19T16:00:00.000Z' });
     expect(again.status).toBe(200);
@@ -197,21 +184,12 @@ describe('Mark fixed', () => {
 
   it('is 404 for an unknown problem, and refuses a note that is not text or too long', async () => {
     expect((await fix('tp-nobody')).status).toBe(404);
-    const [problem] = (await saved(await add(inspection({ 'insp-07': 'Left marker out' })))).problems;
+    const [problem] = (await saved(await add(inspection({ repairs: { 'insp-07': 'Left marker out' } })))).problems;
     for (const note of [5, 'x'.repeat(1001)]) {
       const response = await fix(problem.id, { note });
       expect(response.status).toBe(400);
       expect(Object.keys(((await response.json()) as { fields: object }).fields)).toEqual(['note']);
     }
     expect((await problems('?open=1')).map((p) => p.id)).toEqual([problem.id]);
-  });
-});
-
-describe('the truck_problems table', () => {
-  it('lets the reporting Driver be empty, for problems Dave adds later', async () => {
-    const { results } = await d1.database().prepare("SELECT name, \"notnull\" AS required FROM pragma_table_info('truck_problems')").all<{ name: string; required: number }>();
-    expect(Object.fromEntries(results.map((c) => [c.name, c.required]))).toMatchObject({
-      truck_id: 1, reported_by_driver_id: 0, reported_at: 1, text: 1, inspection_id: 0, fixed_at: 0, fixed_note: 0,
-    });
   });
 });

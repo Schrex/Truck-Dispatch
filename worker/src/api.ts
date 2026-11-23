@@ -6,7 +6,7 @@ import { handleTruckProblems } from './truckProblems';
 import { exists, handleList, isList, listOrder } from './lists';
 import { checkTyped, saveLinked, typedIn, type Typed } from './typedNames';
 import { addDays, dayState, draftsOn, holidayName, isCalendarDate, mondayOf, sinceSent, weekDates } from '../../shared/days';
-import type { Assignment, BusinessDay, CopiedDay, Day, DriverAssignment, DriverDay, ListName, NewAssignment, TypedNames, Was, Week } from '../../shared/types';
+import { NOTE_LIMIT, type Assignment, type BusinessDay, type CopiedDay, type Day, type DriverAssignment, type DriverDay, type ListName, type NewAssignment, type TypedNames, type Was, type Week } from '../../shared/types';
 
 /** The JSON API under /api/ (or /truck-dispatch/api/). */
 export async function handleApi(request: Request, env: Env, route: string, query: URLSearchParams): Promise<Response> {
@@ -742,8 +742,6 @@ async function checkFields(env: Env, body: Partial<NewAssignment & TypedNames>):
   });
   return errors;
 }
-
-const NOTE_LIMIT = 1000;
 
 /** Field name to a plain message, for each reference or note that is not text, or a note too long. */
 function validate(body: Partial<NewAssignment>): Record<string, string> {

@@ -1,7 +1,9 @@
 import type { Env } from './app';
 import { clock } from './clock';
 import { json, readJson, refuse, text } from './http';
-import type { TruckProblem } from '../../shared/types';
+import { LATEST_INSPECTIONS } from './inspectionQueries';
+import { isActive } from './lists';
+import { NOTE_LIMIT, type TruckProblem } from '../../shared/types';
 
 /**
  * Truck problems (GLOSSARY.md): something wrong with a Truck, reported by a
@@ -40,7 +42,7 @@ export const SELECT_PROBLEM = `SELECT p.id, p.truck_id AS truckId, t.number AS t
   FROM truck_problems p JOIN trucks t ON t.id = p.truck_id LEFT JOIN drivers d ON d.id = p.reported_by_driver_id`;
 
 /** Problems reported together (one Inspection's) keep the order they were added in, the checklist's. */
-const TIES = 'p.rowid';
+const IN_ORDER_ADDED = 'p.rowid';
 
 /** The statement that opens a problem; the caller runs it in its own batch. */
 export function openProblem(env: Env, problem: { id?: string; truckId: string; driverId: string; reportedAt: string; text: string; inspectionId: string | null }): D1PreparedStatement {
@@ -51,7 +53,7 @@ export function openProblem(env: Env, problem: { id?: string; truckId: string; d
 
 /** The statement that reads the problems an Inspection opened, in its answers' order. */
 export function problemsOf(env: Env, inspectionId: string): D1PreparedStatement {
-  return env.DB.prepare(`${SELECT_PROBLEM} WHERE p.inspection_id = ? ORDER BY ${TIES}`).bind(inspectionId);
+  return env.DB.prepare(`${SELECT_PROBLEM} WHERE p.inspection_id = ? ORDER BY ${IN_ORDER_ADDED}`).bind(inspectionId);
 }
 
 /** Open ones first, newest reported first; then fixed ones, newest fixed first. */
@@ -66,20 +68,18 @@ async function listProblems(env: Env, query: URLSearchParams): Promise<Response>
   }
   const { results: problems } = await env.DB.prepare(
     `${SELECT_PROBLEM} ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-      ORDER BY p.fixed_at IS NOT NULL, COALESCE(p.fixed_at, p.reported_at) DESC, p.reported_at DESC, ${TIES}`,
+      ORDER BY p.fixed_at IS NOT NULL, COALESCE(p.fixed_at, p.reported_at) DESC, p.reported_at DESC, ${IN_ORDER_ADDED}`,
   )
     .bind(...binds)
     .all<TruckProblem>();
   return json({ problems });
 }
 
-const NOTE_LIMIT = 1000;
-
 /**
  * Report a problem: a Driver reports one during the day, with a note, on the
  * Truck of his latest check-in today (the newest Inspection, as check-ins are
  * read). A Truck he checked in to earlier and then switched from does not
- * count. It has no Inspection.
+ * count, and neither does a Driver or Truck removed since. It has no Inspection.
  */
 async function reportProblem(request: Request, env: Env): Promise<Response> {
   const body = await readJson<Record<string, unknown>>(request);
@@ -92,15 +92,14 @@ async function reportProblem(request: Request, env: Env): Promise<Response> {
   else if (text(body.text).length > NOTE_LIMIT) errors.text = `Keep the note to ${NOTE_LIMIT} characters or fewer.`;
   const driverId = text(body.driverId);
   const truckId = text(body.truckId);
-  const known = await env.DB.prepare(
-    `SELECT EXISTS (SELECT 1 FROM drivers WHERE id = ?1) AS driver, EXISTS (SELECT 1 FROM trucks WHERE id = ?2) AS truck,
-            (SELECT truck_id FROM inspections WHERE driver_id = ?1 AND date = ?3 ORDER BY done_at DESC, rowid DESC LIMIT 1) AS checkedIn`,
-  )
-    .bind(driverId, truckId, today)
-    .first<{ driver: number; truck: number; checkedIn: string | null }>();
-  if (!driverId || !known?.driver) errors.driverId = 'Pick your name again: this Driver is not in the list.';
-  else if (!truckId || !known.truck) errors.truckId = 'Pick a Truck from the list.';
-  else if (known.checkedIn !== truckId) errors.truckId = 'Report a problem on the Truck you are checked in to today.';
+  const [driverActive, truckActive, checkedIn] = await Promise.all([
+    driverId ? isActive(env, 'drivers', driverId) : false,
+    truckId ? isActive(env, 'trucks', truckId) : false,
+    env.DB.prepare(`SELECT truckId FROM (${LATEST_INSPECTIONS}) WHERE driverId = ?`).bind(today, driverId).first<string>('truckId'),
+  ]);
+  if (!driverActive) errors.driverId = 'Pick your name again: this Driver is not in the list.';
+  else if (!truckActive) errors.truckId = 'Pick a Truck from the list.';
+  else if (checkedIn !== truckId) errors.truckId = 'Report a problem on the Truck you are checked in to today.';
   if (Object.keys(errors).length > 0) return refuse(errors);
 
   const id = crypto.randomUUID();

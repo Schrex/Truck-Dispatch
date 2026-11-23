@@ -2,9 +2,10 @@ import type { Env } from './app';
 import { clock } from './clock';
 import { json, readJson, refuse, text } from './http';
 import { isActive, listOrder } from './lists';
+import { LATEST_INSPECTIONS, needsRepair } from './inspectionQueries';
 import { openProblem, problemsOf } from './truckProblems';
 import { isCalendarDate } from '../../shared/days';
-import { INSPECTION_ANSWERS, type CheckIn, type CheckIns, type Inspection, type InspectionAnswer, type InspectionAnswerKind, type TruckProblem } from '../../shared/types';
+import { INSPECTION_ANSWERS, NOTE_LIMIT, type CheckIn, type CheckIns, type Inspection, type InspectionAnswer, type InspectionAnswerKind, type TruckProblem } from '../../shared/types';
 
 /**
  * Check-in (GLOSSARY.md): a Driver picks the Truck he is taking today and
@@ -44,7 +45,7 @@ export async function handleInspections(request: Request, env: Env, route: strin
 /** An Inspection's own columns with its Driver's name and Truck's number, and whether any answer is Needs repair. */
 const SELECT_INSPECTION = `SELECT i.id, i.date, i.driver_id AS driverId, d.name AS driverName, i.truck_id AS truckId, t.number AS truckNumber,
        i.done_at AS doneAt, i.other_notes AS otherNotes,
-       EXISTS (SELECT 1 FROM inspection_answers a WHERE a.inspection_id = i.id AND a.answer = 'repair') AS needsRepair
+       ${needsRepair('i')} AS needsRepair
   FROM inspections i JOIN drivers d ON d.id = i.driver_id JOIN trucks t ON t.id = i.truck_id`;
 
 /** One saved Inspection with its answers and the Truck problems it opened, or null. */
@@ -67,7 +68,6 @@ async function readInspection(env: Env, id: string): Promise<Inspection | null> 
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const NOTE_LIMIT = 1000;
 const ANSWER_KINDS: readonly unknown[] = INSPECTION_ANSWERS;
 
 /** An item of the checklist as it is now, to check an Inspection against and copy its wording from. */
@@ -177,17 +177,14 @@ function checkAnswers(sent: unknown, checklist: ChecklistItem[], errors: Record<
   return answers;
 }
 
-/** Each Driver's latest Inspection on a day: the newest done_at, ties broken by insertion order. */
+/** Each Driver's latest Inspection on a day (see LATEST_INSPECTIONS). */
 async function readCheckIns(env: Env, date: string | null): Promise<Response> {
   if (!isCalendarDate(date)) return refuse({ date: 'Pick a date.' });
   const { results } = await env.DB.prepare(
     `SELECT i.driverId, d.name AS driverName, i.truckId, t.number AS truckNumber, i.id AS inspectionId, i.doneAt,
-            EXISTS (SELECT 1 FROM inspection_answers a WHERE a.inspection_id = i.id AND a.answer = 'repair') AS needsRepair
-       FROM (SELECT id, driver_id AS driverId, truck_id AS truckId, done_at AS doneAt,
-                    ROW_NUMBER() OVER (PARTITION BY driver_id ORDER BY done_at DESC, rowid DESC) AS newest
-               FROM inspections WHERE date = ?) i
+            ${needsRepair('i')} AS needsRepair
+       FROM (${LATEST_INSPECTIONS}) i
        JOIN drivers d ON d.id = i.driverId JOIN trucks t ON t.id = i.truckId
-      WHERE i.newest = 1
       ORDER BY ${listOrder('drivers', 'd')}`,
   )
     .bind(date)

@@ -14,7 +14,11 @@ import { ORDERED_LISTS, PLACE_KINDS, type ListName } from '../../shared/types';
  *
  * A list is declared once below: its table, its display name (required and
  * unique in the list, ignoring case) and its other fields. Whether an entry is
- * active matters only to the page's pickers; any entry that exists may be used.
+ * active matters to the page's pickers, and to the Worker where a rule says
+ * so: an Inspection, and a Truck problem a Driver reports, need an active
+ * Driver and Truck; Assign needs an active Driver; a reference field with
+ * `removed` needs an active entry when it is picked. Elsewhere an Assignment
+ * may use any entry that exists, so removing one never breaks saved work.
  *
  * Drivers, Places, Materials and the Inspection checklist are ordered: each entry answers its sortOrder
  * (1 is first, null for none) and a list answers ordered entries first, then

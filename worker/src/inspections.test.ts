@@ -1,34 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { handle } from './app';
+import { ITEMS, MORNING, apiOn, inspection } from './testing/api';
 import { localD1 } from './testing/localD1';
 import type { CheckIns, Inspection, NewInspection } from '../../shared/types';
 
 const d1 = localD1();
-/** The tests' clock: Thursday 2026-11-19, 6:42 AM US Eastern, unless a test sets its own. */
-const MORNING = '2026-11-19T11:42:00.000Z';
-const env = (vars: Parameters<typeof d1.env>[0] = {}) => d1.env({ NOW: MORNING, ...vars });
-const send = (method: string, path: string, body?: unknown, vars: Parameters<typeof d1.env>[0] = {}) =>
-  handle(
-    new Request(`https://td.example${path}`, {
-      method,
-      ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
-    }),
-    env(vars),
-  );
-
-/** The seeded checklist's ids, insp-01 (Dump box clean) to insp-12 (Suspension). */
-const ITEMS = Array.from({ length: 12 }, (_, i) => `insp-${String(i + 1).padStart(2, '0')}`);
-
-/** A whole Inspection: every item OK unless the test says, by Sample Driver A on Truck 21. */
-function inspection(fields: Partial<NewInspection> = {}): NewInspection {
-  return {
-    id: crypto.randomUUID(),
-    driverId: 'drv-a',
-    truckId: 'trk-21',
-    answers: ITEMS.map((itemId) => ({ itemId, answer: 'ok' as const })),
-    ...fields,
-  };
-}
+const send = apiOn(d1);
 
 /** The answers with one item's answer replaced. */
 const answering = (itemId: string, answer: NewInspection['answers'][number]) =>
