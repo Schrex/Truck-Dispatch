@@ -5,7 +5,8 @@
  * Truck log. Pure; nothing is saved and the Worker is not asked.
  */
 import type { Assignment, Driver } from '../../shared/types';
-import { buildTripDay, linkedAssignment, routeAt, type AssignmentTrips, type TripDay, type TripJob, type TruckLogColumn, type TruckLogTrip, type TruckLogUnplanned, type TruckLogWhichAssignment } from '../../shared/trips';
+import { buildTripDay, linkedAssignment, routeAt, type TripDay, type TruckLogColumn, type TruckLogTrip, type TruckLogUnplanned, type TruckLogWhichAssignment } from '../../shared/trips';
+import { truckLog } from '../../shared/truckLog';
 import { REAL_DAY, easternIso, placeName, type PlannedAssignment, type Scenario } from './realDay';
 import { tripAnswers, type PlannedMadeAssignment, type UnplannedAnswer } from './answers';
 
@@ -33,10 +34,8 @@ export interface SimulatedDay {
   truckLog: { columns: TruckLogColumn[]; unplanned: TruckLogUnplanned[]; whichAssignment: TruckLogWhichAssignment[]; shopTrips: TruckLogTrip[] };
 }
 
-const jobName = (job: TripJob | null) => (job ? [job.jobNumber, job.name].filter(Boolean).join(' ') : null);
-
-/** One planned Assignment as the API sends it at `now`: its route as it was then, Changed once Dave changed it. */
-function asAssignment(planned: PlannedAssignment | PlannedMadeAssignment, position: number, now: string, trips: AssignmentTrips | undefined, drivers: Driver[]): Assignment {
+/** One planned Assignment as the API sends it at `now`, before its Trip part: its route as it was then, Changed once Dave changed it. */
+function asAssignment(planned: PlannedAssignment | PlannedMadeAssignment, position: number, now: string, drivers: Driver[]): Assignment {
   // Made afterwards from Unplanned work: Assigned when Dave answered, never Added or Changed.
   const made = 'unplannedId' in planned;
   const assignedAt = made ? ANSWERED_AT : ASSIGNED_AT;
@@ -46,11 +45,6 @@ function asAssignment(planned: PlannedAssignment | PlannedMadeAssignment, positi
   const changed = made ? null : (planned.changes.map((c) => c.changedAt).filter(before).sort().at(-1) ?? null);
   const driver = drivers.find((d) => d.id === planned.driverId) ?? REAL_DAY.driver;
   const truckId = planned.truckId ?? null;
-  let part: Assignment['trips'];
-  if (trips) {
-    const { assignmentId: _id, empties: _empties, job: _job, ...shown } = trips;
-    part = shown;
-  }
   return {
     id: planned.id,
     date: REAL_DAY.date,
@@ -76,7 +70,6 @@ function asAssignment(planned: PlannedAssignment | PlannedMadeAssignment, positi
     assignedAt,
     handedFromId: null,
     sinceSent: changed ? 'changed' : null,
-    trips: part,
     ...(made && { fromTheTruck: true }),
   };
 }
@@ -136,50 +129,12 @@ export function simulateAt({ scenario, minutes, answers = [], splits = [] }: Sim
       drivenBy: answered.drivenBy,
     },
   });
-  const assignments = all.map((planned, i) =>
-    asAssignment(planned, i, now, tripDay.assignments.find((t) => t.assignmentId === planned.id), drivers),
-  );
-  const columns = assignments.map((a): TruckLogColumn => {
-    const trips = tripDay.assignments.find((t) => t.assignmentId === a.id);
-    return {
-      id: a.id,
-      job: jobName(trips?.job ?? null),
-      pickUp: a.fromPlaceName,
-      dropOff: a.toPlaceName,
-      material: a.materialName,
-      loads: trips?.loads ?? 0,
-      tons: trips?.tons ?? null,
-      truckingHours: trips?.truckingHours ?? null,
-      ...(a.fromTheTruck && { fromTheTruck: true }),
-    };
-  });
-  // The Unplanned work: its Places and times only. Which way material went, Dave says.
-  const unplanned = tripDay.unplanned.map(
-    (w): TruckLogUnplanned => ({
-      id: w.id,
-      places: w.places.map((p) => placeName(p.placeId) ?? p.code),
-      tripsLeftAt: w.trips.map((t) => t.leftAt),
-      truckingHours: w.truckingHours,
-    }),
-  );
-  const shopTrips = tripDay.shopTrips.map(
-    (t): TruckLogTrip => ({
-      leftAt: t.leftAt,
-      arrivedAt: t.arrivedAt,
-      from: placeName(t.fromPlaceId) ?? t.fromCode,
-      to: placeName(t.toPlaceId) ?? t.toCode,
-      miles: t.miles,
-    }),
-  );
   const labels = Object.fromEntries(all.map((a) => [a.id, a.label]));
-  // The ties: planned work, so not Unplanned work; Dave picks which (answering one is not simulated yet).
-  const whichAssignment = tripDay.whichAssignment.map(
-    (q): TruckLogWhichAssignment => ({
-      id: q.id,
-      from: placeName(q.trip.fromPlaceId) ?? q.trip.fromCode,
-      to: placeName(q.trip.toPlaceId) ?? q.trip.toCode,
-      candidates: q.candidates.map((id) => labels[id] ?? id),
-    }),
-  );
-  return { tripDay, assignments, drivers, labels, truckLog: { columns, unplanned, whichAssignment, shopTrips } };
+  const { assignments, ...log } = truckLog({
+    tripDay,
+    places: REAL_DAY.places,
+    assignments: all.map((planned, i) => asAssignment(planned, i, now, drivers)),
+    labels,
+  });
+  return { tripDay, assignments, drivers, labels, truckLog: log };
 }
