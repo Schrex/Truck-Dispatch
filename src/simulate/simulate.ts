@@ -74,8 +74,15 @@ export function simulateAt(scenario: Scenario, minutes: number): SimulatedDay {
     visits: REAL_DAY.visits,
     assignments: scenario.assignments,
     now,
-    // The meter reading after the day exists only once the day is over.
-    meter: minutes === DAY_END ? REAL_DAY.meter : null,
+    // The reading before the day exists all day; the one after it only once the day is over.
+    meter: { startOdometer: REAL_DAY.meter.startOdometer, endOdometer: minutes === DAY_END ? REAL_DAY.meter.endOdometer : null },
+    ignition: REAL_DAY.ignition,
+    // Randy is the only Driver; his Assignments name no Truck, so his own, Truck 55.
+    truck: {
+      id: REAL_DAY.truck.id,
+      drivers: [REAL_DAY.driver],
+      assignments: scenario.assignments.map(() => ({ driverId: REAL_DAY.driver.id, truckId: null })),
+    },
   });
   const assignments = scenario.assignments.map((planned, i) =>
     asAssignment(planned, i, now, tripDay.assignments.find((t) => t.assignmentId === planned.id)),

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Pause, Play } from 'lucide-react';
 import { Lanes } from '@/components/Lanes';
 import { PageHeader } from '@/components/PageHeader';
+import { TruckLog } from '@/components/TruckLog';
 import { Button } from '@/components/ui/button';
 import { REAL_DAY } from '@/simulate/realDay';
 import { DAY_END, clockTime, simulateAt } from '@/simulate/simulate';
@@ -93,6 +94,8 @@ export function SimulatePage() {
           <h2 className="font-display text-xl font-semibold uppercase tracking-wide">Scheduler view</h2>
           <Lanes assignments={day.assignments} drivers={[REAL_DAY.driver]} trucks={[REAL_DAY.truck]} />
         </section>
+
+        <TruckLog truck={REAL_DAY.truck} date={REAL_DAY.date} truckDay={day.tripDay.truckDay} />
       </main>
     </div>
   );

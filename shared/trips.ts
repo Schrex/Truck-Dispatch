@@ -109,6 +109,48 @@ export interface AssignmentTrips extends AssignmentTripPart {
   empties: number;
 }
 
+/** A Driver as the Truck's day needs one. */
+export interface TruckDayDriver {
+  id: string;
+  name: string;
+}
+
+/**
+ * The Truck's day at `now`: the Truck log's header. Only what is known by
+ * then; null for what is not (yet).
+ */
+export interface TruckDay {
+  /** The one Driver who fits; null when none does or when several do. */
+  driver: TruckDayDriver | null;
+  /** Every Driver who fits. More than one: the Truck log asks "Who was driving?". */
+  driverCandidates: TruckDayDriver[];
+  /** When the Truck first started: first ignition on, or its first exit from the shop. */
+  startAt: string | null;
+  /** When it last stopped, once it is back at the shop or yard: its arrival there, or ignition off after it. */
+  endAt: string | null;
+  /** Meter reading before the day. */
+  startMiles: number | null;
+  /** Meter reading after the day; null until it exists. */
+  endMiles: number | null;
+  /** Start time to end time, in hours, 2 decimals; null without an end time. */
+  totalHours: number | null;
+}
+
+/** One ignition change from the ping history. */
+export interface IgnitionEvent {
+  /** ISO 8601. */
+  at: string;
+  on: boolean;
+}
+
+/** Who might have driven the Truck: that day's Drivers and their Assignments. */
+export interface TruckDayInput {
+  id: string;
+  drivers: (TruckDayDriver & { defaultTruckId: string | null })[];
+  /** Every Driver's Assignments that day; a null Truck means the Driver's usual one. */
+  assignments: { driverId: string | null; truckId: string | null }[];
+}
+
 export interface TripDay {
   /** Raw visits known at `now`, as the Worker would hold them. */
   known: { visit: FleetVisit; state: 'open' | 'closed' }[];
@@ -117,6 +159,8 @@ export interface TripDay {
   visits: CleanVisit[];
   trips: Trip[];
   assignments: AssignmentTrips[];
+  /** The Truck's day: Driver, start and end, miles, Total hours. */
+  truckDay: TruckDay;
   /** Geofence codes with no Place: listed for Dave in Settings. */
   unknownCodes: string[];
   miles: {
@@ -134,8 +178,12 @@ export interface TripDayInput {
   assignments: TripAssignment[];
   /** What the Worker knows: only data up to this moment. */
   now: string;
-  /** The 4 AM meter readings around the day, when they exist. */
-  meter?: { startOdometer: number; endOdometer: number } | null;
+  /** The meter readings around the day; the end one is null until it exists. */
+  meter?: { startOdometer: number; endOdometer: number | null } | null;
+  /** The Truck and who might have driven it, for the Truck's Driver. */
+  truck?: TruckDayInput | null;
+  /** The Truck's ignition changes that day, from the ping history. */
+  ignition?: IgnitionEvent[];
 }
 
 const ms = (iso: string) => new Date(iso).getTime();
@@ -308,6 +356,50 @@ function summarize(assignments: TripAssignment[], trips: Trip[], places: TripPla
   });
 }
 
+/**
+ * The Truck's Driver: the Drivers whose Assignments that day name the Truck
+ * (a null Truck names the Driver's usual one), otherwise the Drivers whose
+ * usual Truck it is. One fits: that Driver. More: nobody is chosen.
+ */
+function truckDrivers(truck: TruckDayInput | null | undefined): TruckDayDriver[] {
+  if (!truck) return [];
+  const usual = (d: TruckDayInput['drivers'][number]) => d.defaultTruckId === truck.id;
+  const named = truck.drivers.filter((d) =>
+    truck.assignments.some((a) => a.driverId === d.id && (a.truckId ?? d.defaultTruckId) === truck.id),
+  );
+  return (named.length > 0 ? named : truck.drivers.filter(usual)).map(({ id, name }) => ({ id, name }));
+}
+
+/** The Truck log's header at `now`. */
+function truckDayOf(input: TripDayInput, visits: CleanVisit[], trips: Trip[]): TruckDay {
+  const at = ms(input.now);
+  const kindOf = (id: string | null) => input.places.find((p) => p.id === id)?.kind ?? null;
+  const shopish = (id: string | null) => ['shop', 'yard'].includes(kindOf(id) ?? '');
+  const ignition = (input.ignition ?? []).filter((e) => ms(e.at) <= at).sort((a, b) => ms(a.at) - ms(b.at));
+
+  const firstOn = ignition.find((e) => e.on)?.at ?? null;
+  const firstShopExit = trips.find((t) => shopish(t.fromPlaceId))?.leftAt ?? null;
+  const starts = [firstOn, firstShopExit].filter((s): s is string => s !== null).sort((a, b) => ms(a) - ms(b));
+  const startAt = starts[0] ?? null;
+
+  // Stopped for the day: the last Trip ended at the shop or yard and the Truck is still there.
+  const lastTrip = trips.at(-1);
+  const back = lastTrip && shopish(lastTrip.toPlaceId) && visits.at(-1)?.exitedAt === null ? lastTrip.arrivedAt : null;
+  const lastOff = ignition.at(-1);
+  const endAt = back && lastOff && !lastOff.on && ms(lastOff.at) > ms(back) ? lastOff.at : back;
+
+  const candidates = truckDrivers(input.truck);
+  return {
+    driver: candidates.length === 1 ? candidates[0] : null,
+    driverCandidates: candidates,
+    startAt,
+    endAt,
+    startMiles: input.meter?.startOdometer ?? null,
+    endMiles: input.meter?.endOdometer ?? null,
+    totalHours: startAt && endAt ? round((ms(endAt) - ms(startAt)) / HOUR) : null,
+  };
+}
+
 /** One Truck's day as the Worker would know it at `now`. */
 export function buildTripDay(input: TripDayInput): TripDay {
   const known = knownAt(input.visits, input.now);
@@ -317,7 +409,7 @@ export function buildTripDay(input: TripDayInput): TripDay {
   // and a short exit's miles are inside the joined visit.
   const insidePlaces = round(visits.reduce((sum, v) => sum + (v.exitOdometer === null ? 0 : v.exitOdometer - v.entryOdometer), 0));
   const tripMiles = round(trips.reduce((sum, t) => sum + t.miles, 0));
-  const day = input.meter ? round(input.meter.endOdometer - input.meter.startOdometer) : null;
+  const day = input.meter && input.meter.endOdometer !== null ? round(input.meter.endOdometer - input.meter.startOdometer) : null;
   const unknownCodes = [...new Set(visits.filter((v) => v.placeId === null).map((v) => v.geofenceCode))];
   return {
     known: known.map(({ visit, state }) => ({ visit, state })),
@@ -326,6 +418,7 @@ export function buildTripDay(input: TripDayInput): TripDay {
     visits,
     trips,
     assignments: summarize(input.assignments, trips, input.places),
+    truckDay: truckDayOf(input, visits, trips),
     unknownCodes,
     miles: {
       trips: tripMiles,

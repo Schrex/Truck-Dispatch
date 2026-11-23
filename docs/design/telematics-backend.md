@@ -156,7 +156,7 @@ No existing screen changes its job. Each gets a few new fields from the read it 
 | Driver view → `DriverCard` | "3 loads · last 11:25" | `GET drivers/:id/days/:date`; each `DriverAssignment` in `DriverDay` gets the same fields |
 | Settings → Truck and Place panels | Already show "Linked to HCSS Fleet" and "On the truck map" | No change; add the list of unknown codes |
 | Trip log (new, phase 3) | One Truck's Trips for a day, the NULL ones first | New read, e.g. `GET trucks/:id/days/:date/trips` |
-| Truck log (phase 4) | Built from the Trips | Phase 4 |
+| Truck log (phase 4) | Built from the Trips; the header (Driver, start and end time, miles, Total hours) is worked out by the Trip builder's `truckDay` and shown in the Simulation | Phase 4 |
 
 Proposed meaning of the Assignment states (proposal P5):
 - **Now:** the Truck's latest Trip is linked to this Assignment, and the Truck has not gone back to the shop since.
@@ -184,7 +184,7 @@ Each one needs agreement before phase 3 is built.
 
 ## Build order (each one a ticket)
 
-1. **`buildTrips` with the 16 Nov fixture** (pure, no network): cleaning, Trips, matching with earlier versions, and the miles check. This needs no HCSS access and no phase 2. **Done as a first version:** `shared/trips.ts` (`buildTripDay`), tested in `shared/trips.test.ts` on `shared/trips.fixture.ts`, and run in the page at `/simulate` on Truck 55's real day, where it fills each Assignment's optional Trip part (`Assignment.trips` in `shared/types.ts`) that the real board block shows.
+1. **`buildTrips` with the 16 Nov fixture** (pure, no network): cleaning, Trips, matching with earlier versions, and the miles check. This needs no HCSS access and no phase 2. **Done as a first version:** `shared/trips.ts` (`buildTripDay`), tested in `shared/trips.test.ts` on `shared/trips.fixture.ts`, and run in the page at `/simulate` on Truck 55's real day, where it fills each Assignment's optional Trip part (`Assignment.trips` in `shared/types.ts`) that the real board block shows, and the Truck's day (`TripDay.truckDay`) that the Truck log's header shows (`src/components/TruckLog.tsx`). The Truck's day: **Driver** is the Driver whose Assignments that day name the Truck (an Assignment with no Truck names the Driver's usual one), otherwise the Driver whose usual Truck it is; more than one fits and nobody is chosen ("Who was driving?"), standing in for the phase 2 rule (whoever last inspected it). **Start time** is the earlier of the first ignition on and the first exit from the shop or yard. **End time** is known once the last Trip has ended at the shop or yard and the Truck is still there: that arrival, or a later ignition off. **Start and end miles** are the meter readings around the day, the end one only once it exists. **Total hours** run from start to end time. On 16 Nov: Randy, 06:19 to 16:12, 258,050.6 to 258,212.2 mi, 9.88 h.
 2. **Migration** with `fleet_visits` (if P2 is agreed), `trips` and `meter_readings`. Also `POST trips/pull`, reading a fixture file in tests.
 3. **Adapter A or B**, after P1: token cache, the scheduled pull, and a health read.
 4. **New fields on the board and the Driver view**: loads, Now, Done.

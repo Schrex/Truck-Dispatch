@@ -8,7 +8,7 @@
  * so the scenarios are as Dave made them for the simulation.
  */
 import type { Driver, Truck } from '../../shared/types';
-import type { FleetVisit, TripAssignment, TripPlace } from '../../shared/trips';
+import type { FleetVisit, IgnitionEvent, TripAssignment, TripPlace } from '../../shared/trips';
 
 /** An Assignment as the simulation plans it: what the Trip builder matches, and the Material the board shows. */
 export interface PlannedAssignment extends TripAssignment {
@@ -101,7 +101,10 @@ export const REAL_DAY = {
   /** The meter readings around the day: 258,050.59 read 15 Nov 21:41 ET, 258,212.20 read 16 Nov 22:12 ET. */
   meter: { startOdometer: 258050.59, endOdometer: 258212.2 },
   /** From the ping history: Ignition On 06:19:40, Ignition Off 16:12:45 US Eastern. */
-  ignition: { on: '2026-11-16T11:19:40Z', off: '2026-11-16T21:12:45Z' },
+  ignition: [
+    { at: '2026-11-16T11:19:40Z', on: true },
+    { at: '2026-11-16T21:12:45Z', on: false },
+  ] satisfies IgnitionEvent[] as IgnitionEvent[],
   scenarios: [
     { id: 'planned', name: 'As planned', assignments: [assignment('a1', 'A1', J25008, VILLAGER, 'Fill'), A2] },
     { id: 'other-way', name: 'The other way round', assignments: [assignment('a1', 'A1', VILLAGER, J25008, 'Fill'), A2] },

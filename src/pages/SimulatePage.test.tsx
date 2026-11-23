@@ -17,11 +17,17 @@ const randy = () =>
 const setClock = (minutes: number) => fireEvent.change(screen.getByRole('slider', { name: 'Clock' }), { target: { value: String(minutes) } });
 const choose = (value: string) => fireEvent.change(screen.getByRole('combobox', { name: 'Scenario' }), { target: { value } });
 
+/** The Truck log header, as the paper's boxes: label → what is written in it. */
+const truckLog = () => {
+  const header = within(screen.getByRole('region', { name: 'Truck log' })).getByRole('group', { name: 'Truck log header' });
+  return Object.fromEntries([...header.querySelectorAll('dt')].map((dt) => [dt.textContent, dt.nextElementSibling?.textContent]));
+};
+
 const A1 = 'First · J25008 Los Flamboyanes → Villager · Fill · Truck 55 (his own)';
 const A2 = 'Then · Walworth Dolomite → J25008 Los Flamboyanes · 1&2 stone · Truck 55 (his own)';
 
 describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => {
-  it('shows nothing but the clock, the scenario picker and the Scheduler view', () => {
+  it('shows nothing but the clock, the scenario picker, the Scheduler view and the Truck log', () => {
     render(<SimulatePage />);
     expect(screen.getAllByRole('slider').map((s) => s.getAttribute('aria-label'))).toEqual(['Clock']);
     expect(screen.getAllByRole('combobox').map((s) => s.getAttribute('aria-label'))).toEqual(['Scenario']);
@@ -33,7 +39,7 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
     ]);
     expect(screen.queryByRole('table')).toBeNull();
     expect(document.querySelector('input[type=file]')).toBeNull();
-    expect(screen.getAllByRole('region').map((r) => r.getAttribute('aria-label'))).toEqual(['Scheduler view']);
+    expect(screen.getAllByRole('region').map((r) => r.getAttribute('aria-label'))).toEqual(['Scheduler view', 'Truck log']);
   });
 
   it('opens at end of day: Randy’s lane with Truck 55, A1 4 Loads Done since 08:24, A2 2 Loads Done', () => {
@@ -80,5 +86,33 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
     });
     expect(screen.getByText('10:10')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy();
+  });
+
+  describe('Truck log header', () => {
+    it('at end of day reads like the paper, filled in: Truck, date, times, miles, Driver, Total hours', () => {
+      render(<SimulatePage />);
+      expect(truckLog()).toEqual({
+        Truck: '55 (MCK-55-17)',
+        Date: 'Mon 16 Nov 2026',
+        'Start time': '06:19',
+        'End time': '16:12',
+        'Start miles': '258,050.6',
+        'End miles': '258,212.2',
+        Driver: 'Randy',
+        'Total hours': '9.88',
+      });
+    });
+
+    it('at 10:02 shows what is known by then: started 06:19, no end time, end miles or Total hours yet', () => {
+      render(<SimulatePage />);
+      setClock(10 * 60 + 2);
+      expect(truckLog()).toMatchObject({ 'Start time': '06:19', 'End time': '', 'Start miles': '258,050.6', 'End miles': '', Driver: 'Randy', 'Total hours': '' });
+    });
+
+    it('after ignition off, before the next morning’s reading: end time but no end miles', () => {
+      render(<SimulatePage />);
+      setClock(20 * 60);
+      expect(truckLog()).toMatchObject({ 'End time': '16:12', 'End miles': '', 'Total hours': '9.88' });
+    });
   });
 });
