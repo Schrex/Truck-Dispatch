@@ -29,8 +29,11 @@ import { ORDERED_LISTS, PLACE_KINDS, type ListName } from '../../shared/types';
  */
 
 type Field =
-  /** Optional free text; empty is saved as null. */
-  | { key: string; column: string; kind: 'text' }
+  /**
+   * Optional free text, trimmed; empty is saved as null. With `uniqueAmongActive`,
+   * no two active entries may have it, ignoring case (a removed entry's does not count).
+   */
+  | { key: string; column: string; kind: 'text'; uniqueAmongActive?: (holder: string) => string }
   /**
    * Optional id of an entry in another list. With `removed`, the entry must be
    * active when it is picked (it may be removed later and stay); with
@@ -92,6 +95,13 @@ export const LISTS: Record<ListName, List> = {
     name: { key: 'shortName', column: 'short_name', missing: 'Write the Place\'s short name.', taken: 'There is already a Place with this short name.' },
     fields: [
       { key: 'fullName', column: 'full_name', kind: 'text' },
+      // A Trip finds its Place by this code from a Fleet export.
+      {
+        key: 'geofenceCode',
+        column: 'geofence_code',
+        kind: 'text',
+        uniqueAmongActive: (holder) => `This geofence code is on ${holder} already. Clear it there first.`,
+      },
       { key: 'kind', column: 'kind', kind: 'choice', choices: PLACE_KINDS, message: 'Pick plant, job site, shop or yard, or leave it empty.' },
       { key: 'jobId', column: 'job_id', kind: 'ref', list: 'jobs', message: 'Pick a Job from the list.' },
       {
@@ -104,7 +114,7 @@ export const LISTS: Record<ListName, List> = {
         onlyWhen: { column: 'kind', value: 'job_site', message: 'Only a job site can have a usual Foreman.' },
       },
     ],
-    // The geofence code itself comes from HCSS later; Settings only says whether there is one.
+    // On the truck map follows from the geofence code.
     facts: [{ key: 'onTruckMap', sql: 'geofence_code IS NOT NULL' }],
   },
   materials: {
@@ -306,6 +316,22 @@ async function save(request: Request, env: Env, list: ListName, id: string | nul
   if ('active' in body) {
     if (typeof body.active !== 'boolean') errors.active = 'Choose active or inactive.';
     else values.active = body.active ? 1 : 0;
+  }
+
+  // A field unique among active entries: checked on what the entry will hold once saved,
+  // so bringing a removed entry back is refused too when another active entry has its value now.
+  for (const field of spec.fields) {
+    if (field.kind !== 'text' || !field.uniqueAmongActive || errors[field.key]) continue;
+    const own = id ?? revived;
+    const value = field.column in values ? values[field.column] : own === null ? null : await columnOf(env, list, own, field.column);
+    const active = 'active' in values ? values.active : adding ? 1 : await columnOf(env, list, own!, 'active');
+    if (value == null || active !== 1) continue;
+    const holder = await env.DB.prepare(
+      `SELECT ${spec.name.column} AS name FROM ${spec.table} WHERE ${field.column} = ? COLLATE NOCASE AND active = 1 AND id IS NOT ?`,
+    )
+      .bind(value, own)
+      .first<{ name: string }>();
+    if (holder) errors[field.key] = field.uniqueAmongActive(holder.name);
   }
 
   if (Object.keys(errors).length > 0) return refuse(errors);

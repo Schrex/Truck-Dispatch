@@ -13,6 +13,7 @@ export interface Driver {
 export interface Truck {
   id: string;
   number: string;
+  /** Its EquipmentCode in HCSS Fleet, e.g. MCK-55-17: an Import finds its Truck by it. Typed in Settings, trimmed. */
   hcssCode: string | null;
   hcssGuid: string | null;
   active: boolean;
@@ -29,10 +30,7 @@ export interface Job {
 export const PLACE_KINDS = ['plant', 'job_site', 'shop', 'yard'] as const;
 export type PlaceKind = (typeof PLACE_KINDS)[number];
 
-/**
- * Anywhere a Truck loads, dumps or parks. Its geofence code (for GPS later) is
- * not part of the API; onTruckMap says whether it has one, and is never saved.
- */
+/** Anywhere a Truck loads, dumps or parks. */
 export interface Place {
   id: string;
   shortName: string;
@@ -45,6 +43,12 @@ export interface Place {
    * Foremen in use.
    */
   usualForemanId: string | null;
+  /**
+   * Its geofence code in HCSS Fleet: a Trip finds its Place by it. Typed in
+   * Settings, trimmed; unique among active Places, ignoring case.
+   */
+  geofenceCode: string | null;
+  /** Whether it has a geofence code; answered on every read, never saved. */
   onTruckMap: boolean;
   /** Dave's own place for it in the list, 1 first; null for none (after the ordered ones, by name). Set only by a reorder. */
   sortOrder: number | null;
