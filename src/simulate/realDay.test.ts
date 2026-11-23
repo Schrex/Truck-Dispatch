@@ -4,7 +4,7 @@ import { REAL_DAY, easternIso } from './realDay';
 
 const scenario = (id: string) => REAL_DAY.scenarios.find((s) => s.id === id)!;
 const at = (id: string, time = '23:59:59') =>
-  buildTripDay({ places: REAL_DAY.places, visits: REAL_DAY.visits, assignments: scenario(id).assignments, now: easternIso(REAL_DAY.date, time) });
+  buildTripDay({ places: REAL_DAY.places, jobs: REAL_DAY.jobs, visits: REAL_DAY.visits, assignments: scenario(id).assignments, now: easternIso(REAL_DAY.date, time) });
 /** Randy's day for Truck 55 at a clock time: his Assignments name no Truck (his own), and the next morning's meter reading exists only at end of day. */
 const truckDayAt = (time: string, endOfDay = false) =>
   buildTripDay({
@@ -60,9 +60,50 @@ describe('The Trip builder on the real day (MCK-55-17, Mon 16 Nov 2026)', () => 
     expect(at('reroute').assignments[0].loads).toBe(5);
   });
 
-  it('as planned, leaves the Bishop Kearney stop for Dave', () => {
-    const forDave = at('planned').trips.filter((t) => t.match.kind === null);
-    expect(forDave.map((t) => `${easternTime(t.leftAt)} ${t.fromCode} → ${t.toCode}`)).toEqual(['14:15 J25008 Los Flamboyanes → J611 Bishop Kearney']);
+  describe('Trips with no Assignment, for Dave to answer next morning', () => {
+    const forDave = (id: string, time?: string) => at(id, time).unexplained.map((t) => `${easternTime(t.leftAt)} ${t.fromCode} → ${t.toCode}`);
+
+    it('as planned: the 14:15 Trip from J25008 to Bishop Kearney', () => {
+      expect(forDave('planned')).toEqual(['14:15 J25008 Los Flamboyanes → J611 Bishop Kearney']);
+    });
+
+    it('with the reroute at 11:20 that Trip is A1’s Load, so there are none', () => {
+      expect(forDave('reroute')).toEqual([]);
+    });
+
+    it('only Trips written by `now`: none at 14:16, while the Truck has not yet reached Bishop Kearney', () => {
+      expect(forDave('planned', '14:16:59')).toEqual([]);
+      expect(forDave('planned', '14:25:59')).toEqual(['14:15 J25008 Los Flamboyanes → J611 Bishop Kearney']);
+    });
+  });
+
+  describe('An Assignment’s Job, from its Places', () => {
+    const jobs = (id: string, time?: string) => at(id, time).assignments.map((a) => a.job && `${a.job.jobNumber} ${a.job.name}`);
+
+    it('is the pick-up’s Job when the drop-off belongs to none (A1 → Villager), else the drop-off’s (A2 → J25008)', () => {
+      expect(jobs('planned')).toEqual(['J25008 Los Flamboyanes', 'J25008 Los Flamboyanes']);
+    });
+
+    it('follows the Assignment as it is: after the reroute A1 drops off at Bishop Kearney, so its Job is J611', () => {
+      expect(jobs('reroute')).toEqual(['J611 Bishop Kearney', 'J25008 Los Flamboyanes']);
+      expect(jobs('reroute', '11:00:59')).toEqual(['J25008 Los Flamboyanes', 'J25008 Los Flamboyanes']);
+    });
+  });
+
+  describe('Trucking hours: leaving for an Assignment’s first Trip to arriving at the end of its last, loaded or empty', () => {
+    const hours = (id: string, time?: string) => at(id, time).assignments.map((a) => a.truckingHours);
+
+    it('as planned, at end of day: A1 08:24 to 14:43 (its last Trip is the empty one back from Bishop Kearney), 6.32; A2 11:30 to 13:54, 2.40', () => {
+      expect(hours('planned')).toEqual([6.32, 2.4]);
+    });
+
+    it('mid-day (10:02): A1 so far, 08:24 to 10:00, 1.59; A2 none yet', () => {
+      expect(hours('planned', '10:02:59')).toEqual([1.59, null]);
+    });
+
+    it('before the first Trip: none', () => {
+      expect(hours('planned', '06:00:59')).toEqual([null, null]);
+    });
   });
 
   describe('The Truck’s day', () => {

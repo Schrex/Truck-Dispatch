@@ -25,6 +25,16 @@ const truckLog = () => {
   const header = within(screen.getByRole('region', { name: 'Truck log' })).getByRole('group', { name: 'Truck log header' });
   return Object.fromEntries([...header.querySelectorAll('dt')].map((dt) => [dt.textContent, dt.nextElementSibling?.textContent]));
 };
+/** The Truck log's Order columns, in Dave's order: each as label → what is written in it. */
+const orders = () =>
+  within(screen.getByRole('region', { name: 'Truck log' }))
+    .getAllByRole('group', { name: /^Order / })
+    .map((col) => Object.fromEntries([...col.querySelectorAll('dt')].map((dt) => [dt.textContent, dt.nextElementSibling?.textContent])));
+/** The Trips no Assignment explains, as listed under the columns. */
+const forDave = () =>
+  within(within(screen.getByRole('region', { name: 'Truck log' })).getByRole('group', { name: 'Trips with no Assignment' }))
+    .queryAllByRole('listitem')
+    .map((li) => li.textContent);
 
 const A1 = 'First · J25008 Los Flamboyanes → Villager · Fill · Truck 55 (his own)';
 const A2 = 'Then · Walworth Dolomite → J25008 Los Flamboyanes · 1&2 stone · Truck 55 (his own)';
@@ -140,6 +150,51 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
       render(<SimulatePage />);
       setClock(20 * 60);
       expect(truckLog()).toMatchObject({ 'End time': '16:12', 'End miles': '', 'Total hours': '9.88' });
+    });
+  });
+
+  describe('Truck log columns: one per Assignment, and the Trips with no Assignment', () => {
+    it('at end of day: A1 and A2 as the paper’s Orders, tons from Tickets, and the 14:15 Bishop Kearney Trip for Dave', () => {
+      render(<SimulatePage />);
+      expect(orders()).toEqual([
+        {
+          Job: 'J25008 Los Flamboyanes',
+          'Pick-up': 'J25008 Los Flamboyanes',
+          'Drop-off': 'Villager',
+          Material: 'Fill',
+          '# of loads': '4',
+          '# of tons': 'from Tickets',
+          'Trucking hours': '6.32',
+        },
+        {
+          Job: 'J25008 Los Flamboyanes',
+          'Pick-up': 'Walworth Dolomite',
+          'Drop-off': 'J25008 Los Flamboyanes',
+          Material: '1&2 stone',
+          '# of loads': '2',
+          '# of tons': 'from Tickets',
+          'Trucking hours': '2.40',
+        },
+      ]);
+      expect(forDave()).toEqual(['14:15–14:23 · J25008 Los Flamboyanes → J611 Bishop Kearney']);
+    });
+
+    it('with the reroute at 11:20 the Bishop Kearney Trip counts on A1, and no Trip is left for Dave', () => {
+      render(<SimulatePage />);
+      choose('reroute');
+      expect(orders()[0]).toMatchObject({ Job: 'J611 Bishop Kearney', 'Drop-off': 'J611 Bishop Kearney', '# of loads': '5' });
+      expect(forDave()).toEqual([]);
+      expect(within(screen.getByRole('group', { name: 'Trips with no Assignment' })).getByText('None')).toBeTruthy();
+    });
+
+    it('at 10:02 shows what is known by then: A1 2 loads and its hours so far, A2 nothing yet', () => {
+      render(<SimulatePage />);
+      setClock(10 * 60 + 2);
+      expect(orders().map((o) => [o['# of loads'], o['Trucking hours']])).toEqual([
+        ['2', '1.59'],
+        ['0', ''],
+      ]);
+      expect(forDave()).toEqual([]);
     });
   });
 });

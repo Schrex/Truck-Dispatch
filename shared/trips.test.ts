@@ -66,6 +66,7 @@ describe('Trips and matching on the 16 Nov day', () => {
     // A1 runs from leaving North at 08:24 to arriving back at North from South at 14:43 (6 h 19 min).
     expect(a1).toEqual({
       assignmentId: 'a1',
+      job: null,
       loads: 4,
       empties: 4,
       tons: null,
@@ -80,7 +81,25 @@ describe('Trips and matching on the 16 Nov day', () => {
 
   it('gives an Assignment with no Trips yet an empty Trip part', () => {
     const a2 = day('two', '2026-11-16T15:02:00Z').assignments[1];
-    expect(a2).toEqual({ assignmentId: 'a2', loads: 0, empties: 0, tons: null, status: 'none', since: null, lastLoadAt: null, truckingHours: null });
+    expect(a2).toEqual({ assignmentId: 'a2', job: null, loads: 0, empties: 0, tons: null, status: 'none', since: null, lastLoadAt: null, truckingHours: null });
+  });
+
+  it('gives each Assignment the Job of its drop-off, else of its pick-up, else none', () => {
+    const jobs = [
+      { id: 'job-north', name: 'North', jobNumber: 'J1001' },
+      { id: 'job-quarry', name: 'Quarry stockpile', jobNumber: null },
+    ];
+    const places = FIXTURE_PLACES.map((p) => ({ ...p, jobId: p.id === 'plc-north' ? 'job-north' : p.id === 'plc-quarry' ? 'job-quarry' : null }));
+    const jobOf = (assignments: TripAssignment[]) =>
+      buildTripDay({ places, jobs, visits: FIXTURE_VISITS, assignments, now: END_OF_DAY }).assignments.map((a) => a.job?.id ?? null);
+    // A1 North → Plant: the Plant has no Job, so North's. A2 Quarry → North: North's, over the Quarry's.
+    expect(jobOf(scenario('two'))).toEqual(['job-north', 'job-north']);
+    const plantToSouth = { ...scenario('two')[0], fromPlaceId: 'plc-plant', toPlaceId: 'plc-south' };
+    expect(jobOf([plantToSouth])).toEqual([null]);
+  });
+
+  it('lists the written Trips no Assignment explains: the South stop', () => {
+    expect(day('two').unexplained.map((t) => `${easternTime(t.leftAt)} ${t.fromCode} → ${t.toCode}`)).toEqual(['14:15 J1001 North → J1002 South']);
   });
 
   it('checks the day miles against Trip miles plus miles inside Places', () => {

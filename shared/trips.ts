@@ -30,6 +30,15 @@ export interface TripPlace {
   fullName?: string | null;
   kind: TripPlaceKind;
   geofenceCode: string | null;
+  /** The Job it belongs to, if any. */
+  jobId?: string | null;
+}
+
+/** A Job as the Truck log names it: "J25008 Los Flamboyanes". */
+export interface TripJob {
+  id: string;
+  name: string;
+  jobNumber: string | null;
 }
 
 /** One raw row of HCSS Fleet entry/exit: one visit to one geofence. Never changed by people. */
@@ -107,6 +116,8 @@ export interface AssignmentTrips extends AssignmentTripPart {
   assignmentId: string;
   /** Its Trips that are not Loads: ways back and drives to its pickup. */
   empties: number;
+  /** Its Job: the drop-off's, or the pick-up's when the drop-off belongs to none (its route at `now`). */
+  job: TripJob | null;
 }
 
 /** A Driver as the Truck's day needs one. */
@@ -159,6 +170,11 @@ export interface TripDay {
   visits: CleanVisit[];
   trips: Trip[];
   assignments: AssignmentTrips[];
+  /**
+   * The written Trips no Assignment explains (none fits, or two do), in
+   * order: listed under the Truck log's columns for Dave to answer next morning.
+   */
+  unexplained: Trip[];
   /** The Truck's day: Driver, start and end, miles, Total hours. */
   truckDay: TruckDay;
   /** Geofence codes with no Place: listed for Dave in Settings. */
@@ -174,6 +190,8 @@ export interface TripDay {
 
 export interface TripDayInput {
   places: TripPlace[];
+  /** The Jobs its Places belong to, for each Assignment's Job. */
+  jobs?: TripJob[];
   visits: FleetVisit[];
   assignments: TripAssignment[];
   /** What the Worker knows: only data up to this moment. */
@@ -330,8 +348,18 @@ function pair(visits: CleanVisit[], now: string): Omit<Trip, 'match'>[] {
   return trips;
 }
 
+/** An Assignment's Job: the Job of its drop-off, otherwise of its pick-up. */
+function jobOf(route: Route, places: TripPlace[], jobs: TripJob[]): TripJob | null {
+  const jobAt = (placeId: string | null) => {
+    const jobId = places.find((p) => p.id === placeId)?.jobId;
+    return jobs.find((j) => j.id === jobId) ?? null;
+  };
+  return jobAt(route.toPlaceId) ?? jobAt(route.fromPlaceId);
+}
+
 /** Now, Done or neither (proposal P5): Now while the Truck's latest Trip is its and the Truck is not back at the shop. */
-function summarize(assignments: TripAssignment[], trips: Trip[], places: TripPlace[]): AssignmentTrips[] {
+function summarize(input: TripDayInput, trips: Trip[]): AssignmentTrips[] {
+  const { assignments, places, now } = input;
   const written = trips.filter((t) => t.written);
   const latest = written.at(-1);
   const kindOf = (id: string | null) => places.find((p) => p.id === id)?.kind ?? null;
@@ -344,6 +372,7 @@ function summarize(assignments: TripAssignment[], trips: Trip[], places: TripPla
     const last = own.at(-1);
     return {
       assignmentId: a.id,
+      job: jobOf(routeAt(a, now), places, input.jobs ?? []),
       loads: loads.length,
       empties: own.length - loads.length,
       // Tons come from the Loads' Tickets (phase 4); none are read yet.
@@ -417,7 +446,8 @@ export function buildTripDay(input: TripDayInput): TripDay {
     merged,
     visits,
     trips,
-    assignments: summarize(input.assignments, trips, input.places),
+    assignments: summarize(input, trips),
+    unexplained: trips.filter((t) => t.written && t.match.kind === null),
     truckDay: truckDayOf(input, visits, trips),
     unknownCodes,
     miles: {

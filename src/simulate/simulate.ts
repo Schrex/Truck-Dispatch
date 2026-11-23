@@ -6,6 +6,7 @@
  */
 import type { Assignment } from '../../shared/types';
 import { buildTripDay, routeAt, type AssignmentTrips, type TripDay } from '../../shared/trips';
+import type { TripForDave, TruckLogOrder } from '../components/TruckLogOrders';
 import { REAL_DAY, easternIso, type PlannedAssignment, type Scenario } from './realDay';
 
 /** The last minute of the day: the clock's end, when the next morning's meter reading exists. */
@@ -22,18 +23,21 @@ export interface SimulatedDay {
   tripDay: TripDay;
   /** Randy's Assignments in Dave's order, as GET api/assignments would send them, with their Trip parts. */
   assignments: Assignment[];
+  /** The Truck log's body: one column per Assignment, then the Trips no Assignment explains. */
+  truckLog: { orders: TruckLogOrder[]; tripsForDave: TripForDave[] };
 }
+
+const placeName = (id: string | null) => REAL_DAY.places.find((p) => p.id === id)?.name ?? null;
 
 /** One planned Assignment as the API sends it at `now`: its route as it was then, Changed once Dave changed it. */
 function asAssignment(planned: PlannedAssignment, position: number, now: string, trips: AssignmentTrips | undefined): Assignment {
   const route = routeAt(planned, now);
-  const placeName = (id: string | null) => REAL_DAY.places.find((p) => p.id === id)?.name ?? null;
   const before = (at: string) => Date.parse(at) <= Date.parse(now);
   const changed = planned.changes.map((c) => c.changedAt).filter(before).sort().at(-1) ?? null;
   const { driver } = REAL_DAY;
   let part: Assignment['trips'];
   if (trips) {
-    const { assignmentId: _id, empties: _empties, ...shown } = trips;
+    const { assignmentId: _id, empties: _empties, job: _job, ...shown } = trips;
     part = shown;
   }
   return {
@@ -76,6 +80,7 @@ export function simulateAt(scenario: Scenario, minutes: number): SimulatedDay {
     now,
     // The reading before the day exists all day; the one after it only once the day is over.
     meter: { startOdometer: REAL_DAY.meter.startOdometer, endOdometer: minutes === DAY_END ? REAL_DAY.meter.endOdometer : null },
+    jobs: REAL_DAY.jobs,
     ignition: REAL_DAY.ignition,
     // Randy is the only Driver; his Assignments name no Truck, so his own, Truck 55.
     truck: {
@@ -87,5 +92,23 @@ export function simulateAt(scenario: Scenario, minutes: number): SimulatedDay {
   const assignments = scenario.assignments.map((planned, i) =>
     asAssignment(planned, i, now, tripDay.assignments.find((t) => t.assignmentId === planned.id)),
   );
-  return { tripDay, assignments };
+  const orders = assignments.map((a): TruckLogOrder => {
+    const trips = tripDay.assignments.find((t) => t.assignmentId === a.id);
+    return {
+      id: a.id,
+      job: trips?.job ? [trips.job.jobNumber, trips.job.name].filter(Boolean).join(' ') : null,
+      pickUp: a.fromPlaceName,
+      dropOff: a.toPlaceName,
+      material: a.materialName,
+      loads: trips?.loads ?? 0,
+      truckingHours: trips?.truckingHours ?? null,
+    };
+  });
+  const tripsForDave = tripDay.unexplained.map((t) => ({
+    leftAt: t.leftAt,
+    arrivedAt: t.arrivedAt,
+    from: placeName(t.fromPlaceId) ?? t.fromCode,
+    to: placeName(t.toPlaceId) ?? t.toCode,
+  }));
+  return { tripDay, assignments, truckLog: { orders, tripsForDave } };
 }

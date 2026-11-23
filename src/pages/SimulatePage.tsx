@@ -3,6 +3,7 @@ import { Pause, Play } from 'lucide-react';
 import { Lanes } from '@/components/Lanes';
 import { PageHeader } from '@/components/PageHeader';
 import { TruckLog } from '@/components/TruckLog';
+import { TruckLogOrders } from '@/components/TruckLogOrders';
 import { Button } from '@/components/ui/button';
 import { DriverView } from '@/simulate/DriverView';
 import { REAL_DAY } from '@/simulate/realDay';
@@ -18,9 +19,10 @@ const PLAY_FROM = 4 * 60;
  * on the real HCSS Fleet data. A clock (drag it, or play the day in 10-minute
  * steps) and a scenario picker (Dave's Assignments as planned, the other way
  * round, the reroute at 11:20), then the Scheduler view (Randy's lane on the
- * real board lanes) and the Driver view (his Today on the real Driver cards),
- * each block and card with the Trip part the Trip builder works out at the
- * clock's time. Nothing is saved and the Worker is not asked.
+ * real board lanes) and the Driver view (his Today on the real Driver cards)
+ * and the Truck log (the paper Daily Truck Log: header, one column per
+ * Assignment, and the Trips no Assignment explains), each with what the
+ * Trip builder works out at the clock's time. Nothing is saved and the Worker is not asked.
  */
 export function SimulatePage() {
   const [scenarioId, setScenarioId] = useState(REAL_DAY.scenarios[0].id);
@@ -97,7 +99,9 @@ export function SimulatePage() {
           <Lanes assignments={day.assignments} drivers={[REAL_DAY.driver]} trucks={[REAL_DAY.truck]} />
         </section>
         <DriverView driverName={REAL_DAY.driver.name} assignments={day.assignments} />
-        <TruckLog truck={REAL_DAY.truck} date={REAL_DAY.date} truckDay={day.tripDay.truckDay} />
+        <TruckLog truck={REAL_DAY.truck} date={REAL_DAY.date} truckDay={day.tripDay.truckDay}>
+          <TruckLogOrders orders={day.truckLog.orders} tripsForDave={day.truckLog.tripsForDave} />
+        </TruckLog>
       </main>
     </div>
   );

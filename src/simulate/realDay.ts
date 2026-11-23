@@ -8,7 +8,7 @@
  * so the scenarios are as Dave made them for the simulation.
  */
 import type { Driver, Truck } from '../../shared/types';
-import type { FleetVisit, IgnitionEvent, TripAssignment, TripPlace } from '../../shared/trips';
+import type { FleetVisit, IgnitionEvent, TripAssignment, TripJob, TripPlace } from '../../shared/trips';
 
 /** An Assignment as the simulation plans it: what the Trip builder matches, and the Material the board shows. */
 export interface PlannedAssignment extends TripAssignment {
@@ -67,7 +67,14 @@ const VISITS: FleetVisit[] = [
   visit('SHOP', '2026-11-16T21:03:25Z', null, 258211.79, null),
 ];
 
-const place = (id: string, name: string, fullName: string, kind: TripPlace['kind'], geofenceCode: string): TripPlace => ({ id, name, fullName, kind, geofenceCode });
+const place = (id: string, name: string, fullName: string, kind: TripPlace['kind'], geofenceCode: string, jobId: string | null = null): TripPlace => ({
+  id,
+  name,
+  fullName,
+  kind,
+  geofenceCode,
+  jobId,
+});
 const SHOP = 'plc-shop';
 const J25008 = 'plc-j25008';
 const VILLAGER = 'plc-villager';
@@ -92,11 +99,16 @@ export const REAL_DAY = {
   driver: { id: 'drv-randy', name: 'Randy', defaultTruckId: 'trk-55', sortOrder: 1, active: true } satisfies Driver,
   places: [
     place(SHOP, 'Shop', 'Our shop and equipment yard', 'shop', 'SHOP'),
-    place(J25008, 'J25008 Los Flamboyanes', 'Los Flamboyanes - Christa', 'job_site', 'J25008 Los Flamboyanes'),
+    place(J25008, 'J25008 Los Flamboyanes', 'Los Flamboyanes - Christa', 'job_site', 'J25008 Los Flamboyanes', 'job-j25008'),
     place(VILLAGER, 'Villager', 'Villager City Plant', 'plant', 'VILLAGER'),
     place(WALWORTH, 'Walworth Dolomite', 'Walworth Dolomite Plant', 'plant', 'WALWDOLO'),
-    place(J611, 'J611 Bishop Kearney', 'Bishop Kearney Performance Center', 'job_site', 'J611 Bishop Kearney'),
+    place(J611, 'J611 Bishop Kearney', 'Bishop Kearney Performance Center', 'job_site', 'J611 Bishop Kearney', 'job-j611'),
   ],
+  /** The two job sites' Jobs; the plants and the shop belong to none. */
+  jobs: [
+    { id: 'job-j25008', jobNumber: 'J25008', name: 'Los Flamboyanes' },
+    { id: 'job-j611', jobNumber: 'J611', name: 'Bishop Kearney' },
+  ] satisfies TripJob[] as TripJob[],
   visits: VISITS,
   /** The meter readings around the day: 258,050.59 read 15 Nov 21:41 ET, 258,212.20 read 16 Nov 22:12 ET. */
   meter: { startOdometer: 258050.59, endOdometer: 258212.2 },
