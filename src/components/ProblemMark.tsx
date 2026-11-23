@@ -30,7 +30,7 @@ export function LaneProblems({ truckNumber, problems, children }: { truckNumber:
           aria-expanded={shown}
           aria-controls={listId}
           title={notes(problems)}
-          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-destructive hover:bg-destructive/10"
+          className="-my-2.5 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-destructive hover:bg-destructive/10"
           onClick={() => setShown((now) => !now)}
         >
           <CircleAlert className="h-5 w-5" />

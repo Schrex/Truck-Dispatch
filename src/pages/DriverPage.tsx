@@ -1,7 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import type { BusinessDay, CheckIn as CheckInRead, Driver, DriverAssignment, DriverDay } from '../../shared/types';
-import { addDays, shortDate, weekdayName } from '../../shared/days';
+import { addDays, dayLabel, shortDate, weekdayName } from '../../shared/days';
 import { CheckIn } from '@/components/CheckIn';
 import { DriverCard } from '@/components/DriverCard';
 import { PageHeader } from '@/components/PageHeader';
@@ -28,7 +28,7 @@ function tabFor(date: string, today: string): Tab | null {
 /**
  * The Driver view: one of the Driver's days at a time, read from the Worker.
  * It opens on Today; Yesterday, Today and Tomorrow are one tap (calendar days,
- * so on a Friday Tomorrow is Saturday), and ‹ › step one calendar day at a time,
+ * so on a Friday Tomorrow is Saturday), and ‹ › (each naming the day it goes to, "Sat 21") step one calendar day at a time,
  * weekends included, as far as he likes, since Dave can plan any day. When
  * Dave has Assigned him work beyond tomorrow, "Next from Dave: Mon, Nov 23 →"
  * takes him there, so a weekend never hides Monday. The first time, it asks
@@ -171,13 +171,13 @@ export function DriverPage() {
               <Button
                 type="button"
                 variant="outline"
-                size="icon"
-                className="h-auto w-11 shrink-0"
-                aria-label="Day before"
+                className="h-auto min-h-11 w-12 shrink-0 flex-col gap-0 px-1 text-xs"
+                aria-label={date ? `Day before, ${dayLabel(addDays(date, -1))}` : 'Day before'}
                 disabled={!date}
                 onClick={() => date && show(addDays(date, -1))}
               >
                 <ChevronLeft className="h-5 w-5" />
+                {date && dayLabel(addDays(date, -1))}
               </Button>
               <div role="group" aria-label="Day" className="grid flex-1 grid-cols-3 gap-0.5 rounded-lg border bg-muted/60 p-1">
                 {TABS.map((tab) => {
@@ -201,13 +201,13 @@ export function DriverPage() {
               <Button
                 type="button"
                 variant="outline"
-                size="icon"
-                className="h-auto w-11 shrink-0"
-                aria-label="Day after"
+                className="h-auto min-h-11 w-12 shrink-0 flex-col gap-0 px-1 text-xs"
+                aria-label={date ? `Day after, ${dayLabel(addDays(date, 1))}` : 'Day after'}
                 disabled={!date}
                 onClick={() => date && show(addDays(date, 1))}
               >
                 <ChevronRight className="h-5 w-5" />
+                {date && dayLabel(addDays(date, 1))}
               </Button>
             </div>
             {driver && today && date === today && (

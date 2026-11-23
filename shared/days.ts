@@ -97,7 +97,8 @@ export function weekDates(monday: string): string[] {
 }
 
 /** "Nov 16": a date as month and day, with no weekday or year. */
-function monthDay(date: string): string {
+/** "Nov 16": a date's month and day, as the week pager names the week it goes to. */
+export function monthDay(date: string): string {
   const [, m, d] = parts(date);
   return `${MONTHS[m - 1]} ${d}`;
 }

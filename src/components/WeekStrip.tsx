@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { WeekDay } from '../../shared/types';
-import { addDays, dayLabel, dayWord, holidayName, mondayOf, stateWord, weekDates, weekSpan } from '../../shared/days';
+import { addDays, dayLabel, dayWord, holidayName, monthDay, mondayOf, stateWord, weekDates, weekSpan } from '../../shared/days';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { fetchWeek } from '@/lib/api';
@@ -33,7 +33,7 @@ const STATE_DOT: Record<WeekDay['state'], string | null> = {
  * Monday to Friday and narrow ones for Saturday and Sunday, each saying its
  * day's state, the day on screen filled and today outlined; tapping a tile
  * shows that day. The pager above moves a week at a time, keeping the
- * weekday. The states are read again whenever `refresh` changes (the Board
+ * weekday; each arrow names the Monday of the week it goes to ("Nov 9"). The states are read again whenever `refresh` changes (the Board
  * passes its day, so an Assign, an add or any other change shows at once) and
  * when the page regains the focus, for changes made elsewhere. A week that
  * cannot be read says so under the tiles, which still show their days. On a
@@ -91,13 +91,15 @@ export function WeekStrip({
   return (
     <nav aria-label="Week" className="space-y-2">
       <div className="flex items-center gap-1">
-        <Button variant="ghost" size="icon" className="h-11 w-11" aria-label="Previous week" onClick={() => onShow(addDays(date, -7))}>
+        <Button variant="ghost" className="gap-1 px-2" aria-label={`Previous week, ${monthDay(addDays(monday, -7))}`} onClick={() => onShow(addDays(date, -7))}>
           <ChevronLeft className="h-4 w-4" />
+          {monthDay(addDays(monday, -7))}
         </Button>
         <p role="status" aria-label="Week shown" className="min-w-[8.5rem] text-center text-sm font-medium">
           {weekSpan(monday)}
         </p>
-        <Button variant="ghost" size="icon" className="h-11 w-11" aria-label="Next week" onClick={() => onShow(addDays(date, 7))}>
+        <Button variant="ghost" className="gap-1 px-2" aria-label={`Next week, ${monthDay(addDays(monday, 7))}`} onClick={() => onShow(addDays(date, 7))}>
+          {monthDay(addDays(monday, 7))}
           <ChevronRight className="h-4 w-4" />
         </Button>
       </div>

@@ -17,10 +17,12 @@ What the app does as built, page by page. Words in capitals are defined in [`GLO
 
 ### Adding (the composer)
 - The **+** on a lane (Unassigned included) opens the composer in that lane.
+- **Who?** is a row of the active Drivers as chips. The lane's own Driver is pressed and cannot be dropped; tapping another adds him (or drops him again), and each Driver picked gets the same Assignment as his own Draft, last in his lane, separate from then on. They are saved together: if one cannot be saved, none is. From Unassigned nobody is pressed; picking Drivers there gives it to them instead of Unassigned.
 - Pick up and Drop off are rows of Place chips, and "Hauling what?" is Material chips, each with "Or type it" for a name not in the list (found, brought back or added by the Worker).
 - A Foreman chip is filled in with the drop-off's usual Foreman if it is a job site, otherwise the pick-up's; Dave can change or clear it.
 - "Note or other truck" opens the Truck chips ("His own" first, the default) and the note. A Truck with an open Truck problem has a red mark on its chip (hover for the notes), and so does His own when the lane's Driver's usual Truck has one, on any day the composer opens, since a problem is the Truck's state now. The open problems are read again when the page regains the focus.
-- A sentence previews it. Save needs only the day, puts it last in the lane and folds the composer; the next **+** (any lane) starts with the same Places and Material until **Close**.
+- With more than one Driver picked, each takes his own Truck: the Truck chips give way to a line saying so, and a certain Truck is named on his block afterwards.
+- A sentence previews it ("Randy and Mike haul 2\" minus from Villager to TIUNY"). Save needs only the day, puts it last in the lane and folds the composer. Every **+** opens a blank composer: nothing is carried over from the last one.
 
 ### Changing an Assignment
 - Tapping a block opens it in its lane (one at a time; tapping again closes it) as a sentence of chips, Driver, Material, From, To, Truck and Foreman, with its note.
@@ -47,19 +49,19 @@ What the app does as built, page by page. Words in capitals are defined in [`GLO
 ### Week strip
 - A tile for each day Monday to Friday and narrow Saturday and Sunday tiles; today's says Today and the next day's Tomorrow; the day on screen is filled and today outlined.
 - Each tile shows the day's state and a Holiday's name: "2 drafts" while it holds Drafts that are not cancelled (Unassigned ones included), otherwise Assigned, or Changed once any Assigned one is Changed, cancelled or Added, or "–" for nothing. A dot in the tile's corner repeats the state at a glance: a hollow ring for drafts, green for Assigned, amber for Changed, none for nothing.
-- Tapping a tile shows that day; the pager ("Nov 16 to Nov 22") moves a week at a time keeping the weekday.
+- Tapping a tile shows that day; the pager ("Nov 16 to Nov 22") moves a week at a time keeping the weekday; its arrows name the Monday of the week they go to ("‹ Nov 9", "Nov 23 ›").
 - The strip reads the states again after any change on the Board and when the page regains the focus (if the week cannot be read, it says so under the tiles, which still show their days), and scrolls sideways on a phone.
 
 ## Driver view (`/driver`)
 
 - **Scheduler | Driver** in the header switches to it. The first time it asks "Who are you?" with the active Drivers as large buttons; the device remembers the Driver and the view in its browser storage (nothing is saved in the database), so it opens on his day.
 - Under the title his initials and name, with **Change**, which goes back to "Who are you?" (top left is "← Hub", as on every page); **Scheduler** switches back.
-- It shows one of his days at a time, opening on Today: **Yesterday | Today | Tomorrow** are one tap (calendar days, so on a Friday, Tomorrow is Saturday), and **‹ ›** step one calendar day at a time, weekends included.
+- It shows one of his days at a time, opening on Today: **Yesterday | Today | Tomorrow** are one tap (calendar days, so on a Friday, Tomorrow is Saturday), and **‹ ›** step one calendar day at a time, weekends included, each naming the day it goes to ("Wed 18", "Fri 20").
 - When Dave has Assigned him work beyond tomorrow (not cancelled), **Next from Dave: Mon, Nov 23 →** goes there.
 - He sees only his Assigned Assignments, never his Drafts; a day with none says "Nothing from Dave yet for Monday."
 - Otherwise his Assignments are large cards in Dave's order, each with a coloured left edge (yellow, amber when Changed, green when Added, red when cancelled), with the Material, Pick up, Drop off, the Foreman (when there is one) and the note, and "Take Truck 53 for this one" when a Truck is named.
 - A card can also show what the Truck did on it (phase 3): "4 Loads · last 11:25" (its Loads and when the last one arrived), and **Now** on the Assignment he is on now. Only when the Assignment carries a Trip part (`trips`) with at least one Trip; the Worker does not send one yet, so his cards look as above. The Simulation (`/simulate`) shows it on Randy's real day.
-- Marks: "Changed by Dave" with what each field was when it was Assigned ("was Cobblestone"), "Added by Dave" (Assigned on its own day, or handed over from another Driver), or struck through and "Cancelled by Dave". A cancelled card has **Dismiss**, which clears it off his day (the Board is unchanged); Put back on the Board shows it to him again. Given to another Driver after it was Assigned, it shows Cancelled to the first and Added to the second.
+- Marks: "Changed by Dave" with what each field was when it was Assigned ("was Cobblestone"), "Added by Dave" (Assigned on its own day, or handed over from another Driver), or struck through and "Cancelled by Dave". A cancelled card has **Dismiss** in its bottom right corner, which clears it off his day (the Board is unchanged); Put back on the Board shows it to him again. Given to another Driver after it was Assigned, it shows Cancelled to the first and Added to the second.
 - It reads today, the day shown and his next Assigned day again whenever the page regains the focus; Today moves on with the clock, a picked day stays.
 
 ### Check-in (Today only)

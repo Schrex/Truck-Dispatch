@@ -1,4 +1,4 @@
-import type { Assignment, AssignmentChange, BusinessDay, ChangedAssignment, CheckIn, CheckIns, CopiedDay, Day, DriverDay, Inspection, NewInspection, EntryFields, ListName, Lists, NewAssignment, OrderedList, TruckProblem, TypedNames, WeekDay } from '../../shared/types';
+import type { Assignment, AssignmentChange, BusinessDay, ChangedAssignment, CheckIn, CheckIns, CopiedDay, Day, DriverDay, Inspection, NewInspection, EntryFields, ListName, Lists, AddAssignment, OrderedList, TruckProblem, WeekDay } from '../../shared/types';
 import { basePath } from './basePath';
 
 // Every call starts at the base path the page was reached under: /api/...
@@ -90,17 +90,19 @@ export async function assignAssignment(id: string): Promise<Assignment> {
 }
 
 /**
- * Adds an Assignment, last in its lane. A Place or Material may be given by
- * name instead of by id (typed in the composer); the Worker links or adds it.
+ * Adds an Assignment, last in its lane, and the same one for each of
+ * `alsoDriverIds`; answers them all, the first Driver's first. A Place or
+ * Material may be given by name instead of by id (typed in the composer); the
+ * Worker links or adds it.
  */
-export async function addAssignment(assignment: NewAssignment & TypedNames): Promise<Assignment> {
+export async function addAssignment(assignment: AddAssignment): Promise<Assignment[]> {
   return (
-    await request<{ assignment: Assignment }>('api/assignments', {
+    await request<{ assignments: Assignment[] }>('api/assignments', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(assignment),
     })
-  ).assignment;
+  ).assignments;
 }
 
 /**
