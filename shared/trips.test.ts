@@ -36,7 +36,7 @@ describe('Cleaning the raw Fleet visits', () => {
 });
 
 describe('Trips and matching on the 16 Nov day', () => {
-  it('makes 15 Trips: 4 Loads on A1, 2 on A2, the South stop for Dave', () => {
+  it('makes 15 Trips: 4 Loads on A1, 2 on A2, the South stop and the way back from it for Dave', () => {
     expect(lines(day('two'))).toEqual([
       '06:24 SHOP → J1001 North empty -',
       '08:24 J1001 North → PLANT load a1',
@@ -51,7 +51,7 @@ describe('Trips and matching on the 16 Nov day', () => {
       '12:54 J1001 North → QUARRY empty a2',
       '13:29 QUARRY → J1001 North load a2',
       '14:15 J1001 North → J1002 South NULL -',
-      '14:33 J1002 South → J1001 North empty a1',
+      '14:33 J1002 South → J1001 North NULL -',
       '15:41 J1001 North → SHOP empty -',
     ]);
   });
@@ -64,17 +64,18 @@ describe('Trips and matching on the 16 Nov day', () => {
 
   it('gives each Assignment its Trip part: Loads, Done, since, last Load, Trucking hours, tons from Tickets', () => {
     const [a1, a2] = day('two').assignments;
-    // A1 runs from leaving North at 08:24 to arriving back at North from South at 14:43 (6 h 19 min).
+    // A1 runs from leaving North at 08:24 to arriving at the Plant with its last Load at 11:25 (3 h 1 min):
+    // the way back from South is part of the South stop, for Dave, not a drive to A1's pickup.
     expect(a1).toEqual({
       assignmentId: 'a1',
       job: null,
       loads: 4,
-      empties: 4,
+      empties: 3,
       tons: null,
       status: 'done',
       since: '2026-11-16T13:24:26Z',
       lastLoadAt: '2026-11-16T16:25:45Z',
-      truckingHours: 6.32,
+      truckingHours: 3.02,
     });
     // A2 runs from leaving the Plant at 11:30 to arriving at North at 13:54 (2 h 24 min).
     expect(a2).toMatchObject({ loads: 2, status: 'done', since: '2026-11-16T16:30:53Z', truckingHours: 2.4, tons: null });
@@ -99,8 +100,34 @@ describe('Trips and matching on the 16 Nov day', () => {
     expect(jobOf([plantToSouth])).toEqual([null]);
   });
 
-  it('lists the written Trips no Assignment explains: the South stop', () => {
-    expect(day('two').unexplained.map((t) => `${easternTime(t.leftAt)} ${t.fromCode} → ${t.toCode}`)).toEqual(['14:15 J1001 North → J1002 South']);
+  it('lists the written Trips no Assignment explains: the South stop and the way back from it', () => {
+    expect(day('two').unexplained.map((t) => `${easternTime(t.leftAt)} ${t.fromCode} → ${t.toCode}`)).toEqual([
+      '14:15 J1001 North → J1002 South',
+      '14:33 J1002 South → J1001 North',
+    ]);
+    expect(day('two').trips[13].match.reason).toBe('The way back from a Trip no Assignment explains; Dave answers both');
+  });
+
+  it('makes the South stop and its way back one unverified extra job, from leaving North to being back there', () => {
+    const [job] = day('two').unverified;
+    expect(day('two').unverified).toHaveLength(1);
+    expect(job).toMatchObject({ fromCode: 'J1001 North', toCode: 'J1002 South', fromPlaceId: 'plc-north', toPlaceId: 'plc-south' });
+    expect(job.trips.map((t) => easternTime(t.leftAt))).toEqual(['14:15', '14:33']);
+    // 14:15:43 to 14:43:31.
+    expect(job.truckingHours).toBe(0.46);
+  });
+
+  it('keeps a Trip back that matches an Assignment’s route: only an empty guess goes to Dave with the stop', () => {
+    const southToNorth = { ...scenario('two')[0], id: 'a3', label: 'A3', fromPlaceId: 'plc-south', toPlaceId: 'plc-north' };
+    const d = buildTripDay({ places: FIXTURE_PLACES, visits: FIXTURE_VISITS, assignments: [...scenario('two'), southToNorth], now: END_OF_DAY });
+    expect(d.trips[13].match).toMatchObject({ kind: 'load', assignmentId: 'a3', rule: 1 });
+  });
+
+  it('lists the drives to and from the shop: leaving in the morning, getting back at the end of the day', () => {
+    expect(day('two').shopTrips.map((t) => `${easternTime(t.leftAt)}–${easternTime(t.arrivedAt)} ${t.fromCode} → ${t.toCode} ${t.miles}`)).toEqual([
+      '06:24–07:02 SHOP → J1001 North 20.59',
+      '15:41–16:03 J1001 North → SHOP 18.39',
+    ]);
   });
 
   it('checks the day miles against Trip miles plus miles inside Places', () => {

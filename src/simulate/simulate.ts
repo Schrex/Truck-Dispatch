@@ -5,7 +5,7 @@
  * Truck log. Pure; nothing is saved and the Worker is not asked.
  */
 import type { Assignment } from '../../shared/types';
-import { buildTripDay, routeAt, type AssignmentTrips, type TripDay, type TruckLogColumn, type UnexplainedTrip } from '../../shared/trips';
+import { buildTripDay, routeAt, type AssignmentTrips, type TripDay, type TripJob, type TruckLogColumn, type TruckLogTrip } from '../../shared/trips';
 import { REAL_DAY, easternIso, type PlannedAssignment, type Scenario } from './realDay';
 
 /** The last minute of the day: the clock's end, when the day is over. */
@@ -22,11 +22,12 @@ export interface SimulatedDay {
   tripDay: TripDay;
   /** Randy's Assignments in Dave's order, as GET api/assignments would send them, with their Trip parts. */
   assignments: Assignment[];
-  /** The Truck log's body: one column per Assignment, then the Trips no Assignment explains. */
-  truckLog: { columns: TruckLogColumn[]; unexplained: UnexplainedTrip[] };
+  /** The Truck log's body: one column per Assignment, then one per unverified extra job, and the drives to and from the shop. */
+  truckLog: { columns: TruckLogColumn[]; shopTrips: TruckLogTrip[] };
 }
 
 const placeName = (id: string | null) => REAL_DAY.places.find((p) => p.id === id)?.name ?? null;
+const jobName = (job: TripJob | null) => (job ? [job.jobNumber, job.name].filter(Boolean).join(' ') : null);
 
 /** One planned Assignment as the API sends it at `now`: its route as it was then, Changed once Dave changed it. */
 function asAssignment(planned: PlannedAssignment, position: number, now: string, trips: AssignmentTrips | undefined): Assignment {
@@ -96,26 +97,42 @@ export function simulateAt(scenario: Scenario, minutes: number): SimulatedDay {
   const assignments = scenario.assignments.map((planned, i) =>
     asAssignment(planned, i, now, tripDay.assignments.find((t) => t.assignmentId === planned.id)),
   );
-  const columns = assignments.map((a): TruckLogColumn => {
+  const planned = assignments.map((a): TruckLogColumn => {
     const trips = tripDay.assignments.find((t) => t.assignmentId === a.id);
     return {
       id: a.id,
-      job: trips?.job ? [trips.job.jobNumber, trips.job.name].filter(Boolean).join(' ') : null,
+      job: jobName(trips?.job ?? null),
       pickUp: a.fromPlaceName,
       dropOff: a.toPlaceName,
       material: a.materialName,
       loads: trips?.loads ?? 0,
       tons: trips?.tons ?? null,
       truckingHours: trips?.truckingHours ?? null,
+      unverified: false,
     };
   });
-  const unexplained = tripDay.unexplained.map(
-    (t): UnexplainedTrip => ({
+  // The extra jobs no Assignment explains: whether they were Loads, and of what, Dave decides.
+  const extra = tripDay.unverified.map(
+    (j): TruckLogColumn => ({
+      id: j.id,
+      job: jobName(j.job),
+      pickUp: placeName(j.fromPlaceId) ?? j.fromCode,
+      dropOff: placeName(j.toPlaceId) ?? j.toCode,
+      material: null,
+      loads: null,
+      tons: null,
+      truckingHours: j.truckingHours,
+      unverified: true,
+    }),
+  );
+  const shopTrips = tripDay.shopTrips.map(
+    (t): TruckLogTrip => ({
       leftAt: t.leftAt,
       arrivedAt: t.arrivedAt,
       from: placeName(t.fromPlaceId) ?? t.fromCode,
       to: placeName(t.toPlaceId) ?? t.toCode,
+      miles: t.miles,
     }),
   );
-  return { tripDay, assignments, truckLog: { columns, unexplained } };
+  return { tripDay, assignments, truckLog: { columns: [...planned, ...extra], shopTrips } };
 }

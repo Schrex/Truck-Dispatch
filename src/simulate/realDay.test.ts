@@ -64,8 +64,20 @@ describe('The Trip builder on the real day (MCK-55-17, Mon 16 Nov 2026)', () => 
   describe('Trips with no Assignment, for Dave to answer next morning', () => {
     const forDave = (id: string, time?: string) => at(id, time).unexplained.map((t) => `${easternTime(t.leftAt)} ${t.fromCode} → ${t.toCode}`);
 
-    it('as planned: the 14:15 Trip from J25008 to Bishop Kearney', () => {
-      expect(forDave('planned')).toEqual(['14:15 J25008 Los Flamboyanes → J611 Bishop Kearney']);
+    it('as planned: the 14:15 Trip from J25008 to Bishop Kearney, and the 14:33 way back from it', () => {
+      expect(forDave('planned')).toEqual(['14:15 J25008 Los Flamboyanes → J611 Bishop Kearney', '14:33 J611 Bishop Kearney → J25008 Los Flamboyanes']);
+    });
+
+    it('as planned: the two make one unverified extra job, J25008 → Bishop Kearney and back, 14:15 to 14:43', () => {
+      const jobs = at('planned').unverified;
+      expect(jobs.map((j) => `${j.fromCode} → ${j.toCode} ${j.trips.length} Trips ${j.truckingHours} h`)).toEqual([
+        'J25008 Los Flamboyanes → J611 Bishop Kearney 2 Trips 0.46 h',
+      ]);
+      expect(jobs[0].job).toMatchObject({ jobNumber: 'J611' });
+    });
+
+    it('with the reroute at 11:20 it is A1’s work, so there is no extra job', () => {
+      expect(at('reroute').unverified).toEqual([]);
     });
 
     it('with the reroute at 11:20 that Trip is A1’s Load, so there are none', () => {
@@ -94,8 +106,8 @@ describe('The Trip builder on the real day (MCK-55-17, Mon 16 Nov 2026)', () => 
   describe('Trucking hours: leaving for an Assignment’s first Trip to arriving at the end of its last, loaded or empty', () => {
     const hours = (id: string, time?: string) => at(id, time).assignments.map((a) => a.truckingHours);
 
-    it('as planned, at end of day: A1 08:24 to 14:43 (its last Trip is the empty one back from Bishop Kearney), 6.32; A2 11:30 to 13:54, 2.40', () => {
-      expect(hours('planned')).toEqual([6.32, 2.4]);
+    it('as planned, at end of day: A1 08:24 to its last Load at 11:25, 3.02 (the way back from Bishop Kearney is the extra job’s); A2 11:30 to 13:54, 2.40', () => {
+      expect(hours('planned')).toEqual([3.02, 2.4]);
     });
 
     it('mid-day (10:02): A1 so far, 08:24 to 10:00, 1.59; A2 none yet', () => {
@@ -104,6 +116,18 @@ describe('The Trip builder on the real day (MCK-55-17, Mon 16 Nov 2026)', () => 
 
     it('before the first Trip: none', () => {
       expect(hours('planned', '06:00:59')).toEqual([null, null]);
+    });
+  });
+
+  describe('To and from the shop', () => {
+    const shop = (time?: string) => at('planned', time).shopTrips.map((t) => `${easternTime(t.leftAt)}–${easternTime(t.arrivedAt)} ${t.fromCode} → ${t.toCode} ${t.miles}`);
+
+    it('logs the drive out in the morning and the drive back at the end of the day', () => {
+      expect(shop()).toEqual(['06:24–07:02 SHOP → J25008 Los Flamboyanes 20.59', '15:41–16:03 J25008 Los Flamboyanes → SHOP 18.39']);
+    });
+
+    it('logs the drive back only once the Truck is back', () => {
+      expect(shop('15:50:59')).toEqual(['06:24–07:02 SHOP → J25008 Los Flamboyanes 20.59']);
     });
   });
 
