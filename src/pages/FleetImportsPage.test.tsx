@@ -145,8 +145,12 @@ describe('Dropping an xlsx Fleet export', () => {
     expect(screen.getByText(/which truck/i)).toBeTruthy();
     expect(screen.queryByRole('button', { name: /Truck 12/ })).toBeNull();
     expect(sent).toEqual([]);
+    // The Trucks are chips; none is picked yet.
+    expect(pick.getAttribute('aria-pressed')).toBe('false');
 
     fireEvent.click(pick);
+    // The picked chip stays pressed while the Worker imports it.
+    expect(screen.getByRole('button', { name: 'Truck 55 (MCK-55-17)' }).getAttribute('aria-pressed')).toBe('true');
     expect(await screen.findByText('20 new · 0 closed · 0 already stored')).toBeTruthy();
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({ fileName: 'EntryExitReport.xlsx', format: 'xlsx' });

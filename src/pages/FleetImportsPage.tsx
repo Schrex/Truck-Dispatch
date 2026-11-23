@@ -1,30 +1,25 @@
-import { useRef, useState, type DragEvent } from 'react';
+import { useRef, useState, type CSSProperties, type DragEvent } from 'react';
 import { ClipboardList, Loader2, Upload } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { PageHeader } from '@/components/PageHeader';
+import { chipClass } from '@/components/TypedName';
 import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { Refused, fetchList, importFleetExport } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { readFleetJson, readFleetXlsx, type FleetExportRow, type FleetSheet } from '../../shared/fleetExport';
-import type { FleetExportFormat, FleetImport, FleetImportDay, Truck } from '../../shared/types';
+import { EXPORT_ADVICE, countFleetXlsxVisits, readFleetJson, readFleetXlsx, type FleetExportRow, type FleetSheet } from '../../shared/fleetExport';
+import type { FleetExportFormat, FleetImport, FleetImportDay, ImportCounts, Truck } from '../../shared/types';
 
-/** A dropped file's text. FileReader, as every browser (and jsdom) has it. */
-function textOf(file: File): Promise<string> {
+/** A dropped file's text or bytes. FileReader, as every browser (and jsdom) has it. */
+function readFile(file: File, as: 'text'): Promise<string>;
+function readFile(file: File, as: 'bytes'): Promise<ArrayBuffer>;
+function readFile(file: File, as: 'text' | 'bytes'): Promise<string | ArrayBuffer> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
+    reader.onload = () => resolve(reader.result as string | ArrayBuffer);
     reader.onerror = () => reject(reader.error ?? new Error('Could not read the file.'));
-    reader.readAsText(file);
-  });
-}
-
-/** A dropped file's bytes. FileReader, as every browser (and jsdom) has it. */
-function bytesOf(file: File): Promise<ArrayBuffer> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as ArrayBuffer);
-    reader.onerror = () => reject(reader.error ?? new Error('Could not read the file.'));
-    reader.readAsArrayBuffer(file);
+    if (as === 'text') reader.readAsText(file);
+    else reader.readAsArrayBuffer(file);
   });
 }
 
@@ -37,11 +32,11 @@ const isXlsx = (file: File) => /\.xlsx$/i.test(file.name) || file.type === XLSX_
  * other page (and not even this one, until then) downloads it.
  */
 async function readXlsxSheet(file: File): Promise<FleetSheet> {
-  const [{ readSheet }, bytes] = await Promise.all([import('read-excel-file/universal'), bytesOf(file)]);
+  const [{ readSheet }, bytes] = await Promise.all([import('read-excel-file/universal'), readFile(file, 'bytes')]);
   try {
     return await readSheet(bytes);
   } catch {
-    throw new Error('This file is not an xlsx spreadsheet. Export the entry/exit report from HCSS Fleet and drop that.');
+    throw new Error(`This file is not an xlsx spreadsheet. ${EXPORT_ADVICE}`);
   }
 }
 
@@ -55,8 +50,8 @@ async function readExport(
 ): Promise<{ format: 'json'; rows: FleetExportRow[] } | { format: 'xlsx'; visits: number; forTruck: (hcssCode: string) => FleetExportRow[] }> {
   if (isXlsx(file)) {
     const sheet = await readXlsxSheet(file);
-    // Read once now, so a sheet that is not the entry/exit report is refused before Dave picks a Truck.
-    const visits = readFleetXlsx(sheet, '').length;
+    // Checked now, so a sheet that is not the entry/exit report is refused before Dave picks a Truck.
+    const visits = countFleetXlsxVisits(sheet);
     return { format: 'xlsx', visits, forTruck: (hcssCode) => readFleetXlsx(sheet, hcssCode) };
   }
   if (!/\.json$/i.test(file.name) && file.type !== 'application/json') {
@@ -64,9 +59,9 @@ async function readExport(
   }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(await textOf(file));
+    parsed = JSON.parse(await readFile(file, 'text'));
   } catch {
-    throw new Error('This file is not JSON. Export the entry/exit report from HCSS Fleet and drop that.');
+    throw new Error(`This file is not JSON. ${EXPORT_ADVICE}`);
   }
   return { format: 'json', rows: readFleetJson(parsed) };
 }
@@ -75,14 +70,29 @@ async function readExport(
 const dayLabel = (date: string) =>
   new Date(`${date}T12:00:00Z`).toLocaleDateString('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' });
 
-/** "Mon 16 Nov: 3 new · 1 closed": a day the Import touched, with its counts (closed and already stored only when there are some). */
-const dayCounts = (day: FleetImportDay) =>
-  `${dayLabel(day.date)}: ${[`${day.added} new`, day.closed > 0 && `${day.closed} closed`, day.unchanged > 0 && `${day.unchanged} already stored`].filter(Boolean).join(' · ')}`;
+/**
+ * "6 new · 1 closed · 7 already stored". With `brief`, closed and already
+ * stored only when there are some ("3 new · 1 closed").
+ */
+const countsLabel = (counts: ImportCounts, brief = false) =>
+  [
+    `${counts.added} new`,
+    (!brief || counts.closed > 0) && `${counts.closed} closed`,
+    (!brief || counts.unchanged > 0) && `${counts.unchanged} already stored`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
-/** One dropped file: importing, imported with what it changed, or not imported and why. */
+/** "Mon 16 Nov: 3 new · 1 closed": a day the Import touched, with its counts. */
+const dayCounts = (day: FleetImportDay) => `${dayLabel(day.date)}: ${countsLabel(day, true)}`;
+
+/** A Truck an xlsx can be imported for: one with an HCSS code. */
+type CodedTruck = Truck & { hcssCode: string };
+
+/** One dropped file: importing, waiting for its Truck, imported with what it changed, or not imported and why. */
 type Drop = { key: number; fileName: string } & (
   | { state: 'importing' }
-  | { state: 'pickTruck'; visits: number; trucks: Truck[]; pick: (truck: Truck) => void }
+  | { state: 'pickTruck'; visits: number; trucks: CodedTruck[]; picked: string | null; pick: (truck: CodedTruck) => void }
   | { state: 'imported'; result: FleetImport }
   | { state: 'failed'; reason: string }
 );
@@ -103,7 +113,6 @@ export function FleetImportsPage() {
     setDrops((all) => [{ key, fileName: file.name, state: 'importing' }, ...all]);
     const failed = (reason: string) => update({ key, fileName: file.name, state: 'failed', reason });
     const send = async (format: FleetExportFormat, rows: FleetExportRow[]) => {
-      update({ key, fileName: file.name, state: 'importing' });
       try {
         update({ key, fileName: file.name, state: 'imported', result: await importFleetExport({ fileName: file.name, format, rows }) });
       } catch (error) {
@@ -120,14 +129,27 @@ export function FleetImportsPage() {
 
     // The xlsx names no Truck: Dave picks one of the Trucks with an HCSS code.
     const { visits, forTruck } = read;
-    let trucks: Truck[];
+    let trucks: CodedTruck[];
     try {
-      trucks = (await fetchList('trucks')).filter((truck) => truck.hcssCode);
+      trucks = (await fetchList('trucks')).flatMap((truck) => (truck.hcssCode ? [{ ...truck, hcssCode: truck.hcssCode }] : []));
     } catch {
       return failed('Could not load the Trucks. Check the connection and drop it again.');
     }
     if (trucks.length === 0) return failed('An xlsx export does not say which Truck it is for, and no Truck has an HCSS code. Set one in Settings.');
-    update({ key, fileName: file.name, state: 'pickTruck', visits, trucks, pick: (truck) => void send('xlsx', forTruck(truck.hcssCode ?? '')) });
+    const asking: Extract<Drop, { state: 'pickTruck' }> = {
+      key,
+      fileName: file.name,
+      state: 'pickTruck',
+      visits,
+      trucks,
+      picked: null,
+      pick: (truck) => {
+        // The picked chip stays pressed until the Worker answers.
+        update({ ...asking, picked: truck.id });
+        void send('xlsx', forTruck(truck.hcssCode));
+      },
+    };
+    update(asking);
   };
   const importAll = (files: FileList | null) => {
     for (const file of Array.from(files ?? [])) void importFile(file);
@@ -140,7 +162,7 @@ export function FleetImportsPage() {
 
   return (
     <div className="min-h-screen bg-surface">
-      <PageHeader title="Fleet imports" subtitle="Drop each HCSS Fleet export as it comes">
+      <PageHeader title="Fleet imports" subtitle="HCSS Fleet exports, and what each one stored">
         <Button asChild variant="outline" size="lg" className="px-5">
           <Link to="/">
             <ClipboardList className="h-4 w-4" /> Board
@@ -193,61 +215,73 @@ export function FleetImportsPage() {
           <section aria-label="Imports" className="space-y-2">
             <h2 className="font-display text-xl font-semibold uppercase tracking-wide">Imports</h2>
             <ul className="space-y-2">
-              {drops.map((drop) => (
-                <li key={drop.key} className="rounded-lg border bg-background p-4">
-                  {drop.state === 'importing' && (
-                    <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Loader2 className="h-4 w-4 animate-spin" /> Importing {drop.fileName}…
-                    </p>
-                  )}
-                  {drop.state === 'pickTruck' && (
-                    <>
-                      <p className="font-medium">Which Truck is {drop.fileName} for?</p>
-                      <p className="text-sm text-muted-foreground">
-                        {drop.visits} {drop.visits === 1 ? 'visit' : 'visits'}. An xlsx export does not name its Truck.
+              {drops.map((drop, i) => (
+                <li key={drop.key} className="animate-rise" style={{ '--i': i } as CSSProperties}>
+                  <Card className="p-4">
+                    {drop.state === 'importing' && (
+                      <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" /> Importing {drop.fileName}…
                       </p>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {drop.trucks.map((truck) => (
-                          <Button key={truck.id} variant="outline" size="lg" onClick={() => drop.pick(truck)}>
-                            Truck {truck.number} ({truck.hcssCode})
-                          </Button>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                  {drop.state === 'imported' && (
-                    <>
-                      <p className="font-display text-2xl font-semibold">
-                        {drop.result.added} new · {drop.result.closed} closed · {drop.result.unchanged} already stored
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {drop.fileName} · Truck {drop.result.truckNumber}
-                      </p>
-                      <p className="text-sm">{drop.result.days.map(dayCounts).join('; ')}</p>
-                      {drop.result.codesWithNoPlace.length > 0 && (
-                        <div className="mt-3">
-                          <h3 id={`no-place-${drop.key}`} className="text-sm font-medium">
-                            Codes with no Place
-                          </h3>
-                          <p className="text-xs text-muted-foreground">Their visits are stored. Give a Place its geofence code in Settings.</p>
-                          <ul aria-labelledby={`no-place-${drop.key}`} className="mt-1 flex flex-wrap gap-2">
-                            {drop.result.codesWithNoPlace.map((c) => (
-                              <li key={c.code} className="rounded-md border px-2 py-0.5 text-sm">
-                                {c.code}
-                                {c.driveThrough && <span className="text-muted-foreground"> · drive-through</span>}
-                              </li>
-                            ))}
-                          </ul>
+                    )}
+                    {drop.state === 'pickTruck' && (
+                      <>
+                        <p className="font-medium">Which Truck is {drop.fileName} for?</p>
+                        <p className="text-sm text-muted-foreground">
+                          {drop.visits} {drop.visits === 1 ? 'visit' : 'visits'}. An xlsx export does not name its Truck.
+                        </p>
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          {drop.trucks.map((truck) => {
+                            const pressed = drop.picked === truck.id;
+                            return (
+                              <Button
+                                key={truck.id}
+                                type="button"
+                                variant={pressed ? 'default' : 'outline'}
+                                aria-pressed={pressed}
+                                disabled={drop.picked !== null && !pressed}
+                                className={chipClass(pressed)}
+                                onClick={() => drop.picked === null && drop.pick(truck)}
+                              >
+                                Truck {truck.number} ({truck.hcssCode})
+                              </Button>
+                            );
+                          })}
+                          {drop.picked !== null && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-label="Importing" />}
                         </div>
-                      )}
-                    </>
-                  )}
-                  {drop.state === 'failed' && (
-                    <>
-                      <p className="text-sm font-medium">{drop.fileName} was not imported</p>
-                      <p className="text-sm text-destructive">{drop.reason}</p>
-                    </>
-                  )}
+                      </>
+                    )}
+                    {drop.state === 'imported' && (
+                      <>
+                        <p className="font-display text-2xl font-semibold">{countsLabel(drop.result)}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {drop.fileName} · Truck {drop.result.truckNumber}
+                        </p>
+                        <p className="text-sm">{drop.result.days.map(dayCounts).join('; ')}</p>
+                        {drop.result.codesWithNoPlace.length > 0 && (
+                          <div className="mt-3">
+                            <h3 id={`no-place-${drop.key}`} className="text-sm font-medium">
+                              Codes with no Place
+                            </h3>
+                            <p className="text-xs text-muted-foreground">Their visits are stored. Give a Place its geofence code in Settings.</p>
+                            <ul aria-labelledby={`no-place-${drop.key}`} className="mt-1 flex flex-wrap gap-2">
+                              {drop.result.codesWithNoPlace.map((c) => (
+                                <li key={c.code} className="rounded-full border bg-surface px-3 py-1 text-sm">
+                                  {c.code}
+                                  {c.driveThrough && <span className="text-muted-foreground"> · drive-through</span>}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </>
+                    )}
+                    {drop.state === 'failed' && (
+                      <>
+                        <p className="text-sm font-medium">{drop.fileName} was not imported</p>
+                        <p className="text-sm text-destructive">{drop.reason}</p>
+                      </>
+                    )}
+                  </Card>
                 </li>
               ))}
             </ul>
