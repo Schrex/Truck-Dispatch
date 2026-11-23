@@ -317,7 +317,7 @@ describe('Link to an Assignment and Not a haul: answers to Unplanned work', () =
   });
 
   it('Not a haul takes its piece’s Trips out of Unplanned work and gives them to no Assignment', () => {
-    const d = answered({ notHauls: [{ unplannedId: plantRun, note: null }] });
+    const d = answered({ notAHauls: [{ unplannedId: plantRun, note: null }] });
     expect(lines(d).slice(5, 8)).toEqual([
       '10:27 J1001 North → PLANT not_a_haul -',
       '10:41 PLANT → J1001 North not_a_haul -',

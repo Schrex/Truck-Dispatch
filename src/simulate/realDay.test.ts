@@ -200,7 +200,7 @@ describe('The Trip builder on the real day (MCK-55-17, Mon 16 Nov 2026)', () => 
         visits: REAL_DAY.visits,
         assignments: scenario('planned').assignments,
         now: easternIso(REAL_DAY.date, time),
-        answers: { notHauls: [{ unplannedId, note }] },
+        answers: { notAHauls: [{ unplannedId, note }] },
       });
     };
 
@@ -230,7 +230,7 @@ describe('The Trip builder on the real day (MCK-55-17, Mon 16 Nov 2026)', () => 
         now: easternIso(REAL_DAY.date, '23:59:59'),
         ignition: REAL_DAY.ignition,
         dayOver: true,
-        answers: { notHauls: [{ unplannedId, note: 'fuel' }] },
+        answers: { notAHauls: [{ unplannedId, note: 'fuel' }] },
       });
       expect(d.truckDay.totalHours).toBe(9.88);
     });

@@ -2,7 +2,10 @@
  * Dave's answers to the simulation's Unplanned work, as the page holds them
  * in memory, and how they become the Trip builder's inputs. Nothing is saved.
  */
-import type { MadeAssignment, NotAHaul, UnplannedAnswers, UnplannedLink, UnplannedWork } from '../../shared/trips';
+import { NOT_A_HAUL, type MadeAssignment, type NotAHaul, type UnplannedAnswers, type UnplannedLink, type UnplannedWork } from '../../shared/trips';
+
+/** The id of the Assignment Dave made from one piece of Unplanned work (by its id). */
+export const madeAssignmentId = (unplannedId: string) => `made-${unplannedId}`;
 
 /** What every answer names: the piece it answers, and who was driving. */
 interface AnswerTo {
@@ -35,7 +38,7 @@ export interface LinkToAnAssignment extends LoadedAt {
 
 /** "Not a haul": fuel, a repair, personal; the note is optional. */
 export interface NotAHaulAnswer extends AnswerTo {
-  kind: 'not_a_haul';
+  kind: typeof NOT_A_HAUL;
   note: string | null;
 }
 
@@ -73,12 +76,12 @@ export function tripAnswers(
   const made: PlannedMadeAssignment[] = [];
   const drivenBy = answers.flatMap((a) => (a.driverId ? [a.driverId] : [])).at(-1) ?? null;
   const links: UnplannedLink[] = [];
-  const notHauls: NotAHaul[] = [];
+  const notAHauls: NotAHaul[] = [];
   for (const answer of answers) {
     const work = pieces.find((w) => w.id === answer.unplannedId);
     if (!work) continue;
-    if (answer.kind === 'not_a_haul') {
-      notHauls.push({ unplannedId: answer.unplannedId, note: answer.note });
+    if (answer.kind === NOT_A_HAUL) {
+      notAHauls.push({ unplannedId: answer.unplannedId, note: answer.note });
       continue;
     }
     if (answer.kind === 'link') {
@@ -88,7 +91,7 @@ export function tripAnswers(
     }
     if (answer.kind !== 'make') continue;
     made.push({
-      id: `made-${answer.unplannedId}`,
+      id: madeAssignmentId(answer.unplannedId),
       label: `A${plannedCount + made.length + 1}`,
       fromPlaceId: answer.loadedAt,
       toPlaceId: dropOff(work, answer.loadedAt),
@@ -99,5 +102,5 @@ export function tripAnswers(
       driverId: answer.driverId ?? drivenBy ?? driverId,
     });
   }
-  return { input: { madeAssignments: made, links, notHauls, splits }, made, drivenBy };
+  return { input: { madeAssignments: made, links, notAHauls, splits }, made, drivenBy };
 }

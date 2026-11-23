@@ -68,8 +68,11 @@ export interface TripAssignment extends Route {
   changes: { changedAt: string; before: Route }[];
 }
 
-/** `not_a_haul`: Dave answered its Unplanned work "Not a haul" (fuel, a repair, personal). */
-export type TripKind = 'load' | 'empty' | 'not_a_haul' | null;
+/** Dave's "Not a haul" (fuel, a repair, personal): the one spelling for a Trip's kind and for his answer. */
+export const NOT_A_HAUL = 'not_a_haul';
+
+/** NOT_A_HAUL: Dave answered its Unplanned work "Not a haul". */
+export type TripKind = 'load' | 'empty' | typeof NOT_A_HAUL | null;
 
 /** Which rule decided a Trip, and in words why. Rule 7 is "nothing fits". */
 export interface Match {
@@ -318,7 +321,7 @@ export interface UnplannedAnswers {
   /** "Link to an Assignment": each reroutes that Assignment (planned, or made from another piece) from the piece's first Trip. */
   links?: UnplannedLink[];
   /** "Not a haul": the pieces whose Trips were no haul, with Dave's note. */
-  notHauls?: NotAHaul[];
+  notAHauls?: NotAHaul[];
   /**
    * Split (#77): the leftAt of each Trip where Dave split a run that held two
    * hauls. A new piece of Unplanned work starts at that Trip, named by it; a
@@ -737,16 +740,16 @@ function answerRuns(trips: Trip[], runs: number[][], answers: UnplannedAnswers, 
     const a = assignments.find((x) => x.id === link.assignmentId);
     if (a) claim(link.unplannedId, linkedAssignment(a, link));
   }
-  for (const no of answers.notHauls ?? []) {
+  for (const no of answers.notAHauls ?? []) {
     const run = runs.find((r) => runId(trips, r) === no.unplannedId);
     for (const i of run ?? [])
-      out[i] = { ...trips[i], match: { kind: 'not_a_haul', assignmentId: null, rule: 7, reason: no.note ? `Not a haul: ${no.note}` : 'Not a haul' } };
+      out[i] = { ...trips[i], match: { kind: NOT_A_HAUL, assignmentId: null, rule: 7, reason: no.note ? `Not a haul: ${no.note}` : 'Not a haul' } };
   }
   return out;
 }
 
 /** Still Unplanned work: no Assignment counts it and Dave has not said it was not a haul. */
-const unanswered = (t: Trip) => t.match.assignmentId === null && t.match.kind !== 'not_a_haul';
+const unanswered = (t: Trip) => t.match.assignmentId === null && t.match.kind !== NOT_A_HAUL;
 
 /** The pieces of Unplanned work: in each run, the written Trips still nobody's, in rows. */
 function piecesOf(trips: Trip[], runs: number[][]): UnplannedWork[] {

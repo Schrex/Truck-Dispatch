@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { DriverView } from '@/simulate/DriverView';
 import { TripLog } from '@/simulate/TripLog';
 import { UnplannedAnswerFlow } from '@/simulate/UnplannedAnswerFlow';
-import type { UnplannedAnswer } from '@/simulate/answers';
+import { madeAssignmentId, type UnplannedAnswer } from '@/simulate/answers';
 import { REAL_DAY, placeName } from '@/simulate/realDay';
 import { DAY_END, clockTime, simulateAt } from '@/simulate/simulate';
 import { easternTime } from '../../shared/days';
@@ -187,7 +187,7 @@ export function SimulatePage() {
             }}
             // A link names one of that day's Assignments, never the one made from this same piece; the flow offers only the picked Driver's.
             assignments={day.assignments
-              .filter((a) => a.date === REAL_DAY.date && a.id !== `made-${work.id}`)
+              .filter((a) => a.date === REAL_DAY.date && a.id !== madeAssignmentId(work.id))
               .map((a) => ({ id: a.id, label: `${day.labels[a.id]} · ${a.fromPlaceName ?? '–'} → ${a.toPlaceName ?? '–'}`, driverId: a.driverId ?? undefined }))}
             onSave={(next) => {
               setAnswers((all) => [...all.filter((a) => a.unplannedId !== next.unplannedId), next]);

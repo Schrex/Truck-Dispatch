@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { chipClass, OrTypeIt, TypedBox } from '@/components/TypedName';
 import { SegmentedToggle } from '@/components/SegmentedToggle';
+import { NOT_A_HAUL } from '../../shared/trips';
 import type { UnplannedAnswer } from './answers';
 
 /** A piece of Unplanned work as the answer shows it. */
@@ -163,7 +164,7 @@ function LinkQuestions({ work, assignments, driverId, onReady }: WayProps) {
 function NotAHaulQuestions({ work, onReady }: WayProps) {
   const [note, setNote] = useState('');
   useEffect(() => {
-    onReady({ kind: 'not_a_haul', unplannedId: work.id, note: note.trim() || null });
+    onReady({ kind: NOT_A_HAUL, unplannedId: work.id, note: note.trim() || null });
   }, [onReady, work.id, note]);
   return (
     <label className="block space-y-2">
@@ -177,7 +178,7 @@ function NotAHaulQuestions({ work, onReady }: WayProps) {
 const WAYS: { kind: UnplannedAnswer['kind']; label: string; Questions: (props: WayProps) => JSX.Element }[] = [
   { kind: 'make', label: 'Make an Assignment', Questions: MakeAnAssignmentQuestions },
   { kind: 'link', label: 'Link to an Assignment', Questions: LinkQuestions },
-  { kind: 'not_a_haul', label: 'Not a haul', Questions: NotAHaulQuestions },
+  { kind: NOT_A_HAUL, label: 'Not a haul', Questions: NotAHaulQuestions },
 ];
 
 /**
