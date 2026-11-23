@@ -784,6 +784,19 @@ describe('the Trip part on a Driver card', () => {
     expect(text).toContain('1 Load · last 08:40');
   });
 
+  it("shows each card's Loads from his day read, and Now on the one he is on", async () => {
+    sentDays['drv-a 2026-11-19'] = [
+      card({ id: 'a1', ...haul, trips: part({ loads: 4, status: 'done', since: '2026-11-16T13:24:26Z', lastLoadAt: '2026-11-16T16:25:10Z' }) }),
+      card({ id: 'a2', ...haul, position: 1, trips: part({ loads: 2, status: 'now', since: '2026-11-16T16:30:00Z', lastLoadAt: '2026-11-16T18:54:00Z' }) }),
+    ];
+    open('/');
+    const [a1, a2] = cardsIn(await day('Today, Thu, Nov 19'));
+    expect(a1.textContent).toContain('4 Loads · last 11:25');
+    expect(a1.textContent).not.toContain('Now');
+    expect(a2.textContent).toContain('2 Loads · last 13:54');
+    expect(a2.textContent).toContain('Now');
+  });
+
   it('looks exactly as it does without a Trip part while it has no Trips yet', async () => {
     const without = await shown({});
     expect((await shown({ trips: part({}) })).html).toBe(without.html);
