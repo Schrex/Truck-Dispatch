@@ -160,19 +160,19 @@ export function DriverPage() {
           </section>
         ) : (
           <>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-stretch gap-1">
               <Button
                 type="button"
                 variant="outline"
                 size="icon"
-                className="h-11 w-11 shrink-0"
+                className="h-auto w-11 shrink-0"
                 aria-label="Day before"
                 disabled={!date}
                 onClick={() => date && show(addDays(date, -1))}
               >
                 <ChevronLeft className="h-5 w-5" />
               </Button>
-              <div role="group" aria-label="Day" className="grid flex-1 grid-cols-3 rounded-md border bg-background p-1">
+              <div role="group" aria-label="Day" className="grid flex-1 grid-cols-3 rounded-md border bg-background p-0.5">
                 {TABS.map((tab) => {
                   const on = Boolean(date && today && tabFor(date, today) === tab);
                   return (
@@ -180,7 +180,7 @@ export function DriverPage() {
                       key={tab}
                       type="button"
                       size="lg"
-                      className="px-0.5 text-base font-medium"
+                      className="px-1 text-base font-medium tracking-tight"
                       variant={on ? 'default' : 'ghost'}
                       aria-pressed={on}
                       disabled={!today}
@@ -195,7 +195,7 @@ export function DriverPage() {
                 type="button"
                 variant="outline"
                 size="icon"
-                className="h-11 w-11 shrink-0"
+                className="h-auto w-11 shrink-0"
                 aria-label="Day after"
                 disabled={!date}
                 onClick={() => date && show(addDays(date, 1))}

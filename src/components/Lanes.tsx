@@ -168,7 +168,7 @@ export function Lanes({
         return (
           <Card key={lane.key} role="article" aria-labelledby={`lane-${lane.key}`} className="space-y-3 p-4">
             <div className="flex flex-col gap-3 md:flex-row md:items-start">
-              <div className="flex items-start justify-between gap-2 md:w-56 md:shrink-0 lg:w-60">
+              <div className="flex items-start justify-between gap-2 md:w-60 md:shrink-0">
                 <div>
                   <h3 id={`lane-${lane.key}`} className="flex items-start gap-2 font-display text-lg font-semibold uppercase leading-tight tracking-wide">
                     {lane.driverName ? <User className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" /> : <UserX className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />}

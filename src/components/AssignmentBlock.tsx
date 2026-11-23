@@ -198,7 +198,7 @@ export function AssignmentBlock({
   const frame = cn(
     'block h-full w-full rounded-md border bg-background px-3 py-2 text-left text-sm shadow-sm',
     draft && 'border-dashed border-muted-foreground/50',
-    cornered && 'pb-14',
+    cornered && 'pb-16',
     // Its words are struck through on their own; the frame is only greyed, so the Cancelled mark stays readable.
     assignment.cancelledAt && 'bg-muted/60 text-muted-foreground shadow-none',
   );
@@ -255,7 +255,7 @@ function CornerButton({
     }
   }
   return (
-    <Button type="button" size="sm" variant={variant} aria-label={label} className="absolute bottom-2 right-2" disabled={busy} onClick={tap}>
+    <Button type="button" size="sm" variant={variant} aria-label={label} className="absolute bottom-2 right-2 h-11 px-4" disabled={busy} onClick={tap}>
       {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Icon className="h-4 w-4" />} {word}
     </Button>
   );

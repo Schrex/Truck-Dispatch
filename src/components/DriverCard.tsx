@@ -92,7 +92,7 @@ export function DriverCard({
           {materialName ?? 'No Material named'}
           <Was value={was.materialName} />
         </p>
-        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-lg">
+        <dl className="grid grid-cols-[6rem_1fr] gap-x-4 gap-y-2 text-lg">
           <dt className="text-muted-foreground">Pick up</dt>
           <dd className={cn('font-medium', struck)}>{fromPlaceName ?? '–'}</dd>
           {'fromPlaceName' in was && <dd className="col-start-2 -mt-2"><Was value={was.fromPlaceName} /></dd>}

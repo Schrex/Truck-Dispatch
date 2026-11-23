@@ -100,7 +100,7 @@ export function WeekStrip({
           const parts = tileParts(day, today, shown?.find((d) => d.date === day));
           const [label, ...rest] = parts;
           return (
-            <li key={day} className={cn('shrink-0', weekend ? 'w-20' : 'min-w-[7.5rem] flex-1')}>
+            <li key={day} className={cn('shrink-0', weekend ? 'w-20' : 'min-w-[6.5rem] flex-1')}>
               <button
                 type="button"
                 aria-label={parts.join(' · ')}
@@ -112,7 +112,7 @@ export function WeekStrip({
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
                   chosen ? 'border-primary bg-primary text-primary-foreground' : 'bg-background hover:bg-muted',
                   // Today is marked quietly, so the chosen day's solid fill is the one signal of what is shown.
-                  day === today && !chosen && 'border-2 border-primary',
+                  day === today && !chosen && 'ring-2 ring-inset ring-primary',
                 )}
               >
                 <span className="text-sm font-semibold">{label}</span>

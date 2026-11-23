@@ -151,7 +151,7 @@ export function SettingsPage() {
         <Button
           variant="ghost"
           size="sm"
-          className="h-9 w-9 rounded-full p-0"
+          className="h-11 w-11 rounded-full p-0"
           aria-label={`Move ${name} ${by < 0 ? 'up' : 'down'}`}
           title={by < 0 ? 'Earlier in the list' : 'Later in the list'}
           onClick={() => move(spec, list, inUse, index, by)}
@@ -183,10 +183,10 @@ export function SettingsPage() {
           </Link>
         </Button>
       </PageHeader>
-      <main className="container grid items-start gap-4 py-6 lg:grid-cols-2">
+      <main className="container grid gap-4 py-6 lg:grid-cols-2">
         {SECTIONS.map((spec) => (
           // Truck problems shares the Trucks cell, so on two columns it sits right under Trucks.
-          <div key={spec.list} className="space-y-4">
+          <div key={spec.list} className="flex flex-col gap-4">
           <ListSection
             spec={spec}
             entries={lists[spec.list] ?? null}
