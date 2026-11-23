@@ -554,6 +554,17 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
       expect(unplannedLog()).toEqual([]);
       expect(truckLog().Driver).toBe('Sam');
     });
+
+    it('"Not a haul" keeps the Driver picked too, so the Truck log stops asking', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      choose('two-drivers');
+      tap('Answer', screen.getByRole('group', { name: 'Unplanned work' }));
+      tap('Sam');
+      tap('Not a haul');
+      fireEvent.click(within(answer()).getByRole('button', { name: 'Save' }));
+      expect(unplannedLog()).toEqual([]);
+      expect(truckLog().Driver).toBe('Sam');
+    });
   });
 
   describe('Link to an Assignment and Not a haul: the other answers', () => {

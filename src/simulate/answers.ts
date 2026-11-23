@@ -4,33 +4,38 @@
  */
 import type { MadeAssignment, NotAHaul, UnplannedAnswers, UnplannedLink, UnplannedWork } from '../../shared/trips';
 
-/** "Make an Assignment": where the Truck loaded (one of the piece's Places) and what it hauled. */
-export interface MakeAnAssignment {
-  kind: 'make';
+/** What every answer names: the piece it answers, and who was driving. */
+interface AnswerTo {
   /** The Unplanned work it answers (UnplannedWork.id). */
   unplannedId: string;
-  /** The Place where it loaded: the made Assignment's Pick up. */
-  loadedAt: string;
-  materialName: string;
-  /** Who was driving, when the Truck log asked and Dave picked (#77): the made Assignment is that Driver's. */
+  /**
+   * Who was driving, when the Truck log asked and Dave picked (#77): it
+   * answers "Who was driving?" too, and a made or linked Assignment is that Driver's.
+   */
   driverId?: string;
+}
+
+/** An answer that says where the Truck loaded: one of the piece's Places. */
+interface LoadedAt extends AnswerTo {
+  /** The Place where it loaded: the Assignment's Pick up from the piece's first Trip on. */
+  loadedAt: string;
+}
+
+/** "Make an Assignment": where the Truck loaded and what it hauled. */
+export interface MakeAnAssignment extends LoadedAt {
+  kind: 'make';
+  materialName: string;
 }
 
 /** "Link to an Assignment": which of the Driver's Assignments that day it was, and where the Truck loaded. */
-export interface LinkToAnAssignment {
+export interface LinkToAnAssignment extends LoadedAt {
   kind: 'link';
-  unplannedId: string;
   assignmentId: string;
-  /** The Place where it loaded: the Assignment's Pick up from the piece's first Trip on. */
-  loadedAt: string;
-  /** Who was driving, when the Truck log asked and Dave picked (#77): the Assignment is one of that Driver's. */
-  driverId?: string;
 }
 
 /** "Not a haul": fuel, a repair, personal; the note is optional. */
-export interface NotAHaulAnswer {
-  kind: 'not-a-haul';
-  unplannedId: string;
+export interface NotAHaulAnswer extends AnswerTo {
+  kind: 'not_a_haul';
   note: string | null;
 }
 
@@ -66,13 +71,13 @@ export function tripAnswers(
   splits: string[] = [],
 ): { input: UnplannedAnswers; made: PlannedMadeAssignment[]; drivenBy: string | null } {
   const made: PlannedMadeAssignment[] = [];
-  const drivenBy = answers.flatMap((a) => ((a.kind === 'make' || a.kind === 'link') && a.driverId ? [a.driverId] : [])).at(-1) ?? null;
+  const drivenBy = answers.flatMap((a) => (a.driverId ? [a.driverId] : [])).at(-1) ?? null;
   const links: UnplannedLink[] = [];
   const notHauls: NotAHaul[] = [];
   for (const answer of answers) {
     const work = pieces.find((w) => w.id === answer.unplannedId);
     if (!work) continue;
-    if (answer.kind === 'not-a-haul') {
+    if (answer.kind === 'not_a_haul') {
       notHauls.push({ unplannedId: answer.unplannedId, note: answer.note });
       continue;
     }

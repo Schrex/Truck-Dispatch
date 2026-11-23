@@ -32,8 +32,8 @@ export interface WayProps {
   /**
    * Who was driving: the Driver Dave picked when the Truck log asks "Who was
    * driving?", else the Truck's Driver; null when nobody fits. A way that
-   * offers Assignments (Link) offers only this Driver's (see `assignments`); Make an Assignment
-   * makes it this Driver's.
+   * offers Assignments (Link) offers only this Driver's (see `assignments`).
+   * The flow adds it to every answer, whichever the way.
    */
   driverId: string | null;
   /** The day's Assignments that a link can name: only the picked Driver's (`driverId`). */
@@ -101,14 +101,14 @@ function ChipRow({
 }
 
 /** "Make an Assignment": where he loaded (one tap per Place of the piece), and the Material, picked or typed. Both are required. */
-function MakeAnAssignmentQuestions({ work, materials, driverId, onReady }: WayProps) {
+function MakeAnAssignmentQuestions({ work, materials, onReady }: WayProps) {
   const [loadedAt, setLoadedAt] = useState<string | null>(null);
   const [material, setMaterial] = useState<string | null>(null);
   const [typed, setTyped] = useState<string | null>(null);
   const materialName = (typed ?? material ?? '').trim();
   useEffect(() => {
-    onReady(loadedAt && materialName ? { kind: 'make', unplannedId: work.id, loadedAt, materialName, ...(driverId && { driverId }) } : null);
-  }, [onReady, work.id, loadedAt, materialName, driverId]);
+    onReady(loadedAt && materialName ? { kind: 'make', unplannedId: work.id, loadedAt, materialName } : null);
+  }, [onReady, work.id, loadedAt, materialName]);
   return (
     <>
       <ChipRow label="Where did he load?" chips={work.places.map((p) => ({ id: p.id, label: p.name }))} picked={loadedAt} onPick={setLoadedAt} />
@@ -143,8 +143,8 @@ function LinkQuestions({ work, assignments, driverId, onReady }: WayProps) {
   const [assignmentId, setAssignmentId] = useState<string | null>(null);
   const [loadedAt, setLoadedAt] = useState<string | null>(null);
   useEffect(() => {
-    onReady(assignmentId && loadedAt ? { kind: 'link', unplannedId: work.id, assignmentId, loadedAt, ...(driverId && { driverId }) } : null);
-  }, [onReady, work.id, assignmentId, loadedAt, driverId]);
+    onReady(assignmentId && loadedAt ? { kind: 'link', unplannedId: work.id, assignmentId, loadedAt } : null);
+  }, [onReady, work.id, assignmentId, loadedAt]);
   return (
     <>
       <ChipRow label="Which Assignment?" chips={offered} picked={assignmentId} onPick={setAssignmentId} />
@@ -157,7 +157,7 @@ function LinkQuestions({ work, assignments, driverId, onReady }: WayProps) {
 function NotAHaulQuestions({ work, onReady }: WayProps) {
   const [note, setNote] = useState('');
   useEffect(() => {
-    onReady({ kind: 'not-a-haul', unplannedId: work.id, note: note.trim() || null });
+    onReady({ kind: 'not_a_haul', unplannedId: work.id, note: note.trim() || null });
   }, [onReady, work.id, note]);
   return (
     <label className="block space-y-2">
@@ -171,7 +171,7 @@ function NotAHaulQuestions({ work, onReady }: WayProps) {
 const WAYS: { kind: UnplannedAnswer['kind']; label: string; Questions: (props: WayProps) => JSX.Element }[] = [
   { kind: 'make', label: 'Make an Assignment', Questions: MakeAnAssignmentQuestions },
   { kind: 'link', label: 'Link to an Assignment', Questions: LinkQuestions },
-  { kind: 'not-a-haul', label: 'Not a haul', Questions: NotAHaulQuestions },
+  { kind: 'not_a_haul', label: 'Not a haul', Questions: NotAHaulQuestions },
 ];
 
 /**
@@ -208,8 +208,10 @@ export function UnplannedAnswerFlow({
 }) {
   const [way, setWay] = useState<UnplannedAnswer['kind'] | null>(null);
   const [answer, setAnswer] = useState<UnplannedAnswer | null>(null);
-  const [driverId, setDriverId] = useState<string | null>(null);
+  const [pickedDriverId, setPickedDriverId] = useState<string | null>(null);
   const askDriver = (drivers?.length ?? 0) > 1;
+  /** Who was driving: Dave's pick when asked, else the Truck's Driver. Every answer carries it, so "Who was driving?" is answered whichever the way. */
+  const driverId = askDriver ? pickedDriverId : truckDriverId;
   const chosen = WAYS.find((w) => w.kind === way);
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -218,8 +220,8 @@ export function UnplannedAnswerFlow({
           <DialogTitle className="font-display text-xl uppercase tracking-wide">Unplanned work</DialogTitle>
           <DialogDescription>{work.line}</DialogDescription>
         </DialogHeader>
-        {askDriver && <ChipRow label="Who was driving?" chips={drivers!.map((d) => ({ id: d.id, label: d.name }))} picked={driverId} onPick={setDriverId} />}
-        {(!askDriver || driverId) && (
+        {askDriver && <ChipRow label="Who was driving?" chips={drivers!.map((d) => ({ id: d.id, label: d.name }))} picked={pickedDriverId} onPick={setPickedDriverId} />}
+        {(!askDriver || pickedDriverId) && (
           <>
             <ChipRow
               label="How does Dave answer?"
@@ -230,7 +232,7 @@ export function UnplannedAnswerFlow({
                 setAnswer(null);
               }}
             />
-            {chosen && <chosen.Questions key={`${chosen.kind}:${driverId}`} work={work} materials={materials} driverId={askDriver ? driverId : truckDriverId} assignments={assignments} onReady={setAnswer} />}
+            {chosen && <chosen.Questions key={`${chosen.kind}:${driverId}`} work={work} materials={materials} driverId={driverId} assignments={assignments} onReady={setAnswer} />}
           </>
         )}
         {onSplit && work.splits && work.splits.length > 0 && <SplitRow splits={work.splits} onSplit={onSplit} />}
@@ -238,7 +240,7 @@ export function UnplannedAnswerFlow({
           <Button type="button" variant="outline" size="lg" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="button" size="lg" disabled={!answer} onClick={() => answer && onSave(answer)}>
+          <Button type="button" size="lg" disabled={!answer} onClick={() => answer && onSave({ ...answer, ...(driverId && { driverId }) })}>
             Save
           </Button>
         </DialogFooter>
