@@ -5,18 +5,18 @@ How Dave plans each driver's day and how the work they actually do becomes a tru
 ## Planning
 
 **Assignment**:
-One piece of work given to one Driver for one day, e.g. haul 2" minus from Villager to TIUNY. It covers any number of Loads. A Driver's Assignments for a day are done in an order Dave sets. Dave can cancel one; a cancelled Assignment is kept and the Driver sees it was cancelled. Its day never changes once it exists. Once its day is Sent, giving it to another Driver cancels it and adds a new one for that Driver. Whether one has started or finished comes from the Truck, never from Dave or the Driver.
+One piece of work given to one Driver for one day, e.g. haul 2" minus from Villager to TIUNY. It covers any number of Loads. A Driver's Assignments for a day are done in an order Dave sets. Dave can cancel one; a cancelled Assignment is kept and the Driver sees it was cancelled. Its day never changes once it exists. Once it is Assigned, giving it to another Driver cancels it and adds a new one for that Driver. Whether one has started or finished comes from the Truck, never from Dave or the Driver.
 _Avoid_: task, work order, dispatch, dispatch order, job
 
 **Unassigned**:
-An Assignment with no Driver yet. Dave gives it to a Driver later.
+An Assignment with no Driver yet. It stays a Draft: it cannot be Assigned until Dave gives it a Driver, which he does when one is free.
 
-**Send**:
-Dave's act of giving a day's Assignments to the Drivers. Before it, the day is a Draft and Drivers see nothing for it; after it, every change Dave makes reaches the Drivers at once.
-_Avoid_: publish, post, dispatch
+**Assign**:
+Dave's act of giving one Assignment to its Driver. Before it the Assignment is a Draft and the Driver sees nothing of it; after it, every change Dave makes to it reaches the Driver at once. Each Assignment is Assigned on its own, never a whole day at once. Only Dave Assigns; a Driver never takes work himself.
+_Avoid_: send, publish, post, dispatch
 
 **Draft**:
-A day that has never been Sent. The Drivers have nothing for it yet.
+An Assignment that has not been Assigned yet, with or without a Driver. Its Driver, if it has one, sees nothing of it.
 
 **Changed**:
 An Assignment that Dave altered, cancelled, put back or moved within its Driver's order after its day was Sent. The Driver sees it marked "Changed by Dave". Others that shift place because of a move are not Changed.
