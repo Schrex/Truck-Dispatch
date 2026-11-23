@@ -424,6 +424,10 @@ export interface FleetImport {
   importedAt: string;
   /** Visits it stored that were not stored before. */
   added: number;
+  /** Stored visits that were open and that it closed. */
+  closed: number;
+  /** Visits it held that were stored already and that it did not close ("already stored"). */
+  unchanged: number;
   /** The US Eastern days (YYYY-MM-DD) its visits were entered on. */
   days: string[];
 }

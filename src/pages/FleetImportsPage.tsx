@@ -38,12 +38,12 @@ async function readExport(file: File): Promise<{ format: FleetExportFormat; rows
 const dayLabel = (date: string) =>
   new Date(`${date}T12:00:00Z`).toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' });
 
-/** One dropped file: importing, imported with what it added, or not imported and why. */
+/** One dropped file: importing, imported with what it changed, or not imported and why. */
 type Drop = { key: number; fileName: string } & ({ state: 'importing' } | { state: 'imported'; result: FleetImport } | { state: 'failed'; reason: string });
 
 /**
  * Fleet imports: where Dave drops each HCSS Fleet export as it
- * comes. Each drop is an Import; the page says how many visits it added.
+ * comes. Each drop is an Import; the page says how many visits were new, closed and already stored.
  */
 export function FleetImportsPage() {
   const [drops, setDrops] = useState<Drop[]>([]);
@@ -141,7 +141,9 @@ export function FleetImportsPage() {
                   )}
                   {drop.state === 'imported' && (
                     <>
-                      <p className="font-display text-2xl font-semibold">{drop.result.added} new</p>
+                      <p className="font-display text-2xl font-semibold">
+                        {drop.result.added} new · {drop.result.closed} closed · {drop.result.unchanged} already stored
+                      </p>
                       <p className="text-sm text-muted-foreground">
                         {drop.fileName} · Truck {drop.result.truckNumber} · {drop.result.days.map(dayLabel).join(', ')}
                       </p>

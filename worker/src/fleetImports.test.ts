@@ -66,3 +66,70 @@ describe('Importing a JSON Fleet export', () => {
     expect(((await response.json()) as { message: string }).message).toMatch(/MCK-55-17.*Settings/);
   });
 });
+
+/** What an Import says: "8 new · 0 closed · 0 already stored". */
+const counts = async (response: Response) => {
+  expect(response.status).toBe(201);
+  const { import: made } = (await response.json()) as { import: FleetImport };
+  return `${made.added} new · ${made.closed} closed · ${made.unchanged} already stored`;
+};
+
+describe('Importing a Fleet export that repeats the day so far', () => {
+  it('stores nothing new when the same export is dropped again', async () => {
+    const { truckId } = await setUpTruck55(send);
+    await importFile('2026-11-16-1502.json');
+    expect(await counts(await importFile('2026-11-16-1502.json'))).toBe('0 new · 0 closed · 18 already stored');
+    expect(await storedVisits(truckId)).toHaveLength(18);
+  });
+
+  it('closes the open J25008 visit when the cuts of the day come in order, storing each of the 19 visits once', async () => {
+    const { truckId } = await setUpTruck55(send);
+    expect(await counts(await importFile('2026-11-16-cut-1015.json'))).toBe('8 new · 0 closed · 0 already stored');
+    const { import: midday } = (await (await importFile('2026-11-16-cut-1305.json')).json()) as { import: FleetImport };
+    expect(`${midday.added} new · ${midday.closed} closed · ${midday.unchanged} already stored`).toBe('6 new · 1 closed · 7 already stored');
+    expect(await counts(await importFile('2026-11-16-cut-1620.json'))).toBe('5 new · 0 closed · 14 already stored');
+
+    const visits = await storedVisits(truckId);
+    expect(visits).toHaveLength(19);
+    const j25008 = visits.find((v) => v.geofenceCode === 'J25008 Los Flamboyanes' && v.enteredAt.startsWith('2026-11-16T15:00'));
+    expect(j25008).toMatchObject({ exitedAt: expect.any(String), importId: midday.id });
+    expect(visits.at(-1)).toMatchObject({ geofenceCode: 'SHOP', exitedAt: null });
+  });
+
+  it('closes and reopens nothing when the 10:15 cut is dropped after the 16:20 one', async () => {
+    const { truckId } = await setUpTruck55(send);
+    await importFile('2026-11-16-cut-1620.json');
+    const before = await storedVisits(truckId);
+    expect(await counts(await importFile('2026-11-16-cut-1015.json'))).toBe('0 new · 0 closed · 8 already stored');
+    expect(await storedVisits(truckId)).toEqual(before);
+  });
+
+  it('keeps each Import\'s counts with the Import', async () => {
+    await setUpTruck55(send);
+    await importFile('2026-11-16-cut-1015.json');
+    const { import: midday } = (await (await importFile('2026-11-16-cut-1305.json')).json()) as { import: FleetImport };
+    expect(await d1.database().prepare('SELECT added, closed, unchanged FROM fleet_imports WHERE id = ?').bind(midday.id).first()).toEqual({ added: 6, closed: 1, unchanged: 7 });
+  });
+
+  describe('the same visit given to the minute and with seconds', () => {
+    /** The J25008 visit entered 07:02:03 ET, as one export: entered at `enteredAt`. */
+    const importVisit = (enteredAt: string) => {
+      const [row] = fleetRows('2026-11-16-1502.json').filter((r) => r.enteredAt.startsWith('2026-11-16T12:02'));
+      return send('POST', '/api/fleet-imports', { fileName: 'one.json', format: 'json', rows: [{ ...row, enteredAt }] }, { NOW: AFTERNOON });
+    };
+
+    it('keeps the seconds when they come after the minute, and counts it already stored', async () => {
+      const { truckId } = await setUpTruck55(send);
+      await importVisit('2026-11-16T12:02:00Z');
+      expect(await counts(await importVisit('2026-11-16T12:02:03Z'))).toBe('0 new · 0 closed · 1 already stored');
+      expect(await storedVisits(truckId)).toEqual([expect.objectContaining({ enteredAt: '2026-11-16T12:02:03.000Z' })]);
+    });
+
+    it('keeps the seconds when the minute comes after them', async () => {
+      const { truckId } = await setUpTruck55(send);
+      await importVisit('2026-11-16T12:02:03Z');
+      expect(await counts(await importVisit('2026-11-16T12:02:00Z'))).toBe('0 new · 0 closed · 1 already stored');
+      expect(await storedVisits(truckId)).toEqual([expect.objectContaining({ enteredAt: '2026-11-16T12:02:03.000Z' })]);
+    });
+  });
+});
