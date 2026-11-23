@@ -961,6 +961,46 @@ describe('Assignments and Places', () => {
   });
 });
 
+describe('one Assignment for several Drivers', () => {
+  it('makes one for each Driver, the same but for the Driver, last in his lane', async () => {
+    await add({ date: '2026-11-20', driverId: 'drv-b', note: 'Already his' });
+    const created = await post('/api/assignments', { date: '2026-11-20', driverId: 'drv-a', alsoDriverIds: ['drv-b'], fromPlaceName: 'Sample New Pit', note: 'Haul stone' });
+    expect(created.status).toBe(201);
+    const body = (await created.json()) as { assignment: Assignment; assignments: Assignment[] };
+    expect(body.assignments.map((a) => [a.driverId, a.fromPlaceName, a.note, a.position, a.assignedAt])).toEqual([
+      ['drv-a', 'Sample New Pit', 'Haul stone', 0, null],
+      ['drv-b', 'Sample New Pit', 'Haul stone', 1, null],
+    ]);
+    expect(body.assignment).toEqual(body.assignments[0]);
+    expect(body.assignments[0].fromPlaceId).toBe(body.assignments[1].fromPlaceId);
+    expect(body.assignments[0].id).not.toBe(body.assignments[1].id);
+    expect(await day('2026-11-20')).toHaveLength(3);
+  });
+
+  it('saves none when one of the Drivers was removed', async () => {
+    await send('PATCH', '/api/drivers/drv-c', { active: false });
+    const fields = await refusal(await post('/api/assignments', { date: '2026-11-20', driverId: 'drv-a', alsoDriverIds: ['drv-b', 'drv-c'] }));
+    expect(fields).toEqual({ alsoDriverIds: 'One of these Drivers was removed. Pick the Drivers again.' });
+    expect(await day('2026-11-20')).toEqual([]);
+  });
+
+  it.each([
+    ['a Driver named twice', { driverId: 'drv-a', alsoDriverIds: ['drv-b', 'drv-b'] }, 'Pick each Driver once.'],
+    ['the first Driver named again', { driverId: 'drv-a', alsoDriverIds: ['drv-a'] }, 'Pick each Driver once.'],
+    ['others with no first Driver', { alsoDriverIds: ['drv-b'] }, 'Pick each Driver once.'],
+    ['something that is not a list of Drivers', { driverId: 'drv-a', alsoDriverIds: 'drv-b' }, 'Pick the Drivers from the list.'],
+    ['a Driver that does not exist', { driverId: 'drv-a', alsoDriverIds: ['drv-nobody'] }, 'One of these Drivers was removed. Pick the Drivers again.'],
+  ])('refuses %s', async (_what, body, message) => {
+    expect(await refusal(await post('/api/assignments', { date: '2026-11-20', ...body }))).toEqual({ alsoDriverIds: message });
+    expect(await day('2026-11-20')).toEqual([]);
+  });
+
+  it('adds just the one when no others are named', async () => {
+    const created = await post('/api/assignments', { date: '2026-11-20', driverId: 'drv-a', alsoDriverIds: [] });
+    expect(((await created.json()) as { assignments: Assignment[] }).assignments).toHaveLength(1);
+  });
+});
+
 describe('changing an Assignment', () => {
   it('saves the fields sent and the day shows the change', async () => {
     const { id } = await add({ date: '2026-11-20', note: 'Haul stone' });

@@ -17,10 +17,12 @@ What the app does as built, page by page. Words in capitals are defined in [`GLO
 
 ### Adding (the composer)
 - The **+** on a lane (Unassigned included) opens the composer in that lane.
+- **Who?** is a row of the active Drivers as chips. The lane's own Driver is pressed and cannot be dropped; tapping another adds him (or drops him again), and each Driver picked gets the same Assignment as his own Draft, last in his lane, separate from then on. They are saved together: if one cannot be saved, none is. From Unassigned nobody is pressed; picking Drivers there gives it to them instead of Unassigned.
 - Pick up and Drop off are rows of Place chips, and "Hauling what?" is Material chips, each with "Or type it" for a name not in the list (found, brought back or added by the Worker).
 - A Foreman chip is filled in with the drop-off's usual Foreman if it is a job site, otherwise the pick-up's; Dave can change or clear it.
 - "Note or other truck" opens the Truck chips ("His own" first, the default) and the note. A Truck with an open Truck problem has a red mark on its chip (hover for the notes), and so does His own when the lane's Driver's usual Truck has one, on any day the composer opens, since a problem is the Truck's state now. The open problems are read again when the page regains the focus.
-- A sentence previews it. Save needs only the day, puts it last in the lane and folds the composer; the next **+** (any lane) starts with the same Places and Material until **Close**.
+- With more than one Driver picked, each takes his own Truck: the Truck chips give way to a line saying so, and a certain Truck is named on his block afterwards.
+- A sentence previews it ("Randy and Mike haul 2\" minus from Villager to TIUNY"). Save needs only the day, puts it last in the lane and folds the composer. Every **+** opens a blank composer: nothing is carried over from the last one.
 
 ### Changing an Assignment
 - Tapping a block opens it in its lane (one at a time; tapping again closes it) as a sentence of chips, Driver, Material, From, To, Truck and Foreman, with its note.

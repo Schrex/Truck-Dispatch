@@ -212,17 +212,22 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   if (init?.method === 'POST') {
     if (failSaves) return answer({ error: 'oops' }, 500);
     if (refuse) return answer({ error: 'invalid', fields: refuse }, 400);
-    const fields = resolve(JSON.parse(String(init.body)));
-    const assignment = {
-      id: `a${assignments.length + 1}`,
-      ...fields,
-      position: lastInLane(fields.date, fields.driverId),
-      createdAt: '2026-11-19T20:00:00.000Z',
-      updatedAt: '2026-11-19T20:00:00.000Z',
-      changedAt: null,
-    };
-    assignments.push(assignment);
-    return answer({ assignment }, 201);
+    // One for the Driver and one for each of alsoDriverIds, as the Worker does.
+    const { alsoDriverIds = [], ...body } = JSON.parse(String(init.body));
+    const made = [body.driverId, ...alsoDriverIds].map((driverId) => {
+      const fields = resolve({ ...body, driverId });
+      const assignment = {
+        id: `a${assignments.length + 1}`,
+        ...fields,
+        position: lastInLane(fields.date, fields.driverId),
+        createdAt: '2026-11-19T20:00:00.000Z',
+        updatedAt: '2026-11-19T20:00:00.000Z',
+        changedAt: null,
+      };
+      assignments.push(assignment);
+      return assignment;
+    });
+    return answer({ assignment: made[0], assignments: made }, 201);
   }
   const one = /\/api\/assignments\/([^/]+)$/.exec(url.pathname);
   if (one && init?.method === 'PATCH') {
@@ -712,36 +717,96 @@ describe('the composer', () => {
     expect(within(lane('Sample Driver B')).getByText('Truck 24', { selector: 'li span' }).className).toContain('text-muted-foreground');
   });
 
-  it('folds after a save, and remembers the Places and Material for the next +, until it is closed', async () => {
+  it('folds after a save, and the next + starts blank, in the same lane or another', async () => {
     await day();
     let composer = await compose('Sample Driver A');
+    tap(composer, 'Who?', 'Sample Driver B');
     tap(composer, 'Pick up', 'Sample Plant');
     type(composer, 'Drop off', 'Sample New Site');
     tap(composer, 'Hauling what?', 'Sample Dirt');
-    fireEvent.click(within(composer).getByRole('button', { name: 'Note or other truck' }));
-    tap(composer, 'Truck', '24');
+    fireEvent.click(within(composer).getByRole('button', { name: 'Note' }));
     fireEvent.change(within(composer).getByRole('textbox', { name: 'Note' }), { target: { value: 'Two loads' } });
     save(composer);
-    expect(await screen.findByText('Assignment saved')).toBeTruthy();
+    expect(await screen.findByText('2 Assignments saved')).toBeTruthy();
     await waitFor(() => expect(screen.queryByRole('form')).toBeNull());
 
-    composer = await compose('Sample Driver B');
-    expect(pressed(composer, 'Pick up')).toEqual(['Sample Plant']);
-    expect((within(composer).getByRole('textbox', { name: 'Drop off, typed' }) as HTMLInputElement).value).toBe('Sample New Site');
-    expect(pressed(composer, 'Hauling what?')).toEqual(['Sample Dirt']);
-    expect(preview(composer)).toBe('Sample Driver B hauls Sample Dirt from Sample Plant to Sample New Site');
-    save(composer);
-    await waitFor(() => expect(sent).toHaveLength(2));
-    expect(sent[1]).toEqual({ date: '2026-11-20', driverId: 'drv-b', truckId: null, fromPlaceId: 'plc-plant', toPlaceName: 'Sample New Site', materialId: 'mat-dirt', foremanId: null, note: null });
-    await waitFor(() => expect(screen.queryByRole('form')).toBeNull());
+    for (const driver of ['Sample Driver B', 'Sample Driver A']) {
+      composer = await compose(driver);
+      expect(pressed(composer, 'Who?')).toEqual([driver]);
+      expect(pressed(composer, 'Pick up')).toEqual([]);
+      expect(within(composer).queryByRole('textbox', { name: 'Drop off, typed' })).toBeNull();
+      expect(pressed(composer, 'Hauling what?')).toEqual([]);
+      expect(within(composer).queryByRole('textbox', { name: 'Note' })).toBeNull();
+      expect(preview(composer)).toBe(`${driver}: just the day so far`);
+    }
+  });
 
+  it('starts blank when another lane\'s + is tapped while it is open', async () => {
+    await day();
+    let composer = await compose('Sample Driver A');
+    tap(composer, 'Pick up', 'Sample Plant');
+    tap(composer, 'Who?', 'Sample Driver B');
     composer = await compose('Sample Driver B');
-    fireEvent.click(within(lane('Sample Driver B')).getByRole('button', { name: 'Close' }));
-    expect(screen.queryByRole('form')).toBeNull();
-    composer = await compose('Sample Driver A');
     expect(pressed(composer, 'Pick up')).toEqual([]);
-    expect(within(composer).queryByRole('textbox', { name: 'Drop off, typed' })).toBeNull();
-    expect(pressed(composer, 'Hauling what?')).toEqual([]);
+    expect(pressed(composer, 'Who?')).toEqual(['Sample Driver B']);
+  });
+
+  describe('Who?', () => {
+    it("offers the active Drivers, the lane's own pressed and not to be dropped", async () => {
+      await day();
+      const composer = await compose('Sample Driver A');
+      expect(chips(composer, 'Who?')).toEqual(['Sample Driver A', 'Sample Driver B']);
+      expect(pressed(composer, 'Who?')).toEqual(['Sample Driver A']);
+      tap(composer, 'Who?', 'Sample Driver A');
+      expect(pressed(composer, 'Who?')).toEqual(['Sample Driver A']);
+      tap(composer, 'Who?', 'Sample Driver B');
+      tap(composer, 'Who?', 'Sample Driver B');
+      expect(pressed(composer, 'Who?')).toEqual(['Sample Driver A']);
+    });
+
+    it('saves one Draft for each Driver picked, in one go, each in his own Truck', async () => {
+      await day();
+      const composer = await compose('Sample Driver B');
+      fireEvent.click(within(composer).getByRole('button', { name: 'Note or other truck' }));
+      tap(composer, 'Truck', '21');
+      tap(composer, 'Who?', 'Sample Driver A');
+      expect(within(composer).queryByRole('group', { name: 'Truck' })).toBeNull();
+      expect(within(composer).getByText('Each Driver takes his own Truck. Name another on his block after saving.')).toBeTruthy();
+      tap(composer, 'Pick up', 'Sample Plant');
+      tap(composer, 'Hauling what?', 'Sample Dirt');
+      expect(preview(composer)).toBe('Sample Driver B and Sample Driver A haul Sample Dirt from Sample Plant');
+      save(composer);
+
+      expect(await screen.findByText('2 Assignments saved')).toBeTruthy();
+      expect(sent).toEqual([
+        { date: '2026-11-20', driverId: 'drv-b', alsoDriverIds: ['drv-a'], truckId: null, fromPlaceId: 'plc-plant', toPlaceId: null, materialId: 'mat-dirt', foremanId: null, note: null },
+      ]);
+      await waitFor(() => expect(blocks('Sample Driver A')).toEqual(['First · Draft · Sample Plant · Sample Dirt · Truck 21 (his own)']));
+      expect(blocks('Sample Driver B')).toEqual(['First · Draft · Sample Plant · Sample Dirt · Truck 24 (his own)']);
+    });
+
+    it('starts with nobody from Unassigned, where picking Drivers gives it to them instead', async () => {
+      await day();
+      const composer = await compose('Unassigned');
+      expect(pressed(composer, 'Who?')).toEqual([]);
+      tap(composer, 'Who?', 'Sample Driver B');
+      tap(composer, 'Who?', 'Sample Driver A');
+      expect(preview(composer)).toBe('Sample Driver A and Sample Driver B: just the day so far');
+      save(composer);
+      expect(await screen.findByText('2 Assignments saved')).toBeTruthy();
+      expect(sent).toEqual([expect.objectContaining({ driverId: 'drv-a', alsoDriverIds: ['drv-b'] })]);
+      await waitFor(() => expect(blocks('Unassigned')).toEqual([]));
+    });
+
+    it("shows a refusal of the Drivers on the row and saves nothing", async () => {
+      refuse = { alsoDriverIds: 'One of these Drivers was removed. Pick the Drivers again.' };
+      await day();
+      const composer = await compose('Sample Driver A');
+      tap(composer, 'Who?', 'Sample Driver B');
+      save(composer);
+      expect(await within(within(composer).getByRole('group', { name: 'Who?' })).findByText('One of these Drivers was removed. Pick the Drivers again.')).toBeTruthy();
+      expect(blocks('Sample Driver B')).toEqual([]);
+    });
   });
 
   it('keeps what was typed and says so when a save fails', async () => {
@@ -829,17 +894,6 @@ describe('the composer', () => {
       save(composer);
       expect(await screen.findByText('Assignment saved')).toBeTruthy();
       expect(sent).toEqual([expect.objectContaining({ toPlaceId: 'plc-south', foremanId: null })]);
-    });
-
-    it("fills it in again for the next Driver, after Dave changed it for the last one", async () => {
-      await day();
-      let composer = await compose('Sample Driver A');
-      tap(composer, 'Drop off', 'Sample Site South');
-      tap(composer, 'Foreman', 'Sample Foreman A');
-      save(composer);
-      expect(await screen.findByText('Assignment saved')).toBeTruthy();
-      composer = await compose('Sample Driver B');
-      expect(pressed(composer, 'Foreman')).toEqual(['Sample Foreman B']);
     });
 
     it('leaves out a usual Foreman who has been removed since', async () => {
