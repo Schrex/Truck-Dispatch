@@ -84,11 +84,18 @@ describe('The Fleet imports page', () => {
     expect(sent).toEqual([]);
   });
 
-  it('shows the Worker\'s reason when it refuses the Import', async () => {
-    refusal = { status: 400, body: { error: 'unknown_truck', message: 'No Truck has the HCSS code MCK-55-17. Set it in Settings.' } };
+  it.each([
+    [400, 'unknown_truck', 'No Truck has the HCSS code MCK-55-17. Set it in Settings.'],
+    [400, 'more_than_one_truck', 'The file must hold one Truck.'],
+    [400, 'not_a_fleet_export', 'This is not a Fleet export. Export the entry/exit report from HCSS Fleet and drop that.'],
+    [403, 'imports_not_allowed', 'Fleet imports are allowed only on local, preview and staging.'],
+  ])('shows the Worker\'s reason when it refuses the Import (%i %s)', async (status, error, message) => {
+    refusal = { status, body: { error, message } };
     await openPage();
     drop(new File([EXPORT_1502], 'EntryExit-1502.json', { type: 'application/json' }));
-    expect(await screen.findByText('No Truck has the HCSS code MCK-55-17. Set it in Settings.')).toBeTruthy();
+    expect(await screen.findByText(message)).toBeTruthy();
+    expect(screen.getByText('EntryExit-1502.json was not imported')).toBeTruthy();
+    expect(screen.queryByText(/new · .* closed/)).toBeNull();
   });
 });
 
