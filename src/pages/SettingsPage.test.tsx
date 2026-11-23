@@ -152,9 +152,9 @@ const settings = async () => {
   await waitFor(() => expect(screen.queryAllByText(/^Loading/)).toEqual([]));
 };
 const section = (title: Title) => screen.getByRole('region', { name: title });
-/** The chips listed in use, or listed apart as removed, by name. */
-const chips = (title: Title, which: 'in use' | 'removed' = 'in use') => {
-  const list = within(section(title)).queryByRole('list', { name: which === 'in use' ? title : `Removed ${title}` });
+/** The chips listed in use, by name. */
+const chips = (title: Title) => {
+  const list = within(section(title)).queryByRole('list', { name: title });
   return list ? within(list).getAllByRole('listitem').map((chip) => chip.getAttribute('aria-label')) : [];
 };
 const chip = (title: Title, name: string) => within(section(title)).getByRole('listitem', { name });
@@ -188,30 +188,27 @@ describe('Settings', () => {
     expect(screen.queryByRole('tab')).toBeNull();
   });
 
-  it('shows each entry as a chip with its key detail, and inactive entries listed apart as removed', async () => {
+  it('shows each entry in use as a chip with its key detail, and no removed entries or Bring back at all', async () => {
     await settings();
     expect(chips('Drivers')).toEqual(['Sample Driver A', 'Sample Driver C']);
-    expect(chips('Drivers', 'removed')).toEqual(['Sample Driver X']);
+    expect(screen.queryByText('Sample Driver X')).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Removed' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Bring back/ })).toBeNull();
     expect(chip('Drivers', 'Sample Driver A').textContent).toContain('Truck 21');
 
     expect(chip('Trucks', '21').textContent).toBe('21');
-    expect(chips('Trucks', 'removed')).toEqual(['99']);
 
     expect(chip('Places', 'Sample Plant').textContent).toContain('Plant');
     expect(chip('Places', 'Sample Site North').textContent).toContain('Job site');
     expect(chip('Places', 'Sample Yard').textContent).toContain('Shop or yard');
-    expect(chips('Places', 'removed')).toEqual(['Sample Old Pit']);
 
     expect(chip('Jobs', 'Sample Job North').textContent).toContain('S-1001');
     expect(chips('Materials')).toEqual(['2" minus']);
-    expect(chips('Materials', 'removed')).toEqual(['Sample Old Fill']);
     expect(chips('Foremen')).toEqual(['Sample Foreman A']);
-    expect(chips('Foremen', 'removed')).toEqual(['Sample Foreman X']);
 
     expect(chips('Inspection checklist')).toEqual(['Dump box clean', 'Lights', 'Air tank (drain)']);
     expect(chip('Inspection checklist', 'Air tank (drain)').textContent).toContain('Optional');
     expect(chip('Inspection checklist', 'Lights').textContent).not.toContain('Optional');
-    expect(chips('Inspection checklist', 'removed')).toEqual(['Sample Old Item']);
   });
 
   it('says so when a list cannot be loaded, and still shows the others', async () => {
@@ -439,13 +436,13 @@ describe('Settings', () => {
   });
 
   describe('Remove', () => {
-    it('makes an entry inactive after asking, and lists it apart', async () => {
+    it('makes an entry inactive after asking, and it leaves the page', async () => {
       await settings();
       fireEvent.click(within(open('Materials', '2" minus')).getByRole('button', { name: 'Remove' }));
       const asking = screen.getByRole('alertdialog', { name: 'Remove 2" minus?' });
       fireEvent.click(within(asking).getByRole('button', { name: 'Remove' }));
-      await waitFor(() => expect(chips('Materials', 'removed')).toEqual(['2" minus', 'Sample Old Fill']));
-      expect(chips('Materials')).toEqual([]);
+      await waitFor(() => expect(chips('Materials')).toEqual([]));
+      expect(screen.queryByText('2" minus')).toBeNull();
       expect(sent).toEqual([{ method: 'PATCH', path: '/api/materials/mat-minus', body: { active: false } }]);
       expect(screen.queryByRole('dialog')).toBeNull();
     });
@@ -490,41 +487,6 @@ describe('Settings', () => {
     });
   });
 
-  describe('a removed Inspection item', () => {
-    it('is removed after asking, listed apart, and comes back last', async () => {
-      await settings();
-      fireEvent.click(within(open('Inspection checklist', 'Dump box clean')).getByRole('button', { name: 'Remove' }));
-      fireEvent.click(within(screen.getByRole('alertdialog', { name: 'Remove Dump box clean?' })).getByRole('button', { name: 'Remove' }));
-      await waitFor(() => expect(chips('Inspection checklist', 'removed')).toEqual(['Dump box clean', 'Sample Old Item']));
-      fireEvent.click(within(chip('Inspection checklist', 'Dump box clean')).getByRole('button', { name: 'Bring back' }));
-      await waitFor(() => expect(chips('Inspection checklist')).toEqual(['Lights', 'Air tank (drain)', 'Dump box clean']));
-      expect(sent).toEqual([
-        { method: 'PATCH', path: '/api/inspection-items/insp-01', body: { active: false } },
-        { method: 'PATCH', path: '/api/inspection-items/insp-01', body: { active: true } },
-      ]);
-    });
-  });
-
-  describe('a removed entry', () => {
-    it('comes back with one tap', async () => {
-      await settings();
-      fireEvent.click(within(chip('Drivers', 'Sample Driver X')).getByRole('button', { name: 'Bring back' }));
-      await waitFor(() => expect(chips('Drivers')).toEqual(['Sample Driver A', 'Sample Driver C', 'Sample Driver X']));
-      expect(chips('Drivers', 'removed')).toEqual([]);
-      expect(sent).toEqual([{ method: 'PATCH', path: '/api/drivers/drv-x', body: { active: true } }]);
-    });
-
-    it('can be opened, and brought back from its panel', async () => {
-      await settings();
-      const panel = open('Places', 'Sample Old Pit');
-      expect(within(panel).queryByRole('button', { name: 'Remove' })).toBeNull();
-      fireEvent.click(within(panel).getByRole('button', { name: 'Bring back' }));
-      expect(await within(panel).findByRole('button', { name: 'Remove' })).toBeTruthy();
-      done(panel);
-      expect(chips('Places')).toContain('Sample Old Pit');
-    });
-  });
-
   describe('Dave\'s own order', () => {
     const move = (title: Title, name: string, way: 'up' | 'down') =>
       fireEvent.click(within(chip(title, name)).getByRole('button', { name: `Move ${name} ${way}` }));
@@ -560,12 +522,11 @@ describe('Settings', () => {
       expect(buttons('Materials', '2" minus')).toEqual([]);
     });
 
-    it('is not offered for Trucks, Jobs or Foremen, nor for removed entries', async () => {
+    it('is not offered for Trucks, Jobs or Foremen', async () => {
       await settings();
       for (const title of ['Trucks', 'Jobs', 'Foremen'] as const) {
         expect(within(section(title)).queryAllByRole('button', { name: /^Move/ })).toEqual([]);
       }
-      expect(within(chip('Drivers', 'Sample Driver X')).queryAllByRole('button', { name: /^Move/ })).toEqual([]);
     });
 
     it('puts the entry back where it was, and says so, when the order cannot be saved', async () => {
@@ -576,13 +537,6 @@ describe('Settings', () => {
       expect(chips('Drivers')).toEqual(['Sample Driver A', 'Sample Driver C']);
     });
 
-    it('puts an entry brought back last, as the Worker does', async () => {
-      lists.drivers.unshift(lists.drivers.pop()!);
-      await settings();
-      expect(chips('Drivers')).toEqual(['Sample Driver A', 'Sample Driver C']);
-      fireEvent.click(within(chip('Drivers', 'Sample Driver X')).getByRole('button', { name: 'Bring back' }));
-      await waitFor(() => expect(chips('Drivers')).toEqual(['Sample Driver A', 'Sample Driver C', 'Sample Driver X']));
-    });
   });
 
   describe('Truck problems', () => {

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ChevronDown, ChevronUp, ClipboardList } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ORDERED_LISTS, type ListName, type OrderedList } from '../../shared/types';
@@ -151,7 +151,7 @@ export function SettingsPage() {
         <Button
           variant="ghost"
           size="sm"
-          className="h-7 w-7 rounded-full p-0"
+          className="h-11 w-11 rounded-full p-0"
           aria-label={`Move ${name} ${by < 0 ? 'up' : 'down'}`}
           title={by < 0 ? 'Earlier in the list' : 'Later in the list'}
           onClick={() => move(spec, list, inUse, index, by)}
@@ -173,14 +173,6 @@ export function SettingsPage() {
     return entry ? displayName(list, entry as never) : null;
   };
 
-  async function bringBack(spec: SectionSpec<ListName>, entry: Row) {
-    try {
-      put(spec.list, (await changeEntry(spec.list, entry.id, { active: true } as never)) as unknown as Row);
-    } catch {
-      toast.error(`Could not bring back ${String(entry[spec.name.key])}`);
-    }
-  }
-
   const openSpec = open && SECTIONS.find((s) => s.list === open.list);
   return (
     <div className="min-h-screen bg-surface">
@@ -193,7 +185,8 @@ export function SettingsPage() {
       </PageHeader>
       <main className="container grid gap-4 py-6 lg:grid-cols-2">
         {SECTIONS.map((spec) => (
-          <Fragment key={spec.list}>
+          // Truck problems shares the Trucks cell, so on two columns it sits right under Trucks.
+          <div key={spec.list} className="flex flex-col gap-4">
           <ListSection
             spec={spec}
             entries={lists[spec.list] ?? null}
@@ -201,12 +194,11 @@ export function SettingsPage() {
             nameOf={nameOf}
             onOpen={(entry) => setOpen({ list: spec.list, entry })}
             onAdd={() => setOpen({ list: spec.list, entry: null })}
-            onBringBack={(entry) => bringBack(spec, entry)}
             chipControls={moveButtons(spec)}
           />
           {/* Under Trucks: what Drivers reported wrong with them, for Dave to mark fixed. */}
           {spec.list === 'trucks' && <TruckProblemsSection />}
-          </Fragment>
+          </div>
         ))}
       </main>
       {open && openSpec && (

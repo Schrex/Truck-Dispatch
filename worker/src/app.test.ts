@@ -1535,6 +1535,69 @@ describe('✕ and Put back', () => {
   });
 });
 
+describe('Discard and Dismiss', () => {
+  const PLANNED = { NOW: '2026-11-19T20:00:00.000Z' };
+  const ASSIGNED = { NOW: '2026-11-19T21:15:00.000Z' };
+  const LATER = { NOW: '2026-11-19T22:00:00.000Z' };
+  const CLEARED = { NOW: '2026-11-19T22:30:00.000Z' };
+  const cancelled = async (note: string) => {
+    const { assignment } = (await (await send('POST', '/api/assignments', { date: '2026-11-20', driverId: 'drv-a', note }, PLANNED)).json()) as { assignment: Assignment };
+    await assign(assignment.id, ASSIGNED);
+    await send('DELETE', `/api/assignments/${assignment.id}`, undefined, LATER);
+    return assignment;
+  };
+  const driverNotes = async () =>
+    ((await (await send('GET', '/api/drivers/drv-a/days/2026-11-20')).json()) as DriverDay).assignments.map((a) => a.note);
+  const boardNotes = async () => (await day('2026-11-20')).map((a) => a.note);
+
+  it('discards a cancelled one from the Board only: the Driver still sees it cancelled', async () => {
+    const stone = await cancelled('Haul stone');
+    await add({ date: '2026-11-20', driverId: 'drv-a', note: 'Fill the shop' });
+    const response = await send('POST', `/api/assignments/${stone.id}/discard`, undefined, CLEARED);
+    expect(response.status).toBe(204);
+    expect(await boardNotes()).toEqual(['Fill the shop']);
+    expect(await driverNotes()).toEqual(['Haul stone']);
+  });
+
+  it('dismisses a cancelled one from the Driver view only: the Board still lists it', async () => {
+    const stone = await cancelled('Haul stone');
+    expect((await send('POST', `/api/assignments/${stone.id}/dismiss`, undefined, CLEARED)).status).toBe(204);
+    expect(await driverNotes()).toEqual([]);
+    expect(await boardNotes()).toEqual(['Haul stone']);
+  });
+
+  it('refuses to clear away one that is not cancelled, and answers not found and POST only', async () => {
+    const { assignment } = (await (await send('POST', '/api/assignments', { date: '2026-11-20', note: 'Haul stone' }, PLANNED)).json()) as { assignment: Assignment };
+    const refused = await send('POST', `/api/assignments/${assignment.id}/discard`);
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({ error: 'not_cancelled', message: 'Only a cancelled Assignment can be discarded.' });
+    expect((await send('POST', '/api/assignments/nothing/dismiss')).status).toBe(404);
+    const other = await send('GET', `/api/assignments/${assignment.id}/discard`);
+    expect(other.status).toBe(405);
+    expect(other.headers.get('Allow')).toBe('POST');
+    expect(await boardNotes()).toEqual(['Haul stone']);
+  });
+
+  it('works on a day before today too, since it changes nothing the Driver reads', async () => {
+    const stone = await cancelled('Haul stone');
+    const nextWeek = { NOW: '2026-11-25T15:00:00.000Z' };
+    expect((await send('POST', `/api/assignments/${stone.id}/discard`, undefined, nextWeek)).status).toBe(204);
+    expect((await send('POST', `/api/assignments/${stone.id}/dismiss`, undefined, nextWeek)).status).toBe(204);
+  });
+
+  it('leaves a discarded one out of the week strip and of the check that a day is empty', async () => {
+    const stone = await cancelled('Haul stone');
+    await send('POST', `/api/assignments/${stone.id}/discard`, undefined, CLEARED);
+    const week = (await (await send('GET', '/api/weeks/2026-11-16')).json()) as { days: { date: string; drafts: number; state: string }[] };
+    expect(week.days.find((d) => d.date === '2026-11-20')).toEqual(expect.objectContaining({ drafts: 0, state: 'none' }));
+    // An earlier day to start from, so only the empty-day check could refuse it.
+    await send('POST', '/api/assignments', { date: '2026-11-19', driverId: 'drv-b', note: 'Haul dirt' }, PLANNED);
+    const copied = await send('POST', '/api/days/2026-11-20/start-from', undefined, CLEARED);
+    expect(copied.status).toBe(201);
+    expect(await boardNotes()).toEqual([null]);
+  });
+});
+
 describe('giving an Assigned Assignment to another Driver', () => {
   const PLANNED = { NOW: '2026-11-19T20:00:00.000Z' };
   const ASSIGNED = { NOW: '2026-11-19T21:15:00.000Z' };
@@ -2148,6 +2211,8 @@ describe('Start from', () => {
     const handed = (await change(first.id, { driverId: 'drv-b' }, { NOW: '2026-11-19T20:30:00.000Z' }).then((r) => r.json())) as { assignment: Assignment };
     const source = handed.assignment;
     await change(source.id, { note: 'Haul stone, two loads' }, { NOW: '2026-11-19T20:45:00.000Z' });
+    // Only a cancelled one is ever discarded or dismissed; set here anyway so the copy is seen to leave them.
+    await d1.database().prepare("UPDATE assignments SET discarded_at = '2026-11-19T21:00:00.000Z', dismissed_at = '2026-11-19T21:00:00.000Z' WHERE id = ?").bind(source.id).run();
     const fresh = await add({ date: '2026-11-24' });
     const [copy] = await copied(await startFrom('2026-11-23'));
 

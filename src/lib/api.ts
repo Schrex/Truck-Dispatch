@@ -149,6 +149,16 @@ export async function putBackAssignment(id: string): Promise<Assignment> {
   return (await request<{ assignment: Assignment }>(`api/assignments/${encodeURIComponent(id)}/put-back`, { method: 'POST' })).assignment;
 }
 
+/** Discard: Dave clears a cancelled Assignment off the Board. The Driver still sees it until he dismisses it. */
+export async function discardAssignment(id: string): Promise<void> {
+  await request<unknown>(`api/assignments/${encodeURIComponent(id)}/discard`, { method: 'POST' });
+}
+
+/** Dismiss: the Driver clears a cancelled Assignment off his day. The Board is unchanged. */
+export async function dismissAssignment(id: string): Promise<void> {
+  await request<unknown>(`api/assignments/${encodeURIComponent(id)}/dismiss`, { method: 'POST' });
+}
+
 /** The Driver's first day after tomorrow with an Assigned Assignment for him that is not cancelled, or null. */
 export async function fetchNextAssigned(driverId: string): Promise<string | null> {
   return (await request<{ date: string | null }>(`api/drivers/${encodeURIComponent(driverId)}/next-assigned`)).date;

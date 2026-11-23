@@ -21,6 +21,9 @@ const drivers = [
 ];
 /** Each Driver's Assigned Assignments, by Driver and date. A day not here has none. */
 let sentDays: Record<string, DriverAssignment[]> = {};
+/** Every Dismiss the phone sent, by id, and whether the Worker fails it. */
+let dismissed: string[] = [];
+let failDismiss = false;
 let failDriverDays = false;
 const read: string[] = [];
 
@@ -120,6 +123,14 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       .sort();
     return answer({ date: dates[0] ?? null });
   }
+  const dismissing = /\/api\/assignments\/([^/]+)\/dismiss$/.exec(path);
+  if (dismissing && init?.method === 'POST') {
+    dismissed.push(dismissing[1]);
+    if (failDismiss) return answer({ error: 'oops' }, 500);
+    // Off his day from now on, as the Worker reads it.
+    for (const key of Object.keys(sentDays)) sentDays[key] = sentDays[key].filter((a) => a.id !== dismissing[1]);
+    return new Response(null, { status: 204 });
+  }
   const driverDay = /\/api\/drivers\/([^/]+)\/days\/([^/]+)$/.exec(path);
   if (driverDay) {
     read.push(`${driverDay[1]} ${driverDay[2]}`);
@@ -160,6 +171,8 @@ const pick = async (word: string) => fireEvent.click(within(await screen.findByR
 beforeEach(() => {
   businessDay = THURSDAY;
   sentDays = {};
+  dismissed = [];
+  failDismiss = false;
   failDriverDays = false;
   read.length = 0;
   trucks = trucks.map((t) => ({ ...t, active: t.id !== 'trk-30' }));
@@ -336,6 +349,29 @@ describe('a Driver\'s yesterday, today and tomorrow', () => {
     expect(within(cancelled).getByText('Cancelled by Dave')).toBeTruthy();
     expect(within(cancelled).queryByText('Changed by Dave')).toBeNull();
     expect(within(cancelled).getByText('Haul stone').closest('.line-through')).toBeTruthy();
+  });
+
+  it('offers Dismiss only on a cancelled card, which clears it off his day', async () => {
+    sentDays['drv-a 2026-11-19'] = [
+      card({ id: 'a1', note: 'Haul stone', sinceSent: 'changed', cancelledAt: '2026-11-19T12:00:00.000Z' }),
+      card({ id: 'a2', note: 'Fill the shop', position: 1 }),
+    ];
+    open('/');
+    const [cancelled, other] = cardsIn(await day('Today, Thu, Nov 19'));
+    expect(within(other).queryByRole('button', { name: /Dismiss/ })).toBeNull();
+    fireEvent.click(within(cancelled).getByRole('button', { name: /Dismiss/ }));
+    await waitFor(() => expect(cardsIn(screen.getByRole('region', { name: /Today/ }))).toHaveLength(1));
+    expect(dismissed).toEqual(['a1']);
+  });
+
+  it('says so when Dismiss fails, and keeps the card', async () => {
+    sentDays['drv-a 2026-11-19'] = [card({ id: 'a1', note: 'Haul stone', sinceSent: 'changed', cancelledAt: '2026-11-19T12:00:00.000Z' })];
+    failDismiss = true;
+    open('/');
+    const [cancelled] = cardsIn(await day('Today, Thu, Nov 19'));
+    fireEvent.click(within(cancelled).getByRole('button', { name: /Dismiss/ }));
+    expect(await screen.findByText('Could not dismiss it. Try again.')).toBeTruthy();
+    expect(cardsIn(screen.getByRole('region', { name: /Today/ }))).toHaveLength(1);
   });
 
   it('reads Today again when the page regains focus, moving on to a new day', async () => {

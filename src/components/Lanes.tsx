@@ -104,6 +104,7 @@ function inLane(assignments: Assignment[], openId: string | null | undefined): I
  * composingFor (a Driver's id, or null for Unassigned) shows under its
  * Driver. With onAssign each Draft with an active Driver has Assign on its block,
  * and an Unassigned lane holding Drafts says to pick a Driver to Assign one.
+ * With onDiscard each cancelled block has Discard, on any day.
  * Without them the lanes are read-only.
  * On a phone a lane's blocks stack under the Driver; from an iPad in portrait
  * up, the Driver sits on the left and the blocks run beside him.
@@ -117,6 +118,7 @@ export function Lanes({
   problems,
   onEdit,
   onAssign,
+  onDiscard,
   openId,
   editor,
   onAdd,
@@ -135,6 +137,8 @@ export function Lanes({
   onEdit?: (assignment: Assignment) => void;
   /** Assigns a Draft that has a Driver; settles once the Worker has answered. */
   onAssign?: (assignment: Assignment) => Promise<void>;
+  /** Discards a cancelled Assignment from the Board; settles once the Worker has answered. */
+  onDiscard?: (assignment: Assignment) => Promise<void>;
   /** The Assignment shown open; null or undefined when none is. */
   openId?: string | null;
   /** The open Assignment's editor, shown in its lane. */
@@ -164,10 +168,10 @@ export function Lanes({
         return (
           <Card key={lane.key} role="article" aria-labelledby={`lane-${lane.key}`} className="space-y-3 p-4">
             <div className="flex flex-col gap-3 md:flex-row md:items-start">
-              <div className="flex items-start justify-between gap-2 md:w-44 md:shrink-0">
+              <div className="flex items-start justify-between gap-2 md:w-60 md:shrink-0">
                 <div>
-                  <h3 id={`lane-${lane.key}`} className="flex items-center gap-2 font-display text-lg font-semibold uppercase tracking-wide">
-                    {lane.driverName ? <User className="h-4 w-4 shrink-0 text-muted-foreground" /> : <UserX className="h-4 w-4 shrink-0 text-muted-foreground" />}
+                  <h3 id={`lane-${lane.key}`} className="flex items-start gap-2 font-display text-lg font-semibold uppercase leading-tight tracking-wide">
+                    {lane.driverName ? <User className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" /> : <UserX className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />}
                     {name}
                   </h3>
                   {truck && open.length > 0 ? (
@@ -205,6 +209,7 @@ export function Lanes({
                       jobSites={jobSites}
                       onEdit={onEdit}
                       onAssign={lane.removed ? undefined : onAssign}
+                      onDiscard={onDiscard}
                       open={i === openAt}
                     />
                   ))}

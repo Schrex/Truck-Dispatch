@@ -98,6 +98,12 @@ export async function handleApi(request: Request, env: Env, route: string, query
     return json({ error: 'method_not_allowed' }, 405, { Allow: 'POST' });
   }
 
+  const clearing = /^assignments\/([^/]+)\/(discard|dismiss)$/.exec(route);
+  if (clearing) {
+    if (method === 'POST') return clearAway(env, decodeURIComponent(clearing[1]), clearing[2] as 'discard' | 'dismiss');
+    return json({ error: 'method_not_allowed' }, 405, { Allow: 'POST' });
+  }
+
   const one = /^assignments\/([^/]+)$/.exec(route);
   if (one) {
     const id = decodeURIComponent(one[1]);
@@ -180,10 +186,10 @@ function marked(assignment: AssignmentRow): Assignment {
   return { ...assignment, sinceSent: sinceSent(assignment) };
 }
 
-/** A day's Assignments, Drafts and Assigned ones, each marked Changed or Added since it was Assigned. */
+/** A day's Assignments, Drafts and Assigned ones (cancelled ones Dave discarded left out), each marked Changed or Added since it was Assigned. */
 async function readDay(env: Env, date: string | null): Promise<Response> {
   if (!isCalendarDate(date)) return refuse({ date: PICK_DATE });
-  const { results } = await env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.date = ? ${DAY_ORDER}`).bind(date).all<AssignmentRow>();
+  const { results } = await env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.date = ? AND a.discarded_at IS NULL ${DAY_ORDER}`).bind(date).all<AssignmentRow>();
   return json({ assignments: results.map(marked) } satisfies Day);
 }
 
@@ -203,7 +209,8 @@ const WAS_FIELDS = [
 
 /**
  * One Driver's Assignments on a day, for the Driver view: only those Dave has
- * Assigned, in Dave's order, cancelled ones included (struck through for him),
+ * Assigned, in Dave's order, cancelled ones included (struck through for him)
+ * until he dismisses them,
  * each marked Changed or Added by the shared day rules. His Drafts are left
  * out: he sees nothing of them. A Changed one also says what its fields were
  * when it was Assigned, from the first earlier fields kept after that (changes
@@ -215,7 +222,7 @@ async function readDriverDay(env: Env, driverId: string, date: string): Promise<
   if (!isCalendarDate(date)) return refuse({ date: PICK_DATE });
   if (!(await exists(env, 'drivers', driverId))) return json({ error: 'not_found' }, 404);
   const [{ results: rows }, { results: kept }] = await env.DB.batch<AssignmentRow & { id: string; before: string }>([
-    env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.date = ? AND a.driver_id = ? AND a.assigned_at IS NOT NULL ${DAY_ORDER}`).bind(date, driverId),
+    env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.date = ? AND a.driver_id = ? AND a.assigned_at IS NOT NULL AND a.dismissed_at IS NULL ${DAY_ORDER}`).bind(date, driverId),
     env.DB.prepare(
       `SELECT c.assignment_id AS id, c.before FROM assignment_changes c JOIN assignments a ON a.id = c.assignment_id
         WHERE a.date = ? AND a.driver_id = ? AND c.changed_at >= a.assigned_at ORDER BY c.changed_at DESC, c.rowid DESC`,
@@ -248,7 +255,7 @@ async function readWeek(env: Env, monday: string): Promise<Response> {
   if (!isCalendarDate(monday) || mondayOf(monday) !== monday) return refuse({ date: 'Give the Monday the week starts on.' });
   const { results: rows } = await env.DB.prepare(
     `SELECT date, assigned_at AS assignedAt, changed_at AS changedAt, cancelled_at AS cancelledAt, handed_from AS handedFromId
-       FROM assignments WHERE date BETWEEN ? AND ?`,
+       FROM assignments WHERE date BETWEEN ? AND ? AND discarded_at IS NULL`,
   )
     .bind(monday, addDays(monday, 6))
     .all<{ date: string; assignedAt: string | null; changedAt: string | null; cancelledAt: string | null; handedFromId: string | null }>();
@@ -358,7 +365,7 @@ async function copyTo(request: Request, env: Env, from: string): Promise<Respons
  * order the day is read, each with only the COPIED columns (removed entries
  * left out) and a fresh position in its lane: 0, 1, 2... Every copy is a
  * Draft, whatever its source was, so Dave Assigns each when it is ready. The
- * check that the target day is empty (cancelled ones count) and the copy are
+ * check that the target day is empty (cancelled ones count, unless discarded) and the copy are
  * one statement, so work added meanwhile is never copied over.
  */
 async function copyOnto(env: Env, from: string, to: string): Promise<Response> {
@@ -383,13 +390,13 @@ async function copyOnto(env: Env, from: string, to: string): Promise<Response> {
   const { meta } = await env.DB.prepare(
     `INSERT INTO assignments (date, created_at, updated_at, ${columns.join(', ')})
      SELECT ?, ?, ?, ${columns.map((c) => `json_extract(value, '$.${c}')`).join(', ')} FROM json_each(?)
-      WHERE NOT EXISTS (SELECT 1 FROM assignments WHERE date = ?)`,
+      WHERE NOT EXISTS (SELECT 1 FROM assignments WHERE date = ? AND discarded_at IS NULL)`,
   )
     .bind(to, now, now, JSON.stringify(rows), to)
     .run();
   if (!meta.changes) return json({ error: 'day_planned', message: 'That day already has Assignments, so nothing was copied onto it.' }, 409);
 
-  const { results } = await env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.date = ? ${DAY_ORDER}`).bind(to).all<AssignmentRow>();
+  const { results } = await env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.date = ? AND a.discarded_at IS NULL ${DAY_ORDER}`).bind(to).all<AssignmentRow>();
   return json({ from, to, assignments: results.map(marked) } satisfies CopiedDay, 201);
 }
 
@@ -567,9 +574,9 @@ async function moveAssignment(request: Request, env: Env, id: string): Promise<R
   return json({ assignments: await readLane(env, existing.date, existing.driverId) });
 }
 
-/** One lane of a day (a Driver's, or Unassigned for null), in its order. */
+/** One lane of a day (a Driver's, or Unassigned for null), in its order, as the Board shows it (discarded ones left out). */
 async function readLane(env: Env, date: string, driverId: string | null): Promise<Assignment[]> {
-  const { results } = await env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.date = ? AND a.driver_id IS ? ${DAY_ORDER}`)
+  const { results } = await env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.date = ? AND a.driver_id IS ? AND a.discarded_at IS NULL ${DAY_ORDER}`)
     .bind(date, driverId)
     .all<AssignmentRow>();
   return results.map(marked);
@@ -621,10 +628,31 @@ async function putBack(env: Env, id: string): Promise<Response> {
   await env.DB.batch([
     keepBefore(env, id, now, 'cancelled_at IS NOT NULL'),
     env.DB.prepare(
-      'UPDATE assignments SET cancelled_at = NULL, changed_at = ?1, updated_at = ?1 WHERE id = ?2 AND cancelled_at IS NOT NULL',
+      'UPDATE assignments SET cancelled_at = NULL, discarded_at = NULL, dismissed_at = NULL, changed_at = ?1, updated_at = ?1 WHERE id = ?2 AND cancelled_at IS NOT NULL',
     ).bind(now, id),
   ]);
   return json({ assignment: await findAssignment(env, id) });
+}
+
+/**
+ * Discard (Dave, on the Board) or Dismiss (the Driver, on his view): a
+ * cancelled Assignment is cleared away from that one side only, so the Board
+ * stops listing what Dave is done with while the Driver is still told it is
+ * off, and the other way round. Nothing is deleted and nothing the Driver
+ * reads changes, so it is allowed on any day, past ones too. Only a cancelled
+ * one can be cleared; doing it again changes nothing. Answers 204.
+ */
+async function clearAway(env: Env, id: string, how: 'discard' | 'dismiss'): Promise<Response> {
+  const existing = await findAssignment(env, id);
+  if (!existing) return json({ error: 'not_found' }, 404);
+  if (!existing.cancelledAt) {
+    return json({ error: 'not_cancelled', message: `Only a cancelled Assignment can be ${how === 'discard' ? 'discarded' : 'dismissed'}.` }, 409);
+  }
+  const column = how === 'discard' ? 'discarded_at' : 'dismissed_at';
+  await env.DB.prepare(`UPDATE assignments SET ${column} = ?1 WHERE id = ?2 AND cancelled_at IS NOT NULL AND ${column} IS NULL`)
+    .bind(clock(env).now.toISOString(), id)
+    .run();
+  return new Response(null, { status: 204, headers: { 'Cache-Control': 'no-store' } });
 }
 
 /** What the Worker says when a day sent is not a calendar date. */

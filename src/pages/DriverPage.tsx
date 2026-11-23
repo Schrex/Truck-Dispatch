@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
-import type { BusinessDay, CheckIn as CheckInRead, Driver, DriverDay } from '../../shared/types';
+import type { BusinessDay, CheckIn as CheckInRead, Driver, DriverAssignment, DriverDay } from '../../shared/types';
 import { addDays, shortDate, weekdayName } from '../../shared/days';
 import { CheckIn } from '@/components/CheckIn';
 import { DriverCard } from '@/components/DriverCard';
 import { PageHeader } from '@/components/PageHeader';
 import { ViewToggle } from '@/components/ViewToggle';
 import { Button } from '@/components/ui/button';
-import { fetchBusinessDay, fetchCheckIns, fetchDriverDay, fetchList, fetchNextAssigned } from '@/lib/api';
+import { toast } from '@/components/ui/sonner';
+import { dismissAssignment, fetchBusinessDay, fetchCheckIns, fetchDriverDay, fetchList, fetchNextAssigned, Refused } from '@/lib/api';
 import { storedDriver, storeDriver } from '@/lib/deviceView';
 
 /** A day as the page holds it: loading (undefined), failed (null), or as the Worker read it. */
@@ -132,7 +133,7 @@ export function DriverPage() {
         subtitle={driver && !asking ? driver.name : 'Driver view'}
         back={
           asking ? undefined : (
-            <button type="button" className="py-1 text-base text-muted-foreground hover:text-foreground" onClick={() => setPicking(true)}>
+            <button type="button" className="-ml-2 inline-flex min-h-11 items-center px-2 text-base text-muted-foreground hover:text-foreground" onClick={() => setPicking(true)}>
               ← Drivers
             </button>
           )
@@ -159,19 +160,19 @@ export function DriverPage() {
           </section>
         ) : (
           <>
-            <div className="flex items-center gap-2">
+            <div className="flex items-stretch gap-1">
               <Button
                 type="button"
                 variant="outline"
                 size="icon"
-                className="h-12 w-12 shrink-0"
+                className="h-auto w-11 shrink-0"
                 aria-label="Day before"
                 disabled={!date}
                 onClick={() => date && show(addDays(date, -1))}
               >
                 <ChevronLeft className="h-5 w-5" />
               </Button>
-              <div role="group" aria-label="Day" className="grid flex-1 grid-cols-3 rounded-md border bg-background p-1">
+              <div role="group" aria-label="Day" className="grid flex-1 grid-cols-3 rounded-md border bg-background p-0.5">
                 {TABS.map((tab) => {
                   const on = Boolean(date && today && tabFor(date, today) === tab);
                   return (
@@ -179,7 +180,7 @@ export function DriverPage() {
                       key={tab}
                       type="button"
                       size="lg"
-                      className="px-1"
+                      className="px-1 text-base font-medium tracking-tight"
                       variant={on ? 'default' : 'ghost'}
                       aria-pressed={on}
                       disabled={!today}
@@ -194,7 +195,7 @@ export function DriverPage() {
                 type="button"
                 variant="outline"
                 size="icon"
-                className="h-12 w-12 shrink-0"
+                className="h-auto w-11 shrink-0"
                 aria-label="Day after"
                 disabled={!date}
                 onClick={() => date && show(addDays(date, 1))}
@@ -227,7 +228,19 @@ export function DriverPage() {
                 Next from Dave: {shortDate(nextAssigned)} →
               </button>
             )}
-            <DaySection today={today} date={date} shown={shown} />
+            <DaySection
+              today={today}
+              date={date}
+              shown={shown}
+              onDismiss={async (assignment) => {
+                try {
+                  await dismissAssignment(assignment.id);
+                  setShown((day) => day && { ...day, assignments: day.assignments.filter((a) => a.id !== assignment.id) });
+                } catch (error) {
+                  toast.error(error instanceof Refused ? error.message : 'Could not dismiss it. Try again.');
+                }
+              }}
+            />
           </>
         )}
       </main>
@@ -247,8 +260,19 @@ function Loading({ what }: { what: string }) {
  * The day shown, titled "Today, Sun, Nov 22" (Yesterday and Tomorrow too) or
  * just "Mon, Nov 23" for any other day: his Assigned Assignments as cards, or
  * "Nothing from Dave yet for Monday." while Dave has Assigned him nothing.
+ * A cancelled card has Dismiss, which clears it off his day.
  */
-function DaySection({ today, date, shown }: { today: string | null; date: string | null; shown: Shown }) {
+function DaySection({
+  today,
+  date,
+  shown,
+  onDismiss,
+}: {
+  today: string | null;
+  date: string | null;
+  shown: Shown;
+  onDismiss: (assignment: DriverAssignment) => Promise<void>;
+}) {
   // The day as last read, until a refresh that moved on to a new day answers.
   const day = shown?.date ?? date;
   const tab = day && today ? tabFor(day, today) : null;
@@ -261,9 +285,9 @@ function DaySection({ today, date, shown }: { today: string | null; date: string
       {shown === undefined && <Loading what="your day" />}
       {shown === null && <p className="text-destructive">Could not load this day. It tries again when you come back to the page.</p>}
       {shown && shown.assignments.length === 0 && (
-        <p className="text-lg text-muted-foreground">Nothing from Dave yet for {weekdayName(shown.date)}.</p>
+        <p className="rounded-lg border border-dashed bg-card p-5 text-lg text-muted-foreground">Nothing from Dave yet for {weekdayName(shown.date)}.</p>
       )}
-      {shown?.assignments.map((assignment) => <DriverCard key={assignment.id} assignment={assignment} />)}
+      {shown?.assignments.map((assignment) => <DriverCard key={assignment.id} assignment={assignment} onDismiss={onDismiss} />)}
     </section>
   );
 }

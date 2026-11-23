@@ -28,8 +28,8 @@ function shown(field: ListField<ListName> | null, value: unknown): string | bool
 /**
  * Edits one entry, saving each field as Dave changes it: text once typing
  * pauses (or the panel closes), a pick at once. A new entry (entry null) is
- * added once it has a name, then changed like any other. Remove asks first;
- * a removed entry offers Bring back instead. Nothing is ever deleted.
+ * added once it has a name, then changed like any other. Remove asks first
+ * and closes the panel. Nothing is ever deleted.
  */
 export function EntryPanel({
   spec,
@@ -217,16 +217,11 @@ export function EntryPanel({
           <SaveStatus status={status} />
         </form>
         <DialogFooter className="gap-2 sm:justify-between">
-          {saved &&
-            (saved.active ? (
-              <Button type="button" variant="outline" className="text-destructive" onClick={() => setAsking(true)}>
-                Remove
-              </Button>
-            ) : (
-              <Button type="button" variant="outline" onClick={() => setActive(true)}>
-                Bring back
-              </Button>
-            ))}
+          {saved?.active && (
+            <Button type="button" variant="outline" className="text-destructive" onClick={() => setAsking(true)}>
+              Remove
+            </Button>
+          )}
           <Button type="button" onClick={close}>
             Done
           </Button>
@@ -293,7 +288,7 @@ function ConfirmRemove({ spec, entry, onKeep, onRemove }: { spec: SectionSpec<Li
         <DialogHeader>
           <DialogTitle className="font-display text-xl uppercase tracking-wide">Remove {name}?</DialogTitle>
           <DialogDescription>
-            {name} is left off the Board's lists. Old Assignments keep the name, and the {spec.noun} can be brought back from Settings.
+            {name} is left off the Board's lists. Old Assignments keep the name.
           </DialogDescription>
         </DialogHeader>
         {warning && <p className="text-sm font-medium text-destructive">{warning}</p>}

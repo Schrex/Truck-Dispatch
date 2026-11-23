@@ -239,7 +239,8 @@ export function AssignmentEditor({
 
       {alert('move')}
       <div data-actions className="flex flex-wrap items-center justify-end gap-2">
-        {actions}
+        {/* Cancel or Delete stands apart on the left, so it is never mistaken for Close. */}
+        <div className="mr-auto flex flex-wrap items-center gap-2">{actions}</div>
         {MOVES.filter(({ direction }) => (direction === 'earlier' ? !first : !last)).map(({ direction, words, icon: Icon }) => (
           <Button key={direction} type="button" variant="outline" size="lg" className="px-5" disabled={saving === 'move'} onClick={() => move(direction)}>
             <Icon className="h-4 w-4" />

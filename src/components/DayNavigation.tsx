@@ -61,10 +61,16 @@ export function DayNavigation({
 
   return (
     <>
+      {/* Back to comes first, so the arrows and Settings never move when it appears. */}
+      {date && nextWorkingDay && date !== nextWorkingDay && (
+        <Button variant="ghost" size="lg" className="px-4" onClick={() => onShow(nextWorkingDay)}>
+          <Undo2 className="h-4 w-4" /> Back to {shortDate(nextWorkingDay)}
+        </Button>
+      )}
       <div className="flex items-center gap-1">
         <Button
           variant="outline"
-          className="h-11 gap-1 px-3"
+          className="h-11 min-w-[6.5rem] gap-1 px-3"
           aria-label={targets ? `Previous Working day, ${targets.previous.label}` : 'Previous Working day'}
           disabled={!targets}
           onClick={() => targets && onShow(targets.previous.date)}
@@ -74,7 +80,7 @@ export function DayNavigation({
         </Button>
         <Button
           variant="outline"
-          className="h-11 gap-1 px-3"
+          className="h-11 min-w-[6.5rem] gap-1 px-3"
           aria-label={targets ? `Next Working day, ${targets.next.label}` : 'Next Working day'}
           disabled={!targets}
           onClick={() => targets && onShow(targets.next.date)}
@@ -83,11 +89,6 @@ export function DayNavigation({
           <ChevronRight className="h-4 w-4" />
         </Button>
       </div>
-      {date && nextWorkingDay && date !== nextWorkingDay && (
-        <Button variant="ghost" size="lg" className="px-4" onClick={() => onShow(nextWorkingDay)}>
-          <Undo2 className="h-4 w-4" /> Back to {shortDate(nextWorkingDay)}
-        </Button>
-      )}
     </>
   );
 }
