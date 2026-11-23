@@ -1,12 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
-import type { CheckIn as CheckInRead, Driver, InspectionAnswerKind, InspectionItem, NewInspection, Truck, TruckProblem } from '../../shared/types';
+import { NOTE_LIMIT, type CheckIn as CheckInRead, type Driver, type InspectionAnswerKind, type InspectionItem, type NewInspection, type Truck, type TruckProblem } from '../../shared/types';
 import { addDays, businessDateOf, clockTime, shortDate, weekdayName } from '../../shared/days';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { addInspection, fetchList, fetchTruckProblems, FieldErrors, reportTruckProblem } from '@/lib/api';
 import { cn } from '@/lib/utils';
+
+/** A failed send as the Driver reads it: what to do, then the Worker's reasons when it gave any. */
+function failedSend(what: string, error: unknown): string {
+  const said = error instanceof FieldErrors ? Object.values(error.fields).join(' ') : '';
+  return said ? `${what} ${said}` : what;
+}
 
 /** The three answers, as the Driver taps them. */
 const ANSWERS: { kind: InspectionAnswerKind; word: string }[] = [
@@ -104,8 +110,7 @@ function CheckedIn({ driver, checkIn, onAgain }: { driver: Driver; checkIn: Chec
       close();
       setSent(problem.text);
     } catch (error) {
-      const said = error instanceof FieldErrors ? Object.values(error.fields).join(' ') : '';
-      setFailure(`Could not send the problem. Your note is kept: try Send to Dave again.${said ? ` ${said}` : ''}`);
+      setFailure(failedSend('Could not send the problem. Your note is kept: try Send to Dave again.', error));
     } finally {
       setSending(false);
     }
@@ -137,7 +142,7 @@ function CheckedIn({ driver, checkIn, onAgain }: { driver: Driver; checkIn: Chec
             aria-label="What is the problem?"
             placeholder={`What is wrong with Truck ${checkIn.truckNumber}?`}
             className="h-12 text-lg"
-            maxLength={1000}
+            maxLength={NOTE_LIMIT}
             value={note}
             onChange={(event) => setNote(event.target.value)}
             autoFocus
@@ -170,7 +175,8 @@ interface Answering {
  * Other notes. Finish is allowed once every item that is not optional is
  * answered and every Needs repair has its note. The Inspection's id is made
  * when it starts, so a Finish that failed is retried with the same id and is
- * never saved twice; a failure keeps every answer.
+ * never saved twice; a failure keeps every answer. Picking another Truck once
+ * started starts a fresh Inspection for it.
  */
 function CheckInCard({ driver, today, onCancel, onCheckedIn }: {
   driver: Driver;
@@ -187,18 +193,19 @@ function CheckInCard({ driver, today, onCancel, onCheckedIn }: {
   const [answers, setAnswers] = useState<Record<string, Answering>>({});
   const [otherNotes, setOtherNotes] = useState('');
   const [saving, setSaving] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
+  /** Why the last Finish failed, until the next one. */
+  const [failure, setFailure] = useState<string | null>(null);
   /** The open problems of the Truck being inspected, read once the Inspection starts and again for another Truck. */
-  const [open, setOpen] = useState<TruckProblem[]>([]);
+  const [openProblems, setOpenProblems] = useState<TruckProblem[]>([]);
   const started = id !== null;
 
   useEffect(() => {
-    setOpen([]);
+    setOpenProblems([]);
     if (!started || !truckId) return;
     let stale = false;
     // One that cannot be read lists nothing: the Inspection goes on without it.
     fetchTruckProblems({ open: true, truckId }).then(
-      (problems) => !stale && setOpen(problems),
+      (problems) => !stale && setOpenProblems(problems),
       () => {},
     );
     return () => {
@@ -222,6 +229,21 @@ function CheckInCard({ driver, today, onCancel, onCheckedIn }: {
       stale = true;
     };
   }, [driver.defaultTruckId]);
+
+  /**
+   * Picks a Truck. Once the Inspection has started, another Truck starts a
+   * fresh one: a new id and no answers, since they were for the other Truck,
+   * so a Finish retried after a lost reply can never save the first Truck's.
+   */
+  const pickTruck = (next: string) => {
+    if (next === truckId) return;
+    setTruckId(next);
+    if (!started) return;
+    setId(crypto.randomUUID());
+    setAnswers({});
+    setOtherNotes('');
+    setFailure(null);
+  };
 
   const answer = (itemId: string, kind: InspectionAnswerKind) =>
     setAnswers((current) => ({ ...current, [itemId]: { answer: kind, repairNote: current[itemId]?.repairNote ?? '' } }));
@@ -250,7 +272,7 @@ function CheckInCard({ driver, today, onCancel, onCheckedIn }: {
       ...(otherNotes.trim() ? { otherNotes: otherNotes.trim() } : {}),
     };
     setSaving(true);
-    setProblem(null);
+    setFailure(null);
     try {
       const saved = await addInspection(body);
       onCheckedIn({
@@ -258,8 +280,7 @@ function CheckInCard({ driver, today, onCancel, onCheckedIn }: {
         inspectionId: saved.id, doneAt: saved.doneAt, needsRepair: saved.needsRepair,
       });
     } catch (error) {
-      const said = error instanceof FieldErrors ? Object.values(error.fields).join(' ') : '';
-      setProblem(`Could not finish the check-in. Your answers are kept: try Finish again.${said ? ` ${said}` : ''}`);
+      setFailure(failedSend('Could not finish the check-in. Your answers are kept: try Finish again.', error));
     } finally {
       setSaving(false);
     }
@@ -286,7 +307,8 @@ function CheckInCard({ driver, today, onCancel, onCheckedIn }: {
               className="px-4 text-lg"
               variant={truck.id === truckId ? 'default' : 'outline'}
               aria-pressed={truck.id === truckId}
-              onClick={() => setTruckId(truck.id)}
+              disabled={saving}
+              onClick={() => pickTruck(truck.id)}
             >
               Truck {truck.number}
             </Button>
@@ -307,7 +329,7 @@ function CheckInCard({ driver, today, onCancel, onCheckedIn }: {
         </div>
       ) : (
         <>
-          <OpenProblems truck={trucks?.find((t) => t.id === truckId)} problems={open} today={today} />
+          <OpenProblems truck={trucks?.find((t) => t.id === truckId)} problems={openProblems} today={today} />
           <ul className="space-y-4">
             {items?.map((item) => {
               const label = item.optional ? `${item.label} (optional)` : item.label;
@@ -337,7 +359,7 @@ function CheckInCard({ driver, today, onCancel, onCheckedIn }: {
                       aria-label={`What needs repair: ${item.label}`}
                       placeholder="What needs repair?"
                       className="h-12 text-lg"
-                      maxLength={1000}
+                      maxLength={NOTE_LIMIT}
                       value={given.repairNote}
                       onChange={(event) => note(item.id, event.target.value)}
                     />
@@ -348,9 +370,9 @@ function CheckInCard({ driver, today, onCancel, onCheckedIn }: {
           </ul>
           <label className="block space-y-2">
             <span className="text-lg font-medium">Other notes</span>
-            <Textarea className="text-lg" maxLength={1000} value={otherNotes} onChange={(event) => setOtherNotes(event.target.value)} />
+            <Textarea className="text-lg" maxLength={NOTE_LIMIT} value={otherNotes} onChange={(event) => setOtherNotes(event.target.value)} />
           </label>
-          {problem && <p className="text-destructive">{problem}</p>}
+          {failure && <p className="text-destructive">{failure}</p>}
           <div className="flex flex-wrap gap-2">
             <Button type="button" size="lg" className="text-lg" disabled={!complete || saving} onClick={finish}>
               {saving && <Loader2 className="h-4 w-4 animate-spin" />}

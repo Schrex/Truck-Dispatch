@@ -36,7 +36,8 @@ function tabFor(date: string, today: string): Tab | null {
  * back into view it reads today again and the day shown, so a phone left
  * overnight on Today moves on to the new day and Dave's latest changes show.
  * On Today only, the Check in card (or, once he has checked in, its one line)
- * sits above his Assignments (components/CheckIn.tsx).
+ * sits above his Assignments (components/CheckIn.tsx); when his check-in
+ * cannot be read, it says so and still offers the card.
  */
 export function DriverPage() {
   const [drivers, setDrivers] = useState<Driver[] | null>(null);
@@ -206,7 +207,19 @@ export function DriverPage() {
                 {checkIn === undefined && checkInFailed && (
                   <p className="text-destructive">Could not load your check-in. It tries again when you come back to the page.</p>
                 )}
-                {checkIn !== undefined && <CheckIn key={driver.id} driver={driver} today={today} checkIn={checkIn} onCheckedIn={setCheckIn} />}
+                {/* A check-in that cannot be read never stops him checking in: the latest one counts. */}
+                {(checkIn !== undefined || checkInFailed) && (
+                  <CheckIn
+                    key={driver.id}
+                    driver={driver}
+                    today={today}
+                    checkIn={checkIn ?? null}
+                    onCheckedIn={(done) => {
+                      setCheckIn(done);
+                      setCheckInFailed(false);
+                    }}
+                  />
+                )}
               </>
             )}
             {nextAssigned && nextAssigned !== date && (

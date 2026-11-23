@@ -39,6 +39,7 @@ const checklist = [
 ];
 /** Each Driver's check-in by date, as the Worker would answer it: his latest Inspection that day. */
 let checkIns: Record<string, CheckIn[]> = {};
+let failCheckIns = false;
 /** Every Finish the phone sent, and how many to fail before one is saved. */
 const finished: NewInspection[] = [];
 let failFinishes = 0;
@@ -58,6 +59,7 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   const path = url.pathname;
   if (path.endsWith('/api/today')) return answer(businessDay);
   if (path.endsWith('/api/check-ins')) {
+    if (failCheckIns) return answer({ error: 'oops' }, 500);
     const date = url.searchParams.get('date')!;
     return answer({ date, checkIns: checkIns[date] ?? [] });
   }
@@ -162,6 +164,7 @@ beforeEach(() => {
   read.length = 0;
   trucks = trucks.map((t) => ({ ...t, active: t.id !== 'trk-30' }));
   checkIns = {};
+  failCheckIns = false;
   finished.length = 0;
   failFinishes = 0;
   problems = [];
@@ -506,6 +509,39 @@ describe('checking in on Today', () => {
     expect((await screen.findByRole('region', { name: 'Checked in' })).textContent).toContain('Truck 21 · checked in 6:42');
     expect(finished).toHaveLength(2);
     expect(finished[1].id).toBe(finished[0].id);
+  });
+
+  it('starts a fresh Inspection when he picks another Truck after starting, so a retry never saves the first Truck\'s', async () => {
+    failFinishes = 1;
+    open('/');
+    await start();
+    tap('Tires / wheels', 'OK');
+    tap('Lights', 'OK');
+    fireEvent.click(finish());
+    await within(await checkInCard()).findByText(/Could not finish the check-in/);
+
+    fireEvent.click(within(await truckPicker()).getByRole('button', { name: 'Truck 24' }));
+    expect(item('Lights').querySelector('[aria-pressed="true"]')).toBeNull();
+    expect(within(await checkInCard()).queryByText(/Could not finish the check-in/)).toBeNull();
+    expect(finish().disabled).toBe(true);
+    tap('Tires / wheels', 'OK');
+    tap('Lights', 'OK');
+    fireEvent.click(finish());
+    expect((await screen.findByRole('region', { name: 'Checked in' })).textContent).toContain('Truck 24 · checked in 6:42');
+    expect(finished.map((f) => f.truckId)).toEqual(['trk-21', 'trk-24']);
+    expect(finished[1].id).not.toBe(finished[0].id);
+  });
+
+  it('still offers the Check in card when his check-in cannot be read, and says so', async () => {
+    failCheckIns = true;
+    open('/');
+    expect(await screen.findByText('Could not load your check-in. It tries again when you come back to the page.')).toBeTruthy();
+    await start();
+    tap('Tires / wheels', 'OK');
+    tap('Lights', 'OK');
+    fireEvent.click(finish());
+    expect((await screen.findByRole('region', { name: 'Checked in' })).textContent).toContain('Truck 21 · checked in 6:42');
+    expect(screen.queryByText(/Could not load your check-in/)).toBeNull();
   });
 
   it('shows the line when he has already checked in, and Check in again starts a new one that then counts', async () => {
