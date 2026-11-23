@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/sonner';
 import { useReadOnFocus } from '@/lib/useReadOnFocus';
 import { assignAssignment, discardAssignment, fetchBusinessDay, fetchCheckIns, fetchDay, fetchList, fetchTruckProblems, Refused } from '@/lib/api';
+import { Loading } from '@/components/States';
 
 /** Every open Truck problem, for the marks. */
 const readOpenProblems = () => fetchTruckProblems({ open: true });
@@ -176,7 +177,7 @@ export function BoardPage() {
     <div className="min-h-screen bg-surface">
       <PageHeader
         title="Dispatch"
-        subtitle={date ? daySubtitle(date, businessDay?.today ?? null) : 'Loading…'}
+        subtitle={date ? daySubtitle(date, businessDay?.today ?? null) : <Loading />}
         below={date && <WeekStrip date={date} today={businessDay?.today ?? null} refresh={dayShown} onShow={show} />}
       >
         <ViewToggle current="scheduler" />

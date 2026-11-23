@@ -151,7 +151,7 @@ export function SettingsPage() {
         <Button
           variant="ghost"
           size="sm"
-          className="h-11 w-9 rounded-full p-0 text-muted-foreground shadow-none hover:bg-background hover:text-foreground"
+          className="h-11 w-11 rounded-full p-0 text-muted-foreground shadow-none hover:bg-background hover:text-foreground"
           aria-label={`Move ${name} ${by < 0 ? 'up' : 'down'}`}
           title={by < 0 ? 'Earlier in the list' : 'Later in the list'}
           onClick={() => move(spec, list, inUse, index, by)}

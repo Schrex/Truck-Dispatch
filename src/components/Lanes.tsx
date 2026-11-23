@@ -7,6 +7,7 @@ import { LaneProblems, openOn } from '@/components/ProblemMark';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { cn, initials } from '@/lib/utils';
+import { EmptyBox } from '@/components/States';
 
 interface Lane {
   key: string;
@@ -230,7 +231,7 @@ export function Lanes({
                 )}
               </div>
               {lane.assignments.length === 0 ? (
-                <p className="flex min-h-11 items-center rounded-md border border-dashed border-border px-3 text-sm text-muted-foreground md:flex-1">Nothing planned yet</p>
+                <EmptyBox className="md:flex-1">Nothing planned yet</EmptyBox>
               ) : (
                 <ol className="grid gap-2 sm:grid-cols-2 md:flex-1 lg:grid-cols-3">
                   {lane.assignments.map((assignment, i) => (

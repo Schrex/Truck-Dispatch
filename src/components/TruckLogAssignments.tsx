@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { EmptyBox } from '@/components/States';
 import { easternTime } from '../../shared/days';
 import type { TruckLogColumn, TruckLogTrip } from '../../shared/trips';
 
@@ -30,7 +31,7 @@ export function TruckLogAssignments({ columns, shopTrips }: { columns: TruckLogC
             ['Trucking hours', column.truckingHours === null ? '' : column.truckingHours.toFixed(2)],
           ];
           return (
-            <div key={column.id} className={column.unverified ? 'rounded-md border border-dashed border-warning bg-warning/10' : 'rounded-md border'}>
+            <div key={column.id} className={column.unverified ? 'rounded-md border border-warning bg-warning/10' : 'rounded-md border'}>
               <h3 className="border-b px-3 py-1 text-xs font-semibold uppercase tracking-wide">{name}</h3>
               <dl role="group" aria-label={name} className="divide-y">
                 {rows.map(([label, value]) => (
@@ -47,7 +48,7 @@ export function TruckLogAssignments({ columns, shopTrips }: { columns: TruckLogC
       <div role="group" aria-label="To and from the shop" className="space-y-1">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">To and from the shop</h3>
         {shopTrips.length === 0 ? (
-          <p className="text-sm text-muted-foreground">None yet</p>
+          <EmptyBox>None yet</EmptyBox>
         ) : (
           <ul className="space-y-1 text-sm">
             {shopTrips.map((trip) => (

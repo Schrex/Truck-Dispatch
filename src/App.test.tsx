@@ -1512,13 +1512,15 @@ describe('the week strip', () => {
   it('pages a week at a time, keeping the weekday', async () => {
     open('/?date=2026-11-20');
     await waitFor(() => expect(pager()).toBe('Nov 16 to Nov 22'));
-    fireEvent.click(within(strip()).getByRole('button', { name: 'Next week' }));
+    // Each arrow names the Monday of the week it goes to.
+    expect(within(strip()).getByRole('button', { name: 'Previous week, Nov 9' }).textContent).toBe('Nov 9');
+    fireEvent.click(within(strip()).getByRole('button', { name: 'Next week, Nov 23' }));
     await waitFor(() => expect(address()).toBe('/?date=2026-11-27'));
     expect(pager()).toBe('Nov 23 to Nov 29');
     expect(tile('Fri 27').getAttribute('aria-pressed')).toBe('true');
-    fireEvent.click(within(strip()).getByRole('button', { name: 'Previous week' }));
+    fireEvent.click(within(strip()).getByRole('button', { name: /^Previous week/ }));
     await waitFor(() => expect(address()).toBe('/?date=2026-11-20'));
-    fireEvent.click(within(strip()).getByRole('button', { name: 'Previous week' }));
+    fireEvent.click(within(strip()).getByRole('button', { name: /^Previous week/ }));
     await waitFor(() => expect(address()).toBe('/?date=2026-11-13'));
     expect(pager()).toBe('Nov 9 to Nov 15');
   });

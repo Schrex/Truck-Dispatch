@@ -406,15 +406,17 @@ describe('a Driver\'s yesterday, today and tomorrow', () => {
     sentDays['drv-a 2026-11-22'] = [card({ date: '2026-11-22', note: 'Sunday haul' })];
     open('/');
     await day('Today, Thu, Nov 19');
-    fireEvent.click(screen.getByRole('button', { name: 'Day after' }));
+    // Each arrow names the day it goes to.
+    expect(screen.getByRole('button', { name: 'Day before, Wed 18' }).textContent).toBe('Wed 18');
+    fireEvent.click(screen.getByRole('button', { name: 'Day after, Fri 20' }));
     await day('Tomorrow, Fri, Nov 20');
-    fireEvent.click(screen.getByRole('button', { name: 'Day after' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Day after/ }));
     expect(await day('Sat, Nov 21')).toBeTruthy();
     const toggle = screen.getByRole('group', { name: 'Day' });
     expect(within(toggle).getAllByRole('button').every((b) => b.getAttribute('aria-pressed') === 'false')).toBe(true);
-    fireEvent.click(screen.getByRole('button', { name: 'Day after' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Day after/ }));
     expect(within(await day('Sun, Nov 22')).getByText('Sunday haul')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Day before' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Day before/ }));
     await day('Sat, Nov 21');
     await pick('Today');
     expect(await day('Today, Thu, Nov 19')).toBeTruthy();
@@ -688,7 +690,7 @@ describe('checking in on Today', () => {
     await pick('Tomorrow');
     await day('Tomorrow, Fri, Nov 20');
     expect(screen.queryByRole('region', { name: 'Check in' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Day after' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Day after/ }));
     await day('Sat, Nov 21');
     expect(screen.queryByRole('region', { name: 'Check in' })).toBeNull();
     expect(screen.queryByRole('region', { name: 'Checked in' })).toBeNull();
