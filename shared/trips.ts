@@ -68,7 +68,8 @@ export interface TripAssignment extends Route {
   changes: { changedAt: string; before: Route }[];
 }
 
-export type TripKind = 'load' | 'empty' | null;
+/** `not_a_haul`: Dave answered its Unplanned work "Not a haul" (fuel, a repair, personal). */
+export type TripKind = 'load' | 'empty' | 'not_a_haul' | null;
 
 /** Which rule decided a Trip, and in words why. Rule 7 is "nothing fits". */
 export interface Match {
@@ -298,6 +299,33 @@ export interface MadeAssignment extends TripAssignment {
 export interface UnplannedAnswers {
   /** "Make an Assignment": each claims only the Trips of the piece it answers. */
   madeAssignments?: MadeAssignment[];
+  /** "Link to an Assignment": each reroutes that Assignment from the piece's first Trip. */
+  links?: UnplannedLink[];
+  /** "Not a haul": the pieces whose Trips were no haul, with Dave's note. */
+  notHauls?: NotAHaul[];
+}
+
+/**
+ * "Link to an Assignment" (#76): Dave says one piece of Unplanned work was
+ * that Assignment's, on a new route. It is recorded as a change to the
+ * Assignment's route (assignment_changes) from the leave time of the piece's
+ * first Trip, as a reroute is.
+ */
+export interface UnplannedLink {
+  /** The Unplanned work it answers (UnplannedWork.id, its first Trip's leftAt). */
+  unplannedId: string;
+  assignmentId: string;
+  /** The route from then on: From where Dave says the Truck loaded, To the piece's other Place. */
+  fromPlaceId: string | null;
+  toPlaceId: string | null;
+}
+
+/** "Not a haul" (#76): the piece's Trips stay in the Trip log and in Total hours, but belong to no Assignment. */
+export interface NotAHaul {
+  /** The Unplanned work it answers (UnplannedWork.id). */
+  unplannedId: string;
+  /** Dave's note (fuel, repair, personal), if any. */
+  note: string | null;
 }
 
 export interface TripDayInput {
@@ -386,6 +414,21 @@ function clean(known: ReturnType<typeof knownAt>, places: TripPlace[]) {
     visits.push({ ...visit, placeId, startOfDay: isLocalMidnight(visit.enteredAt), raw: [raw] });
   }
   return { visits, dropped, merged };
+}
+
+/**
+ * The Assignment once Dave links Unplanned work to it: rerouted from the
+ * piece's first Trip (its id), with what it had then kept as the change's
+ * `before`. A later change it had is overtaken by the link.
+ */
+export function linkedAssignment<A extends TripAssignment>(assignment: A, link: UnplannedLink): A {
+  const changedAt = link.unplannedId;
+  return {
+    ...assignment,
+    fromPlaceId: link.fromPlaceId,
+    toPlaceId: link.toPlaceId,
+    changes: [...assignment.changes.filter((c) => ms(c.changedAt) <= ms(changedAt)), { changedAt, before: routeAt(assignment, changedAt) }],
+  };
 }
 
 /** The Assignment as it was at `at`: the earliest change after it kept what it had then. */
@@ -616,7 +659,7 @@ const runId = (trips: Trip[], run: number[]) => trips[run[0]].leftAt;
  * for it. Before its first Load, a drive to its pickup is just that (rule 4),
  * not "the way back" (rule 2): nothing was hauled yet to come back from.
  */
-function matchMade(trip: Trip, made: MadeAssignment, places: TripPlace[], loaded: boolean): Match {
+function matchMade(trip: Trip, made: TripAssignment, places: TripPlace[], loaded: boolean): Match {
   const m = matchTrip(trip, [made], places);
   if (m.rule === 2 && !loaded) return { kind: 'empty', assignmentId: made.id, rule: 4, reason: 'Going to the Assignment’s pickup' };
   return m;
@@ -630,21 +673,39 @@ function matchMade(trip: Trip, made: MadeAssignment, places: TripPlace[], loaded
  * are matched without it. A Trip of that piece it does not fit stays
  * Unplanned work.
  */
-function answerRuns(trips: Trip[], runs: number[][], answers: UnplannedAnswers, places: TripPlace[]): Trip[] {
+function answerRuns(trips: Trip[], runs: number[][], answers: UnplannedAnswers, assignments: TripAssignment[], places: TripPlace[]): Trip[] {
   const out = [...trips];
-  for (const made of answers.madeAssignments ?? []) {
-    const run = runs.find((r) => runId(trips, r) === made.unplannedId);
-    if (!run) continue;
+  const claim = (unplannedId: string, owner: TripAssignment) => {
+    const run = runs.find((r) => runId(trips, r) === unplannedId);
+    if (!run) return;
     let loaded = false;
     for (const i of run) {
-      const m = matchMade(trips[i], made, places, loaded);
+      const m = matchMade(trips[i], owner, places, loaded);
       if (m.assignmentId === null) continue;
       if (m.kind === 'load') loaded = true;
       out[i] = { ...trips[i], match: m };
     }
+  };
+  for (const made of answers.madeAssignments ?? []) claim(made.unplannedId, made);
+  // A link stays inside its own piece the same way: the rerouted Assignment is
+  // matched only against that piece's Trips. Every other Trip keeps the match
+  // it had against Dave's Assignments as planned, so the reroute (which runs
+  // on to the end of the day) never takes a Trip after the piece, and never
+  // one before it either.
+  for (const link of answers.links ?? []) {
+    const a = assignments.find((x) => x.id === link.assignmentId);
+    if (a) claim(link.unplannedId, linkedAssignment(a, link));
+  }
+  for (const no of answers.notHauls ?? []) {
+    const run = runs.find((r) => runId(trips, r) === no.unplannedId);
+    for (const i of run ?? [])
+      out[i] = { ...trips[i], match: { kind: 'not_a_haul', assignmentId: null, rule: 7, reason: no.note ? `Not a haul: ${no.note}` : 'Not a haul' } };
   }
   return out;
 }
+
+/** Still Unplanned work: no Assignment counts it and Dave has not said it was not a haul. */
+const unanswered = (t: Trip) => t.match.assignmentId === null && t.match.kind !== 'not_a_haul';
 
 /** The pieces of Unplanned work: in each run, the written Trips still nobody's, in rows. */
 function piecesOf(trips: Trip[], runs: number[][]): UnplannedWork[] {
@@ -653,7 +714,7 @@ function piecesOf(trips: Trip[], runs: number[][]): UnplannedWork[] {
     let row: Trip[] | null = null;
     for (const i of run) {
       const t = trips[i];
-      if (t.match.assignmentId !== null || !t.written) {
+      if (!unanswered(t) || !t.written) {
         row = null;
         continue;
       }
@@ -679,7 +740,12 @@ export function buildTripDay(input: TripDayInput): TripDay {
   const matched = pair(visits, input.now).map((t) => ({ ...t, match: matchTrip(t, input.assignments, input.places) }));
   const grouped = unplannedRuns(matched);
   const answers = input.answers ?? {};
-  const trips = answerRuns(grouped.trips, grouped.runs, answers, input.places);
+  const trips = answerRuns(grouped.trips, grouped.runs, answers, input.assignments, input.places);
+  // A linked Assignment is summed on its new route (its Job follows it), but it only counts the Trips answerRuns gave it.
+  const planned = input.assignments.map((a) => {
+    const link = answers.links?.find((l) => l.assignmentId === a.id);
+    return link ? linkedAssignment(a, link) : a;
+  });
   const unplanned = piecesOf(trips, grouped.runs);
   // Inside cleaned visits only: a drive-through's miles are already in the Trip across it,
   // and a short exit's miles are inside the joined visit.
@@ -693,7 +759,7 @@ export function buildTripDay(input: TripDayInput): TripDay {
     merged,
     visits,
     trips,
-    assignments: summarize(input, [...input.assignments, ...(answers.madeAssignments ?? [])], trips),
+    assignments: summarize(input, [...planned, ...(answers.madeAssignments ?? [])], trips),
     unplanned,
     whichAssignment: trips
       .filter((t) => t.written && t.match.candidates)

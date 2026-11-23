@@ -253,6 +253,44 @@ describe('Make an Assignment: an answer to Unplanned work', () => {
   });
 });
 
+describe('Link to an Assignment and Not a haul: answers to Unplanned work', () => {
+  const [a1, a2] = scenario('two');
+  const cancelled = [{ ...a1, cancelledAt: '2026-11-16T15:10:00Z' }, a2];
+  const plantRun = '2026-11-16T15:27:50Z';
+  const answered = (answers: Parameters<typeof buildTripDay>[0]['answers']) =>
+    buildTripDay({ places: FIXTURE_PLACES, visits: FIXTURE_VISITS, assignments: cancelled, now: END_OF_DAY, answers });
+
+  it('a link reroutes the Assignment only for its own piece: A2 gains the Plant run’s Load and keeps its Quarry Loads after it', () => {
+    // Linked to A2 loaded at the Plant (Plant → North from 10:27). A2's Quarry → North Loads come after it and stay A2's;
+    // A1's ways back on Plant → North before it stay A1's.
+    const d = answered({ links: [{ unplannedId: plantRun, assignmentId: 'a2', fromPlaceId: 'plc-plant', toPlaceId: 'plc-north' }] });
+    expect(lines(d).slice(2, 8)).toEqual([
+      '08:43 PLANT → J1001 North empty a1',
+      '09:35 J1001 North → PLANT load a1',
+      '09:50 PLANT → J1001 North empty a1',
+      '10:27 J1001 North → PLANT empty a2',
+      '10:41 PLANT → J1001 North load a2',
+      '11:14 J1001 North → PLANT empty a2',
+    ]);
+    expect(d.assignments.map((a) => [a.assignmentId, a.loads])).toEqual([
+      ['a1', 2],
+      ['a2', 3],
+    ]);
+    expect(d.unplanned.map((w) => easternTime(w.leftAt))).toEqual(['14:15']);
+  });
+
+  it('Not a haul takes its piece’s Trips out of Unplanned work and gives them to no Assignment', () => {
+    const d = answered({ notHauls: [{ unplannedId: plantRun, note: null }] });
+    expect(lines(d).slice(5, 8)).toEqual([
+      '10:27 J1001 North → PLANT not_a_haul -',
+      '10:41 PLANT → J1001 North not_a_haul -',
+      '11:14 J1001 North → PLANT not_a_haul -',
+    ]);
+    expect(d.unplanned.map((w) => easternTime(w.leftAt))).toEqual(['14:15']);
+    expect(d.assignments.map((a) => a.loads)).toEqual([2, 2]);
+  });
+});
+
 describe('The day as the Worker knows it during the day', () => {
   it('at 10:02 knows 5 Trips, A1 is Now, and the North visit is still open', () => {
     const d = day('two', '2026-11-16T15:02:00Z');

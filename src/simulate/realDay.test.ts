@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { easternTime } from '../../shared/days';
-import { buildTripDay } from '../../shared/trips';
+import { buildTripDay, linkedAssignment, routeAt } from '../../shared/trips';
 import { REAL_DAY, easternIso } from './realDay';
 
 const scenario = (id: string) => REAL_DAY.scenarios.find((s) => s.id === id)!;
@@ -144,6 +144,95 @@ describe('The Trip builder on the real day (MCK-55-17, Mon 16 Nov 2026)', () => 
 
     it('before its Trips are written, the made Assignment has none yet', () => {
       expect(answered(J611, J25008, '14:00:59').assignments[2]).toMatchObject({ loads: 0, status: 'none', truckingHours: null });
+    });
+  });
+
+  describe('Link to an Assignment: a reroute of it from the Unplanned work’s first Trip', () => {
+    /** The 16 Nov day with the drive to Bishop Kearney and back linked to A2, loaded at J611 (J611 → J25008). */
+    const linked = (time = '23:59:59') => {
+      const unplannedId = at('planned').unplanned[0].id;
+      return buildTripDay({
+        places: REAL_DAY.places,
+        jobs: REAL_DAY.jobs,
+        visits: REAL_DAY.visits,
+        assignments: scenario('planned').assignments,
+        now: easternIso(REAL_DAY.date, time),
+        answers: { links: [{ unplannedId, assignmentId: 'a2', fromPlaceId: 'plc-j611', toPlaceId: 'plc-j25008' }] },
+      });
+    };
+
+    it('as planned, linked to A2 loaded at J611: A2 has 3 Loads, 11:30 to 14:43, and there is no Unplanned work', () => {
+      const d = linked();
+      expect(d.unplanned).toEqual([]);
+      const a2 = d.assignments.find((a) => a.assignmentId === 'a2')!;
+      expect(shown(a2)).toEqual({ loads: 3, status: 'done', since: '11:30' });
+      expect(easternTime(a2.lastLoadAt!)).toBe('14:43');
+      expect(a2.truckingHours).toBe(3.21);
+      expect(a2.job).toMatchObject({ jobNumber: 'J25008' });
+      // A1 keeps its own Trips.
+      expect(d.assignments[0]).toMatchObject({ loads: 4, truckingHours: 3.02 });
+    });
+
+    it('counts the run’s Trips by the rules: 14:15 empty to A2’s new pickup, 14:33 a Load', () => {
+      const run = linked()
+        .trips.filter((t) => ['14:15', '14:33'].includes(easternTime(t.leftAt)))
+        .map((t) => `${easternTime(t.leftAt)} ${t.match.kind} ${t.match.assignmentId}`);
+      expect(run).toEqual(['14:15 empty a2', '14:33 load a2']);
+    });
+
+    it('records the link as a change to A2’s route at 14:15, the first Trip’s leave time', () => {
+      const a2 = scenario('planned').assignments[1];
+      const unplannedId = at('planned').unplanned[0].id;
+      const rerouted = linkedAssignment(a2, { unplannedId, assignmentId: 'a2', fromPlaceId: 'plc-j611', toPlaceId: 'plc-j25008' });
+      expect(easternTime(rerouted.changes.at(-1)!.changedAt)).toBe('14:15');
+      expect(rerouted.changes.at(-1)!.before).toEqual({ fromPlaceId: a2.fromPlaceId, toPlaceId: a2.toPlaceId });
+      expect(routeAt(rerouted, easternIso(REAL_DAY.date, '14:00:00'))).toEqual({ fromPlaceId: a2.fromPlaceId, toPlaceId: a2.toPlaceId });
+      expect(routeAt(rerouted, easternIso(REAL_DAY.date, '23:00:00'))).toEqual({ fromPlaceId: 'plc-j611', toPlaceId: 'plc-j25008' });
+    });
+  });
+
+  describe('Not a haul: the Unplanned work was fuel, a repair or personal', () => {
+    const notAHaul = (note: string | null, time = '23:59:59') => {
+      const unplannedId = at('planned').unplanned[0].id;
+      return buildTripDay({
+        places: REAL_DAY.places,
+        jobs: REAL_DAY.jobs,
+        visits: REAL_DAY.visits,
+        assignments: scenario('planned').assignments,
+        now: easternIso(REAL_DAY.date, time),
+        answers: { notHauls: [{ unplannedId, note }] },
+      });
+    };
+
+    it('with the note "fuel": no Unplanned work, both Trips stay, marked not a haul with the note, and belong to no Assignment', () => {
+      const d = notAHaul('fuel');
+      expect(d.unplanned).toEqual([]);
+      const run = d.trips
+        .filter((t) => ['14:15', '14:33'].includes(easternTime(t.leftAt)))
+        .map((t) => `${easternTime(t.leftAt)} ${t.match.kind} ${t.match.assignmentId} ${t.match.reason}`);
+      expect(run).toEqual(['14:15 not_a_haul null Not a haul: fuel', '14:33 not_a_haul null Not a haul: fuel']);
+      expect(d.assignments.map((a) => [a.loads, a.truckingHours])).toEqual([
+        [4, 3.02],
+        [2, 2.4],
+      ]);
+    });
+
+    it('with no note it just says Not a haul', () => {
+      expect(notAHaul(null).trips.find((t) => easternTime(t.leftAt) === '14:15')!.match.reason).toBe('Not a haul');
+    });
+
+    it('leaves Total hours as they were: 9.88', () => {
+      const unplannedId = at('planned').unplanned[0].id;
+      const d = buildTripDay({
+        places: REAL_DAY.places,
+        visits: REAL_DAY.visits,
+        assignments: scenario('planned').assignments,
+        now: easternIso(REAL_DAY.date, '23:59:59'),
+        ignition: REAL_DAY.ignition,
+        dayOver: true,
+        answers: { notHauls: [{ unplannedId, note: 'fuel' }] },
+      });
+      expect(d.truckDay.totalHours).toBe(9.88);
     });
   });
 
