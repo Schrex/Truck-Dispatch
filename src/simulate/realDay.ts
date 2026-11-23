@@ -13,13 +13,28 @@ import type { FleetVisit, IgnitionEvent, TripAssignment, TripJob, TripPlace } fr
 /** An Assignment as the simulation plans it: what the Trip builder matches, and the Material the board shows. */
 export interface PlannedAssignment extends TripAssignment {
   materialName: string;
+  /** Whose it is; none means Randy's. */
+  driverId?: string;
+  /** The Truck it names; none means the Driver's usual one. */
+  truckId?: string | null;
+}
+
+/** The Truck's day as a made-up scenario has it instead of the real one: its Fleet rows, meter readings and ignition. */
+export interface ScenarioDay {
+  visits: FleetVisit[];
+  meter: { startOdometer: number; endOdometer: number; endReadAt: string };
+  ignition: IgnitionEvent[];
 }
 
 export interface Scenario {
   id: string;
   name: string;
-  /** Dave's Assignments for Randy, in his order. */
+  /** Dave's Assignments, in his order: Randy's unless they name another Driver. */
   assignments: PlannedAssignment[];
+  /** The Drivers on the board that day; none means Randy only. */
+  drivers?: Driver[];
+  /** A made-up day in place of the real one (e.g. a run to split); none means the real 16 Nov day. */
+  day?: ScenarioDay;
 }
 
 /** US Eastern's offset on a date, "-05:00" or "-04:00". */
@@ -88,15 +103,44 @@ const assignment = (
   toPlaceId: string | null,
   materialName: string,
   extra: Partial<TripAssignment> = {},
-): PlannedAssignment => ({ id, label, fromPlaceId, toPlaceId, materialName, cancelledAt: null, changes: [], ...extra });
+  whose: Pick<PlannedAssignment, 'driverId' | 'truckId'> = {},
+): PlannedAssignment => ({ id, label, fromPlaceId, toPlaceId, materialName, cancelledAt: null, changes: [], ...extra, ...whose });
 
 const A2 = assignment('a2', 'A2', WALWORTH, J25008, '1&2 stone');
+
+const RANDY = { id: 'drv-randy', name: 'Randy', defaultTruckId: 'trk-55', sortOrder: 1, active: true } satisfies Driver;
+/** Made up for the "Who was driving?" scenario: a spare Driver with no usual Truck. */
+const SAM = { id: 'drv-sam', name: 'Sam', defaultTruckId: null, sortOrder: 2, active: true } satisfies Driver;
+
+/**
+ * Made up, not Fleet data: a day whose one run held two hauls, for Split
+ * (#77). Two Loads of A1 from Walworth to J25008, then J25008 → J611 →
+ * Villager → J25008 that nothing Dave Assigned explains, then the shop.
+ */
+const SPLIT_DAY: ScenarioDay = {
+  visits: [
+    visit('SHOP', '2026-11-16T05:00:00Z', '2026-11-16T11:25:00Z', 258050.59, 258050.9),
+    visit('WALWDOLO', '2026-11-16T12:00:00Z', '2026-11-16T12:12:00Z', 258071.0, 258072.0),
+    visit('J25008 Los Flamboyanes', '2026-11-16T12:40:00Z', '2026-11-16T12:58:00Z', 258093.0, 258093.2),
+    visit('WALWDOLO', '2026-11-16T13:25:00Z', '2026-11-16T13:37:00Z', 258114.4, 258115.4),
+    visit('J25008 Los Flamboyanes', '2026-11-16T14:05:00Z', '2026-11-16T14:20:00Z', 258136.6, 258136.8),
+    visit('J611 Bishop Kearney', '2026-11-16T14:30:00Z', '2026-11-16T14:45:00Z', 258140.3, 258140.6),
+    visit('VILLAGER', '2026-11-16T15:00:00Z', '2026-11-16T15:10:00Z', 258144.2, 258144.5),
+    visit('J25008 Los Flamboyanes', '2026-11-16T15:25:00Z', '2026-11-16T15:40:00Z', 258148.1, 258148.3),
+    visit('SHOP', '2026-11-16T16:05:00Z', null, 258166.7, null),
+  ],
+  meter: { startOdometer: 258050.59, endOdometer: 258166.7, endReadAt: '2026-11-17T03:12:00Z' },
+  ignition: [
+    { at: '2026-11-16T11:20:00Z', on: true },
+    { at: '2026-11-16T16:10:00Z', on: false },
+  ],
+};
 
 export const REAL_DAY = {
   date: '2026-11-16',
   truck: { id: 'trk-55', number: '55', hcssCode: 'MCK-55-17', hcssGuid: null, active: true } satisfies Truck,
   /** Randy, whose usual Truck is 55. */
-  driver: { id: 'drv-randy', name: 'Randy', defaultTruckId: 'trk-55', sortOrder: 1, active: true } satisfies Driver,
+  driver: RANDY,
   places: [
     place(SHOP, 'Shop', 'Our shop and equipment yard', 'shop', 'SHOP'),
     place(J25008, 'J25008 Los Flamboyanes', 'Los Flamboyanes - Christa', 'job_site', 'J25008 Los Flamboyanes', 'job-j25008'),
@@ -130,6 +174,20 @@ export const REAL_DAY = {
         assignment('a1', 'A1', J25008, J611, 'Fill', { changes: [{ changedAt: '2026-11-16T16:20:00Z', before: { fromPlaceId: J25008, toPlaceId: VILLAGER } }] }),
         A2,
       ],
+    },
+    {
+      id: 'split',
+      name: 'Made up: a run to split',
+      // Nothing explains the run J25008 → J611 → Villager → J25008: two hauls in one piece of Unplanned work.
+      assignments: [assignment('a1', 'A1', WALWORTH, J25008, '1&2 stone')],
+      day: SPLIT_DAY,
+    },
+    {
+      id: 'two-drivers',
+      name: 'Made up: Sam on Truck 55 too',
+      // Randy's A1 (his own Truck) and Sam's A2 both name Truck 55: the Truck log asks "Who was driving?".
+      assignments: [assignment('a1', 'A1', J25008, VILLAGER, 'Fill'), assignment('a2', 'A2', WALWORTH, J25008, '1&2 stone', {}, { driverId: SAM.id, truckId: 'trk-55' })],
+      drivers: [RANDY, SAM],
     },
   ] satisfies Scenario[] as Scenario[],
 };

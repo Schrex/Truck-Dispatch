@@ -12,6 +12,7 @@ import { UnplannedAnswerFlow } from '@/simulate/UnplannedAnswerFlow';
 import type { UnplannedAnswer } from '@/simulate/answers';
 import { REAL_DAY } from '@/simulate/realDay';
 import { DAY_END, clockTime, simulateAt } from '@/simulate/simulate';
+import { easternTime } from '../../shared/days';
 
 /** Play moves the clock in the steps the Worker pulls Fleet (every 10 minutes). */
 const PULL_MINUTES = 10;
@@ -27,14 +28,18 @@ const PLAY_FROM = 4 * 60;
  * and the Truck log (the paper Daily Truck Log: header, one column per
  * Assignment, and the Unplanned work), each with what the
  * Trip builder works out at the clock's time. Dave answers the Unplanned work
- * from the lane or the Truck log; the answers are held here, in memory, and
- * a new scenario starts with none. Nothing is saved and the Worker is not asked.
+ * from the lane or the Truck log, or splits a run that held two hauls; the
+ * answers and splits are held here, in memory, and a new scenario starts
+ * with none. Made-up scenarios add a run to split and a second Driver on
+ * Truck 55 ("Who was driving?", asked first when Dave answers). Nothing is saved and the Worker is not asked.
  */
 export function SimulatePage() {
   const [scenarioId, setScenarioId] = useState(REAL_DAY.scenarios[0].id);
   const [clock, setClock] = useState(DAY_END);
   const [playing, setPlaying] = useState(false);
   const [answers, setAnswers] = useState<UnplannedAnswer[]>([]);
+  /** Where Dave split runs that held two hauls: each Trip's leftAt. */
+  const [splits, setSplits] = useState<string[]>([]);
   /** The piece of Unplanned work being answered (its id); null when none is. */
   const [answering, setAnswering] = useState<string | null>(null);
 
@@ -51,14 +56,18 @@ export function SimulatePage() {
   }, [playing]);
 
   const scenario = REAL_DAY.scenarios.find((s) => s.id === scenarioId) ?? REAL_DAY.scenarios[0];
-  const day = useMemo(() => simulateAt(scenario, clock, answers), [scenario, clock, answers]);
+  const day = useMemo(() => simulateAt(scenario, clock, answers, splits), [scenario, clock, answers, splits]);
+  const { truckDay } = day.tripDay;
+  /** "Who was driving?": more than one Driver fits and Dave has not picked yet. */
+  const whoDrove = truckDay.driver === null && truckDay.driverCandidates.length > 1 ? truckDay.driverCandidates : null;
+  const placeName = (id: string | null, code: string) => REAL_DAY.places.find((p) => p.id === id)?.name ?? code;
   const answer = useCallback((unplannedId: string) => setAnswering(unplannedId), []);
   const work = day.tripDay.unplanned.find((w) => w.id === answering);
   const shown = day.truckLog.unplanned.find((w) => w.id === answering);
 
   return (
     <div className="min-h-screen bg-surface">
-      <PageHeader title="Simulation" subtitle={`Truck ${REAL_DAY.truck.number} (${REAL_DAY.truck.hcssCode}) · ${REAL_DAY.driver.name} · Mon 16 Nov 2026`}>
+      <PageHeader title="Simulation" subtitle={`Truck ${REAL_DAY.truck.number} (${REAL_DAY.truck.hcssCode}) · ${day.drivers.map((d) => d.name).join(', ')} · Mon 16 Nov 2026`}>
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-muted-foreground">Dave’s Assignments</span>
           <select
@@ -68,6 +77,7 @@ export function SimulatePage() {
               setScenarioId(e.target.value);
               // The answers were to this scenario's Unplanned work: a new scenario starts with none.
               setAnswers([]);
+              setSplits([]);
               setAnswering(null);
             }}
             className="h-11 rounded-md border border-input bg-background px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -124,15 +134,15 @@ export function SimulatePage() {
               <h2 className="font-display text-xl font-semibold uppercase tracking-wide">Scheduler view</h2>
               <Lanes
                 assignments={day.assignments}
-                drivers={[REAL_DAY.driver]}
+                drivers={day.drivers}
                 trucks={[REAL_DAY.truck]}
-                // Randy drove Truck 55 all day, so all its Unplanned work is on his lane.
-                unplanned={{ [REAL_DAY.driver.id]: day.truckLog.unplanned.length }}
+                // Truck 55's Unplanned work is on its Driver's lane; while "Who was driving?" is open, on each who fits.
+                unplanned={Object.fromEntries((truckDay.driver ? [truckDay.driver] : truckDay.driverCandidates).map((d) => [d.id, day.truckLog.unplanned.length]))}
                 onUnplanned={() => day.truckLog.unplanned[0] && answer(day.truckLog.unplanned[0].id)}
               />
             </section>
             {/* An Assignment made from Unplanned work sends Randy no notice, so it is not on his phone. */}
-            <DriverView driverName={REAL_DAY.driver.name} date={REAL_DAY.date} assignments={day.assignments.filter((a) => !a.fromTheTruck)} />
+            <DriverView driverName={REAL_DAY.driver.name} date={REAL_DAY.date} assignments={day.assignments.filter((a) => !a.fromTheTruck && a.driverId === REAL_DAY.driver.id)} />
           </div>
           <div className="min-w-0">
             <TripLog
@@ -154,8 +164,20 @@ export function SimulatePage() {
                 const place = REAL_DAY.places.find((x) => x.id === p.placeId);
                 return place ? [{ id: place.id, name: place.name }] : [];
               }),
+              splits: work.trips.slice(1).map((t) => ({
+                at: t.leftAt,
+                label: `Split at ${easternTime(t.leftAt)} · ${placeName(t.fromPlaceId, t.fromCode)} → ${placeName(t.toPlaceId, t.toCode)}`,
+              })),
             }}
             materials={REAL_DAY.materials}
+            drivers={whoDrove ?? undefined}
+            driverId={truckDay.driver?.id ?? null}
+            onSplit={(at) => {
+              setSplits((all) => [...all, at]);
+              // The piece is now two: an answer to it was to the whole run.
+              setAnswers((all) => all.filter((a) => a.unplannedId !== work.id));
+              setAnswering(null);
+            }}
             onSave={(next) => {
               setAnswers((all) => [...all.filter((a) => a.unplannedId !== next.unplannedId), next]);
               setAnswering(null);

@@ -12,12 +12,21 @@ export interface AnswerableWork {
   line: string;
   /** Its Places that are Places (not only a geofence code), in the order first reached. */
   places: { id: string; name: string }[];
+  /** Where it can be split (#77): each Trip after its first, by leftAt, as "Split at 09:45 · J611 Bishop Kearney → Villager". */
+  splits?: { at: string; label: string }[];
 }
 
 /** What every way of answering gets: the piece, the lists, and where to say whether its answer is complete. */
 export interface WayProps {
   work: AnswerableWork;
   materials: string[];
+  /**
+   * Who was driving: the Driver Dave picked when the Truck log asks "Who was
+   * driving?", else the Truck's Driver; null when nobody fits. A way that
+   * offers Assignments (Link) offers only this Driver's; Make an Assignment
+   * makes it this Driver's.
+   */
+  driverId: string | null;
   /** The answer once every question is answered; null while one is still open. */
   onReady: (answer: UnplannedAnswer | null) => void;
 }
@@ -81,19 +90,38 @@ function ChipRow({
 }
 
 /** "Make an Assignment": where he loaded (one tap per Place of the piece), and the Material, picked or typed. Both are required. */
-function MakeAnAssignmentQuestions({ work, materials, onReady }: WayProps) {
+function MakeAnAssignmentQuestions({ work, materials, driverId, onReady }: WayProps) {
   const [loadedAt, setLoadedAt] = useState<string | null>(null);
   const [material, setMaterial] = useState<string | null>(null);
   const [typed, setTyped] = useState<string | null>(null);
   const materialName = (typed ?? material ?? '').trim();
   useEffect(() => {
-    onReady(loadedAt && materialName ? { kind: 'make', unplannedId: work.id, loadedAt, materialName } : null);
-  }, [onReady, work.id, loadedAt, materialName]);
+    onReady(loadedAt && materialName ? { kind: 'make', unplannedId: work.id, loadedAt, materialName, ...(driverId && { driverId }) } : null);
+  }, [onReady, work.id, loadedAt, materialName, driverId]);
   return (
     <>
       <ChipRow label="Where did he load?" chips={work.places.map((p) => ({ id: p.id, label: p.name }))} picked={loadedAt} onPick={setLoadedAt} />
       <ChipRow label="Material" chips={materials.map((m) => ({ id: m, label: m }))} picked={material} onPick={setMaterial} typed={typed} onTyped={setTyped} />
     </>
+  );
+}
+
+/** "Two hauls? Split it at a Trip": one button per Trip after the first; tapping one splits the piece there. */
+function SplitRow({ splits, onSplit }: { splits: { at: string; label: string }[]; onSplit: (at: string) => void }) {
+  const labelId = useId();
+  return (
+    <div role="group" aria-labelledby={labelId} className="space-y-2 border-t pt-3">
+      <p id={labelId} className="text-sm font-medium">
+        Two hauls? Split it at a Trip
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {splits.map((s) => (
+          <Button key={s.at} type="button" variant="outline" size="lg" onClick={() => onSplit(s.at)}>
+            {s.label}
+          </Button>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -106,24 +134,38 @@ const WAYS: { kind: UnplannedAnswer['kind']; label: string; Questions: (props: W
 ];
 
 /**
- * Answering one piece of Unplanned work: Dave picks how (Make an Assignment,
- * and later the other ways), answers that way's questions, and Saves. Save
- * stays off until every question is answered. Opened from the lane or the
- * Truck log; nothing is saved but the answer handed to onSave.
+ * Answering one piece of Unplanned work: when the Truck log asks "Who was
+ * driving?" (`drivers`, more than one), Dave first picks the Driver; then he
+ * picks how (Make an Assignment, and later the other ways), answers that
+ * way's questions, and Saves. Save stays off until every question is
+ * answered. A run that held two hauls he splits instead, at a Trip (onSplit).
+ * Opened from the lane or the Truck log; nothing is saved but the answer
+ * handed to onSave.
  */
 export function UnplannedAnswerFlow({
   work,
   materials,
+  drivers,
+  driverId: truckDriverId = null,
   onSave,
+  onSplit,
   onClose,
 }: {
   work: AnswerableWork;
   materials: string[];
+  /** The Drivers who fit the Truck, when more than one does: "Who was driving?" comes first. */
+  drivers?: { id: string; name: string }[];
+  /** The Truck's Driver when one fits; Dave is not asked. */
+  driverId?: string | null;
   onSave: (answer: UnplannedAnswer) => void;
+  /** Dave splits the piece at a Trip (its leftAt): a new piece starts there. */
+  onSplit?: (at: string) => void;
   onClose: () => void;
 }) {
   const [way, setWay] = useState<UnplannedAnswer['kind'] | null>(null);
   const [answer, setAnswer] = useState<UnplannedAnswer | null>(null);
+  const [driverId, setDriverId] = useState<string | null>(null);
+  const askDriver = (drivers?.length ?? 0) > 1;
   const chosen = WAYS.find((w) => w.kind === way);
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -132,16 +174,22 @@ export function UnplannedAnswerFlow({
           <DialogTitle className="font-display text-xl uppercase tracking-wide">Unplanned work</DialogTitle>
           <DialogDescription>{work.line}</DialogDescription>
         </DialogHeader>
-        <ChipRow
-          label="How does Dave answer?"
-          chips={WAYS.map((w) => ({ id: w.kind, label: w.label }))}
-          picked={way}
-          onPick={(id) => {
-            setWay(id as UnplannedAnswer['kind'] | null);
-            setAnswer(null);
-          }}
-        />
-        {chosen && <chosen.Questions key={chosen.kind} work={work} materials={materials} onReady={setAnswer} />}
+        {askDriver && <ChipRow label="Who was driving?" chips={drivers!.map((d) => ({ id: d.id, label: d.name }))} picked={driverId} onPick={setDriverId} />}
+        {(!askDriver || driverId) && (
+          <>
+            <ChipRow
+              label="How does Dave answer?"
+              chips={WAYS.map((w) => ({ id: w.kind, label: w.label }))}
+              picked={way}
+              onPick={(id) => {
+                setWay(id as UnplannedAnswer['kind'] | null);
+                setAnswer(null);
+              }}
+            />
+            {chosen && <chosen.Questions key={chosen.kind} work={work} materials={materials} driverId={askDriver ? driverId : truckDriverId} onReady={setAnswer} />}
+          </>
+        )}
+        {onSplit && work.splits && work.splits.length > 0 && <SplitRow splits={work.splits} onSplit={onSplit} />}
         <DialogFooter className="gap-2">
           <Button type="button" variant="outline" size="lg" onClick={onClose}>
             Cancel
