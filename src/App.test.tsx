@@ -23,6 +23,8 @@ let failLists = false;
 let assignRefusal: { status: number; body: unknown } | null = null;
 /** When the week strip's read fails. */
 let failWeeks = false;
+/** Each Driver's check-in on today, as GET api/check-ins answers it (his latest Inspection). */
+let checkIns: Record<string, unknown>[] = [];
 /** When an Assignment set up by a test was Assigned: 4:15 PM Eastern on Thursday 2026-11-19, before its day. */
 const ASSIGNED_AT = '2026-11-19T21:15:00.000Z';
 /** When the Worker records an Assign the page makes: 5:45 PM Eastern on Thursday 2026-11-19. */
@@ -120,6 +122,10 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   if (url.pathname.endsWith('/api/places')) return answer({ places });
   if (url.pathname.endsWith('/api/materials')) return answer({ materials });
   if (url.pathname.endsWith('/api/foremen')) return answer({ foremen });
+  if (url.pathname.endsWith('/api/check-ins')) {
+    sent.push({ checkIns: url.searchParams.get('date') });
+    return answer({ date: url.searchParams.get('date'), checkIns });
+  }
   const week = /\/api\/weeks\/([^/]+)$/.exec(url.pathname);
   if (week) {
     if (failWeeks) return answer({ error: 'oops' }, 500);
@@ -278,6 +284,7 @@ beforeEach(() => {
   failLists = false;
   assignRefusal = null;
   failWeeks = false;
+  checkIns = [];
   api.mockClear();
   vi.stubGlobal('fetch', api);
 });
@@ -1485,5 +1492,58 @@ describe('the week strip', () => {
     open('/?date=2026-11-20');
     await screen.findByText(/^Nothing planned for /);
     expect(screen.queryByLabelText('Jump to')).toBeNull();
+  });
+});
+
+describe("each Driver's check-in on the Board", () => {
+  // The page's today is Thursday 2026-11-19; 11:42 UTC is 6:42 AM Eastern.
+  const checkIn = (fields: Record<string, unknown> = {}) => ({
+    driverId: 'drv-a', driverName: 'Sample Driver A', truckId: 'trk-24', truckNumber: '24', inspectionId: 'ins-1',
+    doneAt: '2026-11-19T11:42:00.000Z', needsRepair: false, ...fields,
+  });
+  const about = (driver: string) => lane(driver).querySelector('[data-lane-about]')?.textContent;
+
+  it('shows the Truck a Driver checked in to and when, in place of his usual Truck, on today', async () => {
+    checkIns = [checkIn()];
+    open('/?date=2026-11-19');
+    await waitFor(() => expect(about('Sample Driver A')).toBe('Truck 24 · checked in 6:42'));
+  });
+
+  it('adds "needs repair" when that Inspection had a Needs repair item', async () => {
+    checkIns = [checkIn({ needsRepair: true })];
+    open('/?date=2026-11-19');
+    await waitFor(() => expect(about('Sample Driver A')).toBe('Truck 24 · checked in 6:42 · needs repair'));
+  });
+
+  it('says "Not checked in" for a Driver who has not checked in today', async () => {
+    checkIns = [checkIn()];
+    open('/?date=2026-11-19');
+    await waitFor(() => expect(about('Sample Driver A')).toBe('Truck 24 · checked in 6:42'));
+    expect(about('Sample Driver B')).toBe('Not checked in');
+    expect(about('Unassigned')).toBeUndefined();
+  });
+
+  it('shows the same Truck on both lanes when two Drivers checked in to it', async () => {
+    checkIns = [checkIn(), checkIn({ driverId: 'drv-b', driverName: 'Sample Driver B', inspectionId: 'ins-2', doneAt: '2026-11-19T11:50:00.000Z' })];
+    open('/?date=2026-11-19');
+    await waitFor(() => expect(about('Sample Driver A')).toBe('Truck 24 · checked in 6:42'));
+    expect(about('Sample Driver B')).toBe('Truck 24 · checked in 6:50');
+  });
+
+  it('leaves the lanes as they are on any day but today, and does not read check-ins', async () => {
+    checkIns = [checkIn()];
+    open('/?date=2026-11-20');
+    await screen.findByText(/^Nothing planned for /);
+    await waitFor(() => expect(about('Sample Driver A')).toBe('Truck 21'));
+    expect(about('Sample Driver B')).toBe('Truck 24');
+    expect(sent).not.toContainEqual({ checkIns: expect.anything() });
+  });
+
+  it('reads the check-ins again when the page regains the focus', async () => {
+    open('/?date=2026-11-19');
+    await waitFor(() => expect(about('Sample Driver A')).toBe('Not checked in'));
+    checkIns = [checkIn({ needsRepair: true })];
+    act(() => void window.dispatchEvent(new Event('focus')));
+    await waitFor(() => expect(about('Sample Driver A')).toBe('Truck 24 · checked in 6:42 · needs repair'));
   });
 });

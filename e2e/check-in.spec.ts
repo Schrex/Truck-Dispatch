@@ -1,11 +1,12 @@
 import { expect, test } from '@playwright/test';
-import { DESKTOP, PHONE } from './clock';
+import { DESKTOP, PHONE, TODAY } from './clock';
 
 // Phase 2, end to end: on his phone a Driver checks in on Today, his usual
 // Truck pre-selected, answering one item Needs repair with a note, and sees
-// the one-line summary. His Needs repair is a Truck problem in Dave's
-// Settings, and Dave marks it fixed. The Worker's clock is fixed at 9:00 AM US Eastern.
-test('a Driver checks in with one Needs repair, sees the summary line, and Dave marks the Truck problem fixed', async ({ browser }) => {
+// the one-line summary; then Dave's Board shows the check-in on his lane, and
+// the Needs repair is a Truck problem in Dave's Settings, which he marks fixed.
+// The Worker's clock is fixed at 9:00 AM US Eastern.
+test('a Driver checks in with one Needs repair, Dave sees it on the Board and marks the Truck problem fixed', async ({ browser }) => {
   const phone = await (await browser.newContext({ viewport: PHONE })).newPage();
   await phone.goto('/truck-dispatch/driver');
   await phone.getByRole('button', { name: 'Sample Driver B' }).click();
@@ -29,10 +30,15 @@ test('a Driver checks in with one Needs repair, sees the summary line, and Dave 
   await phone.reload();
   await expect(phone.getByRole('region', { name: 'Checked in' })).toHaveText('Truck 24 · checked in 9:00 · Check in again');
 
+  // On Dave's Board, today, the Driver's lane shows the check-in and that it found something.
+  const board = await (await browser.newContext({ viewport: DESKTOP })).newPage();
+  await board.goto(`/truck-dispatch/?date=${TODAY}`);
+  const lane = board.getByRole('article', { name: 'Sample Driver B' });
+  await expect(lane.getByText(/^Truck 24 · checked in/)).toHaveText('Truck 24 · checked in 9:00 · needs repair');
+
   // Dave sees it in Settings under Trucks, open, and marks it fixed with a note; it stays listed as fixed.
-  const settings = await (await browser.newContext({ viewport: DESKTOP })).newPage();
-  await settings.goto('/truck-dispatch/settings');
-  const problems = settings.getByRole('region', { name: 'Truck problems' });
+  await board.goto('/truck-dispatch/settings');
+  const problems = board.getByRole('region', { name: 'Truck problems' });
   const problem = problems.getByRole('list', { name: 'Open Truck problems' }).getByRole('listitem', { name: 'Truck 24: Left rear flap torn' });
   await expect(problem).toContainText('Sample Driver B · Mon, Nov 23 9:00');
   await problem.getByRole('button', { name: 'Mark fixed' }).click();
@@ -44,6 +50,6 @@ test('a Driver checks in with one Needs repair, sees the summary line, and Dave 
   await expect(fixed).toContainText('Fixed Mon, Nov 23 9:00 · New flap fitted');
 
   // Fixed is the Worker's too: still there, still fixed, after a reload.
-  await settings.reload();
+  await board.reload();
   await expect(fixed).toContainText('Fixed Mon, Nov 23 9:00 · New flap fitted');
 });
