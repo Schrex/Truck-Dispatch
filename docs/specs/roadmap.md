@@ -4,7 +4,7 @@ Status: draft, last updated 23 Nov 2026. This is the order of work in very small
 
 Legend: ✅ done · 🟡 in review · ⬜ to do · ⛔ blocked
 
-**Now:** phase 1 is built and on staging. Next are steps 1.8 and 1.9, then the phase 2 planning round.
+**Now:** phase 1 is built and on staging. Phase 2 is specified; building starts with step 2.1. Steps 1.8 and 1.9 are still open.
 
 ## Phase 1: Plan (Dave plans, Drivers see it)
 
@@ -20,13 +20,15 @@ Legend: ✅ done · 🟡 in review · ⬜ to do · ⛔ blocked
 
 ## Phase 2: Check in (which Truck, Inspection, Truck problems)
 
-0. ⬜ Planning round: settle the open points, then write `phase-2-check-in.md` (user stories) in this folder
-1. ⬜ Driver confirms today's Truck, with his usual Truck pre-selected
-2. ⬜ Dave sees on the Board which Truck each Driver took
-3. ⬜ Inspection checklist as a list in Settings
-4. ⬜ Driver does the Inspection item by item (OK, Needs repair, N/A). The Inspection is never edited afterwards. Write an ADR for the Inspection being the official, append-only record.
-5. ⬜ Needs repair opens a Truck problem. Dave sees it and marks it fixed.
-6. ⬜ Open Truck problems show on the Driver's lane and on that Truck in the composer
+Spec: [`phase-2-check-in.md`](phase-2-check-in.md). Tried on staging; Inspections become the real record only once Drivers sign in through the Hub.
+
+0. ✅ Planning round and spec (23 Nov)
+1. ⬜ Inspection checklist in Settings, starting with the paper form's 12 items (stories 1–5)
+2. ⬜ Driver checks in on Today: pick the Truck, answer each item, notes, Finish. Needs repair opens a Truck problem. Write the ADR for the Inspection as the official, append-only record. (stories 6–19, 30–32)
+3. ⬜ Board shows each Driver's check-in for today, or "Not checked in" (stories 26–28)
+4. ⬜ Report a problem at any time that day (story 20)
+5. ⬜ Truck problems list in Settings, with Mark fixed and history (stories 21–25)
+6. ⬜ Open problems: red mark on the lane and the composer's Truck chip, and shown at the start of an Inspection (stories 11, 29)
 
 ## Phase 3: Trips (from the Truck)
 
