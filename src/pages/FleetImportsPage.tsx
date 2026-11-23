@@ -8,6 +8,8 @@ import { Card } from '@/components/ui/card';
 import { EmptyBox, Loading } from '@/components/States';
 import { Refused, fetchBusinessDay, fetchList, fetchTruckLogDay, importFleetExport } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { TruckLog } from '@/components/TruckLog';
+import { TruckLogAssignments } from '@/components/TruckLogAssignments';
 import { TripLog } from '@/simulate/TripLog';
 import { easternTime } from '../../shared/days';
 import { EXPORT_ADVICE, countFleetXlsxVisits, readFleetJson, readFleetXlsx, type FleetExportRow, type FleetSheet } from '../../shared/fleetExport';
@@ -124,8 +126,9 @@ function CodesWithNoPlace({ id, codes }: { id: string; codes: CodeWithNoPlace[] 
 type StoredDayState = { state: 'idle' } | { state: 'loading' } | { state: 'shown'; day: TruckLogDay } | { state: 'failed' };
 
 /**
- * One Truck's stored day, picked by Truck and day: its Trip log as the Trip
- * builder has it, as of the latest Import, and the day's codes with no Place.
+ * One Truck's stored day, picked by Truck and day: its Truck log (miles blank,
+ * as no meter readings exist yet) and Trip log as the Trip builder has them,
+ * as of the latest Import, and the day's codes with no Place.
  * `refresh` changes after each Import, so the day read again shows it.
  */
 function StoredDay({
@@ -195,6 +198,14 @@ function StoredDay({
             {shown.day.asOf ? `As of the Import at ${easternTime(shown.day.asOf)}` : 'No Import has covered this day yet.'}
           </p>
           <CodesWithNoPlace id="no-place-day" codes={shown.day.codesWithNoPlace} />
+          <TruckLog truck={{ number: shown.day.truckNumber, hcssCode: trucks.find((t) => t.id === shown.day.truckId)?.hcssCode ?? null }} date={shown.day.date} truckDay={shown.day.tripDay.truckDay} noMeterReadings>
+            <TruckLogAssignments
+              columns={shown.day.truckLog.columns}
+              unplanned={shown.day.truckLog.unplanned}
+              whichAssignment={shown.day.truckLog.whichAssignment}
+              shopTrips={shown.day.truckLog.shopTrips}
+            />
+          </TruckLog>
           <TripLog trips={shown.day.tripDay.trips} places={shown.day.places} assignmentLabels={shown.day.labels} />
         </>
       )}
