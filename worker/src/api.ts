@@ -200,23 +200,28 @@ const WAS_FIELDS = [
  * when it was Assigned, from the first earlier fields kept after that (changes
  * are kept only once it is Assigned, so the first is it as he was given it).
  * Days before today are read like the rest, so the phone still shows today
- * after midnight Eastern until it refreshes.
+ * after midnight Eastern until it refreshes. Each one a stored Trip matched has
+ * its Trip part, by the same whole-Truck days as the board (storedTripParts).
  */
 async function readDriverDay(env: Env, driverId: string, date: string): Promise<Response> {
   if (!isCalendarDate(date)) return refuse({ date: PICK_DATE });
   if (!(await exists(env, 'drivers', driverId))) return json({ error: 'not_found' }, 404);
-  const [{ results: rows }, { results: kept }] = await env.DB.batch<AssignmentRow & { id: string; before: string }>([
-    env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.date = ? AND a.driver_id = ? AND a.assigned_at IS NOT NULL AND a.dismissed_at IS NULL ${DAY_ORDER}`).bind(date, driverId),
-    env.DB.prepare(
-      `SELECT c.assignment_id AS id, c.before FROM assignment_changes c JOIN assignments a ON a.id = c.assignment_id
-        WHERE a.date = ? AND a.driver_id = ? AND c.changed_at >= a.assigned_at ORDER BY c.changed_at DESC, c.rowid DESC`,
-    ).bind(date, driverId),
+  const [[{ results: rows }, { results: kept }], parts] = await Promise.all([
+    env.DB.batch<AssignmentRow & { id: string; before: string }>([
+      env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.date = ? AND a.driver_id = ? AND a.assigned_at IS NOT NULL AND a.dismissed_at IS NULL ${DAY_ORDER}`).bind(date, driverId),
+      env.DB.prepare(
+        `SELECT c.assignment_id AS id, c.before FROM assignment_changes c JOIN assignments a ON a.id = c.assignment_id
+          WHERE a.date = ? AND a.driver_id = ? AND c.changed_at >= a.assigned_at ORDER BY c.changed_at DESC, c.rowid DESC`,
+      ).bind(date, driverId),
+    ]),
+    storedTripParts(env, date),
   ]);
   // Newest first, so the last one set for each Assignment is its first.
   const asAssigned = new Map(kept.map((row) => [row.id, JSON.parse(row.before) as Partial<Assignment>]));
   const assignments = rows.map(marked).map((assignment): DriverAssignment => {
     const before = asAssigned.get(assignment.id);
-    return { ...assignment, was: assignment.sinceSent === 'changed' && before ? wasWhenAssigned(assignment, before) : {} };
+    const was = assignment.sinceSent === 'changed' && before ? wasWhenAssigned(assignment, before) : {};
+    return parts.has(assignment.id) ? { ...assignment, trips: parts.get(assignment.id), was } : { ...assignment, was };
   });
   return json({ date, assignments } satisfies DriverDay);
 }
