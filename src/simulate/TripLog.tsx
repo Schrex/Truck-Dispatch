@@ -1,5 +1,6 @@
 import type { Trip, TripPlace } from '../../shared/trips';
 import { easternTime } from '../../shared/days';
+import { EmptyBox } from '@/components/States';
 import { cn } from '@/lib/utils';
 
 /** How each kind of Trip reads in the log; a Trip with no Assignment is for Dave to answer. */
@@ -7,7 +8,7 @@ const KIND: Record<string, { label: string; style: string }> = {
   load: { label: 'load', style: 'bg-primary text-primary-foreground' },
   empty: { label: 'empty', style: 'bg-muted text-muted-foreground' },
   null: { label: 'for Dave', style: 'bg-warning/25 text-foreground' },
-  waiting: { label: 'waiting', style: 'border border-dashed text-muted-foreground' },
+  waiting: { label: 'waiting', style: 'border text-muted-foreground' },
 };
 
 /**
@@ -67,7 +68,7 @@ export function TripLog({
           </tbody>
         </table>
       </div>
-      {trips.length === 0 && <p className="text-sm text-muted-foreground">No Trips yet at this time.</p>}
+      {trips.length === 0 && <EmptyBox>No Trips yet at this time.</EmptyBox>}
     </section>
   );
 }

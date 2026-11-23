@@ -75,8 +75,9 @@ export function SimulatePage() {
       <div className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur">
         <div className="container flex flex-wrap items-center gap-3 py-3">
           <Button
-            size="sm"
+            size="icon"
             variant="outline"
+            className="shrink-0"
             aria-label={playing ? 'Pause' : 'Play the day'}
             onClick={() => {
               if (!playing && clock === DAY_END) setClock(PLAY_FROM);

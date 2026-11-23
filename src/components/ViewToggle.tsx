@@ -15,13 +15,13 @@ const VIEWS: { view: View; label: string; to: string }[] = [
 export function ViewToggle({ current }: { current: View }) {
   const navigate = useNavigate();
   return (
-    <div role="group" aria-label="View" className="inline-flex h-12 items-center gap-0.5 rounded-lg border bg-muted/60 p-1">
+    <div role="group" aria-label="View" className="inline-flex items-center gap-0.5 rounded-lg border bg-muted/60 p-1">
       {VIEWS.map(({ view, label, to }) => (
         <Button
           key={view}
           type="button"
           size="sm"
-          className={view === current ? 'h-10 px-4 text-sm shadow-sm' : 'h-10 px-4 text-sm text-muted-foreground hover:bg-background/70'}
+          className={view === current ? 'h-11 px-4 text-sm shadow-sm' : 'h-11 px-4 text-sm text-muted-foreground hover:bg-background/70'}
           variant={view === current ? 'default' : 'ghost'}
           aria-pressed={view === current}
           onClick={() => {

@@ -5,6 +5,7 @@ import { shortDate } from '../../shared/days';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/sonner';
 import { copyDayTo, fetchDay, fetchStartFrom, FieldErrors, Refused, startDayFrom } from '@/lib/api';
+import { EmptyBox } from '@/components/States';
 
 /** "2 Assignments": how many a copy made. */
 function counted(copy: CopiedDay): string {
@@ -112,10 +113,10 @@ export function DayCopy({
   return (
     <div className="flex flex-wrap items-center gap-3">
       {empty && (
-        <p className="text-sm text-muted-foreground">
+        <EmptyBox className="block">
           <span className="font-medium text-foreground">Nothing planned for {shortDate(date)}</span>
           {editable && <span>. Use + on a lane to plan the day.</span>}
-        </p>
+        </EmptyBox>
       )}
       {empty && editable && from && (
         <Button variant="outline" size="lg" className="px-5" disabled={busy} onClick={start}>

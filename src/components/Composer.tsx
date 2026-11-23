@@ -9,6 +9,7 @@ import { addAssignment, FieldErrors, Refused } from '@/lib/api';
 import { foremanSite } from '@/lib/lists';
 import { chipClass, OrTypeIt, TypedBox } from '@/components/TypedName';
 import { ChipProblems, openOn } from '@/components/ProblemMark';
+import { Loading } from '@/components/States';
 
 /**
  * A Place or Material row of the composer: a chip picked from the list (its
@@ -202,7 +203,7 @@ function ChipRow({
         {label}
       </p>
       <div className="flex flex-wrap gap-2">
-        {chips === null && <span className="py-2 text-sm text-muted-foreground">Loading…</span>}
+        {chips === null && <Loading className="py-2" />}
         {chips?.map(({ id, label: words, mark }) => {
           const pressed = !typing && picked === id;
           return (

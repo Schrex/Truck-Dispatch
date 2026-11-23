@@ -59,7 +59,7 @@ function TripLine({ part }: { part: AssignmentTripPart | undefined }) {
  * Material, Pick up and Drop off, the Foreman (when there is one), the note, which Truck when it is not his
  * own, and Dave's changes since Assigning it: Changed (with what it was), Added,
  * or cancelled (struck through). When the Assignment has a Trip part, its Loads,
- * the last one's time and Now. With onDismiss a cancelled card has Dismiss,
+ * the last one's time and Now. With onDismiss a cancelled card has Dismiss in its bottom right corner,
  * which clears it off his day once he has read it.
  */
 export function DriverCard({
@@ -94,10 +94,9 @@ export function DriverCard({
           cancelledAt ? 'bg-destructive/70' : sinceSent === 'changed' ? 'bg-warning' : sinceSent === 'added' ? 'bg-success' : 'bg-primary',
         )}
       />
-      {(mark || (cancelledAt && onDismiss)) && (
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          {mark && <p className={cn('inline-block rounded-full px-3 py-1.5 text-base font-semibold shadow-xs', mark.className)}>{mark.word}</p>}
-          {cancelledAt && onDismiss && <DismissButton onDismiss={() => onDismiss(assignment)} />}
+      {mark && (
+        <div className="mb-3">
+          <p className={cn('inline-block rounded-full px-3 py-1.5 text-base font-semibold shadow-xs', mark.className)}>{mark.word}</p>
         </div>
       )}
       {/* On a cancelled card the values are struck through, not the labels beside them. */}
@@ -130,6 +129,12 @@ export function DriverCard({
         )}
         {truck && <p className={cn('text-lg font-semibold', struck)}>{truck}</p>}
       </div>
+      {/* A card's action sits in its bottom right corner, as on the Board. */}
+      {cancelledAt && onDismiss && (
+        <div className="mt-4 flex justify-end">
+          <DismissButton onDismiss={() => onDismiss(assignment)} />
+        </div>
+      )}
     </article>
   );
 }
