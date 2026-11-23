@@ -217,7 +217,7 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
   });
 
   it('logs every Trip the Truck made, down to the last drive from the job site back to the shop', () => {
-    render(<SimulatePage />);
+    render(<SimulatePage />, { wrapper: MemoryRouter });
     const rows = tripLog();
     expect(rows[0].slice(0, 2)).toEqual(['06:24', 'Shop → J25008 Los Flamboyanes']);
     expect(rows.at(-1)!.slice(0, 5)).toEqual(['15:41', 'J25008 Los Flamboyanes → Shop', '18.39', 'empty', '–']);
@@ -227,7 +227,7 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
   });
 
   it('logs only the Trips known at the clock’s time, and follows the scenario', () => {
-    render(<SimulatePage />);
+    render(<SimulatePage />, { wrapper: MemoryRouter });
     setClock(10 * 60 + 2);
     expect(tripLog().map((r) => r[0])).toEqual(['06:24', '08:24', '08:43', '09:35', '09:50']);
     setClock(6 * 60);

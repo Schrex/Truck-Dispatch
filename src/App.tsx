@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from 'react';
+import { lazy, Suspense, useEffect, type ComponentType } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Toaster } from '@/components/ui/sonner';
 import { basePath } from '@/lib/basePath';
@@ -11,25 +11,46 @@ import { BoardPage } from '@/pages/BoardPage';
  * show. Once the first page is up, the rest are fetched while the browser is
  * idle, so moving between pages stays instant.
  */
-const loadDriver = () => import('@/pages/DriverPage');
-const loadSettings = () => import('@/pages/SettingsPage');
-const loadSimulate = () => import('@/pages/SimulatePage');
-const DriverPage = lazy(() => loadDriver().then((m) => ({ default: m.DriverPage })));
-const SettingsPage = lazy(() => loadSettings().then((m) => ({ default: m.SettingsPage })));
-const SimulatePage = lazy(() => loadSimulate().then((m) => ({ default: m.SimulatePage })));
+/**
+ * A page whose code loads on its own. Until it has arrived it suspends (the
+ * fallback shows); once it has, it renders at once, so going to a page that
+ * was prefetched never waits.
+ */
+function lazyPage(load: () => Promise<ComponentType>) {
+  let Loaded: ComponentType | null = null;
+  let loading: Promise<ComponentType> | null = null;
+  const preload = () =>
+    (loading ??= load().then(
+      (page) => (Loaded = page),
+      (error: unknown) => {
+        loading = null; // A failed download is tried again on the next visit.
+        throw error;
+      },
+    ));
+  const Lazy = lazy(() => preload().then((page) => ({ default: page })));
+  const Page = () => (Loaded ? <Loaded /> : <Lazy />);
+  return Object.assign(Page, { preload });
+}
 
-/** Fetches the pages not yet loaded once the browser is idle. */
+const DriverPage = lazyPage(() => import('@/pages/DriverPage').then((m) => m.DriverPage));
+const SettingsPage = lazyPage(() => import('@/pages/SettingsPage').then((m) => m.SettingsPage));
+const SimulatePage = lazyPage(() => import('@/pages/SimulatePage').then((m) => m.SimulatePage));
+
+/**
+ * Fetches the Driver view and Settings once the first page is up: when the
+ * browser is idle, or right after it where the browser cannot say (Safari).
+ */
 function usePrefetchPages() {
   useEffect(() => {
     const prefetch = () => {
-      void loadDriver();
-      void loadSettings();
+      void DriverPage.preload().catch(() => {});
+      void SettingsPage.preload().catch(() => {});
     };
     if ('requestIdleCallback' in window) {
-      const id = window.requestIdleCallback(prefetch, { timeout: 3000 });
+      const id = window.requestIdleCallback(prefetch, { timeout: 2000 });
       return () => window.cancelIdleCallback(id);
     }
-    const id = setTimeout(prefetch, 1500);
+    const id = setTimeout(prefetch, 0);
     return () => clearTimeout(id);
   }, []);
 }
