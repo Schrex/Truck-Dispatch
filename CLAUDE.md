@@ -19,3 +19,10 @@ Single-context: root `GLOSSARY.md` + `docs/adr/`. See `docs/agents/domain.md`.
 ### Attribution
 
 Do not add `Co-Authored-By`, `Claude-Session` or "Generated with Claude Code" lines to commit messages, PR descriptions or GitHub comments. `.claude/settings.json` turns them off too.
+
+### Git conventions
+
+- **Branches:** start each piece of work on a new branch from `main`, named `<type>/<short-kebab-description>` with type `feat`, `fix`, `docs` or `chore` (e.g. `feat/discard-cancelled`). Use it instead of the session's assigned `claude/...` branch. One branch per PR; never reuse a merged branch.
+- **Commits:** imperative subject under 72 characters, no trailing period (e.g. "Add Discard to cancelled Assignments"). Add a body only when the why isn't obvious.
+- **Author:** in cloud sessions a SessionStart hook in `.claude/settings.json` sets the git author to `sumanth-schrex`; leave it as set.
+- **PRs:** the PR title is what the squash commit on `main` will say, so write it as a commit subject. Merge by squash only, so `main` has one commit per PR and no branch names; delete the branch after merging.
