@@ -121,7 +121,7 @@ A fresh reviewer checked the decisions, the spec and the ticket plan against the
 - **Typed names** that match a removed entry bring it back. New and revived entries go last in their list; lists sort by their order, entries without one last, then by name.
 - **Saves are per field** (PATCH); changing the Driver puts it last in the new lane.
 - ~~**The Truck panel keeps the HCSS code and id**, next to "Linked to HCSS Fleet".~~ Superseded 22 Nov: Settings shows neither; they stay in the data.
-- **Refusals follow the README**: bad or past dates 400 `{ fields }`; an empty day or a day already planned 409 `{ error, message }`.
+- **Refusals follow the API doc** (`docs/api.md`): bad or past dates 400 `{ fields }`; an empty day or a day already planned 409 `{ error, message }`.
 - **Do this first / Do this later** move one place each, hidden at the ends.
 - **Copying lists the columns it copies** (not the ones it skips), so a new column is never copied by accident; inactive Trucks and Foremen are dropped like inactive Places and Materials.
 
