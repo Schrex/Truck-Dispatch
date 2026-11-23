@@ -27,7 +27,7 @@ function tabFor(date: string, today: string): Tab | null {
  * It opens on Today; Yesterday, Today and Tomorrow are one tap (calendar days,
  * so a Sent Saturday shows on Friday), and ‹ › step one calendar day at a time,
  * weekends included, as far as he likes, since Dave can plan any day. When
- * Dave has Sent him work beyond tomorrow, "Next from Dave: Mon, Nov 23 →"
+ * Dave has Assigned him work beyond tomorrow, "Next from Dave: Mon, Nov 23 →"
  * takes him there, so a weekend never hides Monday. The first time, it asks
  * "Who are you?" with the active Drivers as large buttons; the device then
  * remembers him, and "← Drivers" goes back to that list (the device still
@@ -208,9 +208,8 @@ function Loading({ what }: { what: string }) {
 
 /**
  * The day shown, titled "Today, Sun, Nov 22" (Yesterday and Tomorrow too) or
- * just "Mon, Nov 23" for any other day: "Dave hasn't sent Monday yet." for a
- * Draft, so it is not taken for a day off; a Sent day's cards, or that there
- * is nothing for him.
+ * just "Mon, Nov 23" for any other day: his Assigned Assignments as cards, or
+ * "Nothing from Dave yet for Monday." while Dave has Assigned him nothing.
  */
 function DaySection({ today, date, shown }: { today: string | null; date: string | null; shown: Shown }) {
   // The day as last read, until a refresh that moved on to a new day answers.
@@ -224,11 +223,10 @@ function DaySection({ today, date, shown }: { today: string | null; date: string
       </h2>
       {shown === undefined && <Loading what="your day" />}
       {shown === null && <p className="text-destructive">Could not load this day. It tries again when you come back to the page.</p>}
-      {shown?.state === 'draft' && <p className="text-lg text-muted-foreground">Dave hasn't sent {weekdayName(shown.date)} yet.</p>}
-      {shown?.state === 'sent' && shown.assignments.length === 0 && (
-        <p className="text-lg text-muted-foreground">Nothing for you on {weekdayName(shown.date)}.</p>
+      {shown && shown.assignments.length === 0 && (
+        <p className="text-lg text-muted-foreground">Nothing from Dave yet for {weekdayName(shown.date)}.</p>
       )}
-      {shown?.state === 'sent' && shown.assignments.map((assignment) => <DriverCard key={assignment.id} assignment={assignment} />)}
+      {shown?.assignments.map((assignment) => <DriverCard key={assignment.id} assignment={assignment} />)}
     </section>
   );
 }

@@ -12,13 +12,14 @@ import type { DriverAssignment, DriverDay } from '../../shared/types';
  */
 const THURSDAY = { today: '2026-11-19', tomorrow: '2026-11-20', nextWorkingDay: '2026-11-20' };
 let businessDay = THURSDAY;
-const SENT_AT = '2026-11-18T21:15:00.000Z';
+/** When Dave Assigned each card's Assignment, the day before. */
+const ASSIGNED_AT = '2026-11-18T21:15:00.000Z';
 const drivers = [
   { id: 'drv-a', name: 'Sample Driver A', defaultTruckId: 'trk-21', sortOrder: null, active: true },
   { id: 'drv-b', name: 'Sample Driver B', defaultTruckId: 'trk-24', sortOrder: null, active: true },
   { id: 'drv-x', name: 'Sample Driver X', defaultTruckId: null, sortOrder: null, active: false },
 ];
-/** Each Driver's Sent days, by Driver and date: his Assignments on it. A day not here is a Draft. */
+/** Each Driver's Assigned Assignments, by Driver and date. A day not here has none. */
 let sentDays: Record<string, DriverAssignment[]> = {};
 let failDriverDays = false;
 const read: string[] = [];
@@ -28,7 +29,7 @@ const api = vi.fn(async (input: RequestInfo | URL) => {
   const answer = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
   const path = url.pathname;
   if (path.endsWith('/api/today')) return answer(businessDay);
-  const next = /\/api\/drivers\/([^/]+)\/next-sent$/.exec(path);
+  const next = /\/api\/drivers\/([^/]+)\/next-assigned$/.exec(path);
   if (next) {
     const dates = Object.entries(sentDays)
       .filter(([key, list]) => key.startsWith(`${next[1]} `) && list.some((a) => !a.cancelledAt))
@@ -42,15 +43,14 @@ const api = vi.fn(async (input: RequestInfo | URL) => {
     read.push(`${driverDay[1]} ${driverDay[2]}`);
     if (failDriverDays) return answer({ error: 'oops' }, 500);
     const [, driverId, date] = driverDay;
-    const assignments = sentDays[`${driverId} ${date}`];
-    const day: DriverDay = assignments ? { date, state: 'sent', sentAt: SENT_AT, assignments } : { date, state: 'draft' };
+    const day: DriverDay = { date, assignments: sentDays[`${driverId} ${date}`] ?? [] };
     return answer(day);
   }
   if (path.endsWith('/api/drivers')) return answer({ drivers: url.searchParams.get('include') ? drivers : drivers.filter((d) => d.active) });
   for (const list of ['trucks', 'places', 'materials', 'foremen']) if (path.endsWith(`/api/${list}`)) return answer({ [list]: [] });
   const week = /\/api\/weeks\/([^/]+)$/.exec(path);
-  if (week) return answer({ days: weekDates(week[1]).map((date) => ({ date, state: 'none', unassigned: 0, holiday: null })) });
-  if (path.endsWith('/api/assignments')) return answer({ assignments: [], sentAt: null });
+  if (week) return answer({ days: weekDates(week[1]).map((date) => ({ date, state: 'none', drafts: 0, holiday: null })) });
+  if (path.endsWith('/api/assignments')) return answer({ assignments: [] });
   return answer({ error: 'not_found' }, 404);
 });
 
@@ -61,7 +61,7 @@ function card(fields: Partial<DriverAssignment>): DriverAssignment {
     truckId: null, truckNumber: null, fromPlaceId: null, fromPlaceName: null, toPlaceId: null, toPlaceName: null,
     materialId: null, materialName: null, foremanId: null, foremanName: null, note: null, position: 0,
     createdAt: '2026-11-18T20:00:00.000Z', updatedAt: '2026-11-18T20:00:00.000Z', changedAt: null, cancelledAt: null,
-    sinceSent: null, was: {}, ...fields,
+    assignedAt: ASSIGNED_AT, handedFromId: null, sinceSent: null, was: {}, ...fields,
   };
 }
 
@@ -183,19 +183,12 @@ describe('a Driver\'s yesterday, today and tomorrow', () => {
     expect(read).toContain('drv-a 2026-11-18');
   });
 
-  it('says a day Dave has not Sent is not sent yet, so it is not mistaken for a day off', async () => {
+  it('says a day with nothing Assigned to him is nothing from Dave yet, so it is not mistaken for a day off', async () => {
     sentDays['drv-a 2026-11-19'] = [card({ note: 'Haul stone' })];
     open('/');
     expect(cardsIn(await day('Today, Thu, Nov 19'))).toHaveLength(1);
     await pick('Tomorrow');
-    expect(within(await day('Tomorrow, Fri, Nov 20')).getByText("Dave hasn't sent Friday yet.")).toBeTruthy();
-  });
-
-  it('says a Sent day with nothing for him has no Assignments for him', async () => {
-    sentDays['drv-a 2026-11-20'] = [];
-    open('/');
-    await pick('Tomorrow');
-    expect(within(await day('Tomorrow, Fri, Nov 20')).getByText('Nothing for you on Friday.')).toBeTruthy();
+    expect(within(await day('Tomorrow, Fri, Nov 20')).getByText('Nothing from Dave yet for Friday.')).toBeTruthy();
   });
 
   it('shows each Assignment as a card in Dave\'s order, with Material, Pick up, Drop off, the note and a named Truck', async () => {

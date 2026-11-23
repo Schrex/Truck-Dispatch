@@ -65,9 +65,14 @@ function json(method: string, body: unknown): RequestInit {
   return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
 }
 
-/** A day's Assignments, each marked Changed or Added since the Send, and when the day was first Sent (null for a Draft). */
-export function fetchDay(date: string): Promise<Day> {
-  return request<Day>(`api/assignments?date=${encodeURIComponent(date)}`);
+/**
+ * A day's Assignments, each marked Changed or Added since it was Assigned.
+ * `sentAt` is kept only so the Board's old Send still compiles until it is
+ * replaced by Assign (#46): the Worker no longer answers it, so it is null.
+ */
+export async function fetchDay(date: string): Promise<Day & { sentAt: string | null }> {
+  const day = await request<Day & { sentAt?: string | null }>(`api/assignments?date=${encodeURIComponent(date)}`);
+  return { ...day, sentAt: day.sentAt ?? null };
 }
 
 /** The state of each day of the week starting on a Monday, Monday to Sunday, for the week strip. */
@@ -76,8 +81,8 @@ export async function fetchWeek(monday: string): Promise<WeekDay[]> {
 }
 
 /**
- * Sends a day to the Drivers; answers when it was first Sent. Sending a Sent
- * day again changes nothing. Refused for a day with no Assignments or before today.
+ * The old Send per day. The Worker now answers 410 (ADR 0005: each Assignment
+ * is Assigned on its own); kept only until the Board's Send is replaced (#46).
  */
 export async function sendDay(date: string): Promise<string> {
   return (await request<{ sentAt: string }>(`api/days/${encodeURIComponent(date)}/send`, { method: 'POST' })).sentAt;
@@ -148,15 +153,16 @@ export async function putBackAssignment(id: string): Promise<Assignment> {
   return (await request<{ assignment: Assignment }>(`api/assignments/${encodeURIComponent(id)}/put-back`, { method: 'POST' })).assignment;
 }
 
-/**
- * One Driver's day for the Driver view: only that it is a Draft until Dave
- * Sends it, then his Assignments in Dave's order, cancelled ones included,
- * marked Changed (with what they were) or Added.
- */
-/** The Driver's first Sent day after tomorrow with work for him, or null. */
+/** The Driver's first day after tomorrow with an Assigned Assignment for him that is not cancelled, or null. */
 export async function fetchNextSent(driverId: string): Promise<string | null> {
-  return (await request<{ date: string | null }>(`api/drivers/${encodeURIComponent(driverId)}/next-sent`)).date;
+  return (await request<{ date: string | null }>(`api/drivers/${encodeURIComponent(driverId)}/next-assigned`)).date;
 }
+
+/**
+ * One Driver's day for the Driver view: only his Assigned Assignments in
+ * Dave's order, cancelled ones included, marked Changed (with what they were)
+ * or Added; none while Dave has Assigned him nothing that day.
+ */
 
 export function fetchDriverDay(driverId: string, date: string): Promise<DriverDay> {
   return request<DriverDay>(`api/drivers/${encodeURIComponent(driverId)}/days/${encodeURIComponent(date)}`);

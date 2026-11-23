@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Loader2, Send } from 'lucide-react';
 import type { Assignment } from '../../shared/types';
-import { dayState, shortDate } from '../../shared/days';
+import { shortDate } from '../../shared/days';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/sonner';
 import { FieldErrors, Refused, sendDay } from '@/lib/api';
@@ -31,9 +31,8 @@ function dayAndTime(moment: string): string {
  * save on the day, which covers a delete that leaves no Assignment to read.
  */
 export function stateLine(assignments: Assignment[], sentAt: string | null, savedAt: string | null = null): string {
-  const { state } = dayState(assignments, sentAt);
-  if (state === 'changed') return 'Changed since Sent';
-  if (state === 'sent') return `Sent ${dayAndTime(sentAt!)}`;
+  // Send per day is gone from the Worker (ADR 0005); this line goes with the Board's Send (#46).
+  if (sentAt !== null) return assignments.some((a) => a.sinceSent !== null) ? 'Changed since Sent' : `Sent ${dayAndTime(sentAt)}`;
   const saved = [...assignments.map((a) => a.updatedAt), ...(savedAt ? [savedAt] : [])].sort().at(-1);
   return ['Draft', 'not sent yet', saved && `saved ${clockTime(saved)}`].filter(Boolean).join(' · ');
 }

@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { toast } from './components/ui/sonner';
-import { dayState, holidayName, sinceSent, unassignedOn, weekDates } from '../shared/days';
+import { dayState, draftsOn, holidayName, weekDates } from '../shared/days';
 
 /**
  * The API as the page sees it: today in US Eastern is Thursday 2026-11-19,
@@ -93,12 +93,27 @@ const resolve = (body: {
 /** Where the Worker puts an Assignment that joins a lane: after the last one already in it. */
 const lastInLane = (date: unknown, driverId: unknown) =>
   Math.max(-1, ...assignments.filter((a) => a.date === date && (a.driverId ?? null) === (driverId ?? null)).map((a) => Number(a.position ?? 0))) + 1;
-/** An Assignment as the Worker answers it: marked Changed or Added since its day was Sent, by the shared day rules. */
-const marked = (a: Record<string, unknown>) => ({
-  cancelledAt: null,
-  ...a,
-  sinceSent: sinceSent({ createdAt: String(a.createdAt), changedAt: (a.changedAt as string | null) ?? null }, daySends[String(a.date)] ?? null),
-});
+/**
+ * When an Assignment counts as Assigned here: the Board still Sends a whole
+ * day until #46 replaces it with Assign, so, as the Worker carried Sent days
+ * over, one with a Driver on a Sent day is Assigned when the day was Sent, or
+ * when it was made if that was later.
+ */
+const assignedAt = (a: Record<string, unknown>) => {
+  const sentAt = daySends[String(a.date)];
+  return sentAt && a.driverId ? [sentAt, String(a.createdAt)].sort().at(-1)! : null;
+};
+/**
+ * An Assignment as the Board still reads it: marked Changed or Added since its
+ * day was Sent (made or changed after the Send), as the Board's Send expects
+ * until #46.
+ */
+const marked = (a: Record<string, unknown>) => {
+  const sentAt = daySends[String(a.date)] ?? null;
+  const changedAt = (a.changedAt as string | null) ?? null;
+  const since = sentAt === null ? null : String(a.createdAt) > sentAt ? 'added' : changedAt !== null && changedAt > sentAt ? 'changed' : null;
+  return { cancelledAt: null, ...a, assignedAt: assignedAt(a), handedFromId: null, sinceSent: since };
+};
 /** The latest day before `date` with an Assignment that is not cancelled: the one Start from copies. */
 const latestBefore = (date: string) =>
   assignments
@@ -125,13 +140,13 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const planned = assignments
         .filter((a) => a.date === date)
         .map((a) => ({
-          driverId: (a.driverId as string | null) ?? null,
-          createdAt: String(a.createdAt),
+          date,
+          assignedAt: assignedAt(a),
           changedAt: (a.changedAt as string | null) ?? null,
           cancelledAt: (a.cancelledAt as string | null) ?? null,
+          handedFromId: null,
         }));
-      const unassigned = unassignedOn(planned);
-      return { date, state: dayState(planned, daySends[date] ?? null).state, unassigned, holiday: holidayName(date) };
+      return { date, state: dayState(planned).state, drafts: draftsOn(planned), holiday: holidayName(date) };
     });
     return answer({ days });
   }
@@ -1428,9 +1443,9 @@ describe('the week strip', () => {
       expect(tiles()).toEqual([
         'Mon 16 · –',
         'Tue 17 · Changed',
-        'Wed 18 · Sent',
-        'Thu 19 · Today · 2 unassigned',
-        'Fri 20 · Tomorrow · Not sent',
+        'Wed 18 · Assigned',
+        'Thu 19 · Today · 3 drafts',
+        'Fri 20 · Tomorrow · 1 draft',
         'Sat 21 · –',
         'Sun 22 · –',
       ]),
@@ -1450,7 +1465,7 @@ describe('the week strip', () => {
     await waitFor(() => expect(tile('Thu 26').getAttribute('aria-label')).toBe('Thu 26 · Thanksgiving'));
     assignments = [planned('2026-11-26')];
     regainFocus();
-    await waitFor(() => expect(tile('Thu 26').getAttribute('aria-label')).toBe('Thu 26 · Thanksgiving · Not sent'));
+    await waitFor(() => expect(tile('Thu 26').getAttribute('aria-label')).toBe('Thu 26 · Thanksgiving · 1 draft'));
   });
 
   it('shows a day when its tile is tapped', async () => {
@@ -1479,12 +1494,12 @@ describe('the week strip', () => {
     open('/?date=2026-11-20');
     await waitFor(() => expect(tile('Fri 20').getAttribute('aria-label')).toBe('Fri 20 · Tomorrow · –'));
 
-    fireEvent.click(await within(lane('Unassigned')).findByRole('button', { name: 'Add an Assignment for Unassigned' }));
-    fireEvent.click(within(lane('Unassigned')).getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(tile('Fri 20').getAttribute('aria-label')).toBe('Fri 20 · Tomorrow · 1 unassigned'));
+    fireEvent.click(await within(lane('Sample Driver A')).findByRole('button', { name: 'Add an Assignment for Sample Driver A' }));
+    fireEvent.click(within(lane('Sample Driver A')).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(tile('Fri 20').getAttribute('aria-label')).toBe('Fri 20 · Tomorrow · 1 draft'));
 
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
-    await waitFor(() => expect(tile('Fri 20').getAttribute('aria-label')).toBe('Fri 20 · Tomorrow · Sent'));
+    await waitFor(() => expect(tile('Fri 20').getAttribute('aria-label')).toBe('Fri 20 · Tomorrow · Assigned'));
   });
 
   it('updates when the page regains the focus, for what changed elsewhere', async () => {
@@ -1492,7 +1507,7 @@ describe('the week strip', () => {
     await waitFor(() => expect(tile('Mon 16').getAttribute('aria-label')).toBe('Mon 16 · –'));
     assignments = [planned('2026-11-16')];
     regainFocus();
-    await waitFor(() => expect(tile('Mon 16').getAttribute('aria-label')).toBe('Mon 16 · Not sent'));
+    await waitFor(() => expect(tile('Mon 16').getAttribute('aria-label')).toBe('Mon 16 · 1 draft'));
   });
 
   it('still shows its days, without states, when the week cannot be read, and says so', async () => {
