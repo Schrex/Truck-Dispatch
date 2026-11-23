@@ -2,7 +2,7 @@
 
 Status: **built**. Agreed in a design grilling on 21 Nov 2026 and revised after an independent review the same day and after trying it on staging on 22 Nov. Words in capitals are the ones in [`GLOSSARY.md`](../../GLOSSARY.md).
 
-These stories record what phase 1 had to do and why ("so that…"). Other docs cover the rest:
+These stories record what phase 1 had to do and why ("so that…"). They are kept as written: the day-level **Send** in them (stories 32, 38, 44, 50, 53–56, 68, 71, 73, 74) was replaced on 23 Nov 2026 by Assigning each Assignment on its own ([ADR 0005](../adr/0005-assign-each-assignment-on-its-own.md)); [`how-it-works.md`](../how-it-works.md) has the behaviour as built now. Other docs cover the rest:
 - What the app does now: [`../how-it-works.md`](../how-it-works.md). The API: [`../api.md`](../api.md). The schema: `migrations/`.
 - The reasons behind the design: [`../design/dispatch-board-decisions.md`](../design/dispatch-board-decisions.md).
 - What is out of scope: [`mission.md`](mission.md) and [`roadmap.md`](roadmap.md). How we test: [`tech-stack.md`](tech-stack.md#testing).
@@ -76,6 +76,8 @@ These stories record what phase 1 had to do and why ("so that…"). Other docs c
 51. As Dave, I want days before today to be read-only, so that I cannot change what the Drivers already did.
 
 ### Sending
+
+> Replaced by per-Assignment Assign, with no day-level Send ([ADR 0005](../adr/0005-assign-each-assignment-on-its-own.md)).
 
 52. As Dave, I want a new day to be a Draft that no Driver can see, so that I can plan Monday on Friday without my drafts landing on their phones.
 53. As Dave, I want one **Send** button for the day, so that the Drivers get the day when it is ready.

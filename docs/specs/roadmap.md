@@ -13,7 +13,8 @@ Legend: ✅ done · 🟡 in review · ⬜ to do · ⛔ blocked
 5. ✅ Send per day
 6. ✅ Driver view: pick your name, see your Sent day
 7. 🟡 Fixes from trying it on staging (PR #40): Driver view reaches any day, Foreman on cards, Send hint, composer folds on Save
-8. ⬜ Dave uses it for real for one week alongside #trucks, and we fix what he hits
+8. 🟡 Assign each Assignment on its own, replacing Send per day (spec #44, ADR 0005)
+9. ⬜ Dave uses it for real for one week alongside #trucks, and we fix what he hits
 
 ## Phase 2: Check in (which Truck, Inspection, Truck problems)
 

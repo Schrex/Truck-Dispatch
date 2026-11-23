@@ -9,6 +9,7 @@ What the app does as built, page by page. Words in capitals are defined in [`GLO
 - One lane per Driver (name and usual Truck; a removed Driver only on a day he has work), and an Unassigned lane last.
 - Each lane shows that day's **Assignments** as blocks in order, reading "From → To" (or the note), marked First (the first that is not cancelled) and Then.
 - A block shows the Assignment's Foreman beside its job site ("TIUNY (Brody)"), and the Truck: one the Assignment names shows plainly; with none named ("His own", the Driver takes his usual Truck) his usual Truck shows in grey, or nothing if he has none.
+- A **Draft** block has a dashed outline and a small "Draft" tag beside First or Then; an Assigned block looks plain, tagged only once it is Changed or Added (or Cancelled).
 - Above the lanes, the day's count leaves cancelled Assignments out.
 
 ### Adding (the composer)
@@ -23,7 +24,7 @@ What the app does as built, page by page. Words in capitals are defined in [`GLO
 - Tapping a chip offers that list (Unassigned for the Driver, His own for the Truck, "Leave blank" for the rest; From, To and Material also "Or type it", as in the composer, saved by name on Enter or on leaving the box). Each pick, or the note when left, saves on its own.
 - A new Driver puts it last in his lane. A Draft simply moves. An Assigned one is cancelled for the first Driver and a copy is added last in the new lane, where it stays open: Assigned at once to the new Driver (marked Added), or a Draft in Unassigned.
 - **Do this first** and **Do this later** move it one place in its lane, each left out at that end.
-- **✕** takes it off the day: a Draft is deleted; an Assigned one is cancelled, staying in its place, struck through and greyed, marked Cancelled, and opens only to **Put back**, which restores it (both count as Changed). (The button still names Delete or Cancel by the old day-level Send, which no day has now, so it says Delete until #46.)
+- **✕** takes it off the day: a Draft is deleted; an Assigned one is cancelled, staying in its place, struck through and greyed, marked Cancelled, and opens only to **Put back**, which restores it (both count as Changed). The button says **Delete** on a Draft and **Cancel** on an Assigned one.
 
 ### Days
 - The header shows the day's short date and its word ("Mon, Nov 23 · Next Monday", with a Holiday's name).
@@ -33,10 +34,11 @@ What the app does as built, page by page. Words in capitals are defined in [`GLO
 - **Copy to**: a day before today with Assignments offers to copy it to the next Working day while that day is still empty, by the same rules, then shows it.
 - Neither is offered once the target day has Assignments.
 
-### Assign (replacing Send)
-- Each Assignment is a **Draft** until Dave **Assigns** it on its own (ADR 0005); its Driver sees nothing of a Draft. An Unassigned one cannot be Assigned. Once Assigned, every change reaches the Driver at once, marked Changed (measured from when it was Assigned); one Assigned on its own day is Added.
-- The Worker does this today (`POST assignments/:id/assign`); the Board has no Assign button yet (#46). Days Sent before were carried over: their Assignments with a Driver are Assigned.
-- The Board still shows the old **Send** and "Drivers can't see this day until you Send." while a day has Assignments; Send now fails with "Days are no longer Sent. Assign each Assignment on its own." Both go in #46.
+### Assign
+- Each Assignment is a **Draft** until Dave **Assigns** it on its own (ADR 0005); its Driver sees nothing of a Draft. There is no Send for the day and no "Assign all".
+- On today and later days a Draft block with a Driver has an **Assign** button in its corner: one tap, no confirm. The block then loses its dashed outline and Draft tag, and the week strip reads its states again. If the Worker refuses (a day now past, say) its message shows and the block stays a Draft.
+- An Unassigned Draft has no Assign button; the Unassigned lane says "Pick a Driver to Assign" while it holds Drafts. Days before today show their Drafts but no Assign.
+- Once Assigned, every change reaches the Driver at once, marked Changed (measured from when it was Assigned); one Assigned on its own day is Added. Days Sent before the change were carried over: their Assignments with a Driver are Assigned.
 
 ### Week strip
 - A tile for each day Monday to Friday and narrow Saturday and Sunday tiles; today's says Today and the next day's Tomorrow; the day on screen is filled and today outlined.

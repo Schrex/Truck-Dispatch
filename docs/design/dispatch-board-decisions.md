@@ -28,6 +28,8 @@ Sources: the "Trucking page · 5 design mocks" export, page **Final · scheduler
 - **Saves are per field**, so one tap saves one thing. If two people change the same field, the last save wins.
 
 ### Days and Send
+
+> The day-level Send below was replaced on 23 Nov 2026: each Assignment is Assigned on its own, and a Draft block has an Assign button ([ADR 0005](../adr/0005-assign-each-assignment-on-its-own.md)). "Sent day" now reads "Assigned Assignment"; the rest of these decisions stand.
 - **Days work as in the Daily Schedule** (`Schrex/daily-schedule`, `docs/specs/week-strip.md`): a week strip, arrows that skip weekends and Holidays, and the Board opening on the next Working day. The behaviour is the same, built in this app's stack.
 - **Past days are enforced by the Worker** in US Eastern (ADR 0004), not by a lock in the page.
 - **Send per day, with no lock after it** (ADR 0003), because trucking changes Sent days all day. Send has no warnings for now.
@@ -44,7 +46,7 @@ Sources: the "Trucking page · 5 design mocks" export, page **Final · scheduler
 - **"Not you?" became "← Drivers"** (22 Nov), a plain way back to the list of Drivers.
 
 ### After trying it on staging (22 Nov)
-- **Send stays the gate.** Randy's Monday did not show because it was still a Draft. The Board now says so on a Draft day.
+- **Send stays the gate.** Randy's Monday did not show because it was still a Draft. The Board now says so on a Draft day. (Since ADR 0005 the gate is each Assignment's Assign, and Drafts look dashed on the Board.)
 - **The composer folds on Save** but keeps the Places and Material for the next **+**.
 - **Settings says nothing about HCSS on a Truck.** Its code and id stay in the data for Trips later. A Place still shows "On the truck map" (open question).
 - **First** is the first Assignment that is not cancelled, and the day's count leaves cancelled ones out.
