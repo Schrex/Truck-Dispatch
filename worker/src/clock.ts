@@ -1,15 +1,5 @@
 import type { Env } from './app';
-import { addDays, nextWorkingDay } from '../../shared/days';
-
-/** The business runs on US Eastern time: "today" there decides tomorrow's board and which days are past. */
-const BUSINESS_TIME_ZONE = 'America/New_York';
-
-const businessDate = new Intl.DateTimeFormat('en-CA', {
-  timeZone: BUSINESS_TIME_ZONE,
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-});
+import { addDays, businessDateOf, nextWorkingDay } from '../../shared/days';
 
 export interface Clock {
   /** The current moment. */
@@ -30,6 +20,6 @@ export interface Clock {
 export function clock(env: Pick<Env, 'NOW'>): Clock {
   const fixed = env.NOW ? new Date(env.NOW) : null;
   const now = fixed && !Number.isNaN(fixed.getTime()) ? fixed : new Date();
-  const today = businessDate.format(now);
+  const today = businessDateOf(now);
   return { now, today, tomorrow: addDays(today, 1), nextWorkingDay: nextWorkingDay(today) };
 }

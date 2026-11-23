@@ -13,7 +13,8 @@ import {
   shortDate,
   weekdayName,
   dayState,
-  unassignedOn,
+  draftsOn,
+  businessDateOf,
   sinceSent,
   stateWord,
   weekDates,
@@ -235,80 +236,109 @@ describe('dates', () => {
   });
 });
 
+describe('the business date of a moment', () => {
+  it.each([
+    ['2026-11-19T20:00:00.000Z', '2026-11-19'],
+    ['2026-11-20T03:30:00.000Z', '2026-11-19'],
+    ['2026-11-20T05:01:00.000Z', '2026-11-20'],
+    ['2026-07-04T03:59:00.000Z', '2026-07-03'],
+    ['2026-07-04T04:00:00.000Z', '2026-07-04'],
+  ])('reads %s as %s in US Eastern, daylight saving included', (moment, date) => {
+    expect(businessDateOf(moment)).toBe(date);
+  });
+});
+
 describe('Changed and Added', () => {
-  const SENT = '2026-11-20T21:15:00.000Z';
-  const before = '2026-11-20T19:00:00.000Z';
-  const after = '2026-11-20T22:00:00.000Z';
-
-  it('marks nothing on a Draft day, whatever has changed', () => {
-    expect(sinceSent({ createdAt: before, changedAt: after }, null)).toBeNull();
+  // An Assignment for Friday 2026-11-20, Assigned on Thursday at 4:15 PM Eastern.
+  const ASSIGNED = '2026-11-19T21:15:00.000Z';
+  const before = '2026-11-19T19:00:00.000Z';
+  const after = '2026-11-19T22:00:00.000Z';
+  const friday = (assignedAt: string | null, changedAt: string | null = null, handedFromId: string | null = null) => ({
+    date: '2026-11-20',
+    assignedAt,
+    changedAt,
+    handedFromId,
   });
 
-  it('marks nothing that was added and last changed before the Send', () => {
-    expect(sinceSent({ createdAt: before, changedAt: null }, SENT)).toBeNull();
-    expect(sinceSent({ createdAt: before, changedAt: before }, SENT)).toBeNull();
+  it('marks nothing on a Draft, whatever has changed', () => {
+    expect(sinceSent(friday(null, after))).toBeNull();
   });
 
-  it('calls one changed after the Send Changed', () => {
-    expect(sinceSent({ createdAt: before, changedAt: after }, SENT)).toBe('changed');
+  it('marks nothing Assigned before its day and not changed since', () => {
+    expect(sinceSent(friday(ASSIGNED))).toBeNull();
+    expect(sinceSent(friday(ASSIGNED, before))).toBeNull();
   });
 
-  it('calls one added after the Send Added, even once it is changed too', () => {
-    expect(sinceSent({ createdAt: after, changedAt: null }, SENT)).toBe('added');
-    expect(sinceSent({ createdAt: after, changedAt: '2026-11-20T23:00:00.000Z' }, SENT)).toBe('added');
+  it('calls one changed after it was Assigned Changed', () => {
+    expect(sinceSent(friday(ASSIGNED, after))).toBe('changed');
   });
 
-  it('does not count a change in the same moment as the Send as after it', () => {
-    expect(sinceSent({ createdAt: before, changedAt: SENT }, SENT)).toBeNull();
+  it('does not count a change in the same moment as the Assign as after it', () => {
+    expect(sinceSent(friday(ASSIGNED, ASSIGNED))).toBeNull();
+  });
+
+  it('calls one Assigned on its own day (US Eastern) Added, even once it is changed too', () => {
+    expect(sinceSent(friday('2026-11-20T13:00:00.000Z'))).toBe('added');
+    expect(sinceSent(friday('2026-11-20T13:00:00.000Z', '2026-11-20T14:00:00.000Z'))).toBe('added');
+  });
+
+  it('goes by the day in US Eastern, not UTC', () => {
+    // 04:30 UTC on the 20th is still 11:30 PM on the 19th in US Eastern.
+    expect(sinceSent(friday('2026-11-20T04:30:00.000Z'))).toBeNull();
+    expect(sinceSent(friday('2026-11-20T05:30:00.000Z'))).toBe('added');
+    expect(sinceSent({ ...friday('2026-11-20T03:30:00.000Z'), date: '2026-11-19' })).toBe('added');
+  });
+
+  it('calls the copy handed over from another Driver Added, whenever it was Assigned', () => {
+    expect(sinceSent(friday(after, null, 'first'))).toBe('added');
   });
 });
 
 describe('day states', () => {
-  const SENT = '2026-11-20T21:15:00.000Z';
-  const planned = (driverId: string | null, createdAt = '2026-11-20T19:00:00.000Z', changedAt: string | null = null) => ({
+  const ASSIGNED = '2026-11-19T21:15:00.000Z';
+  const LATER = '2026-11-19T22:00:00.000Z';
+  const on = (driverId: string | null, assignedAt: string | null = null, changedAt: string | null = null) => ({
+    date: '2026-11-20',
     driverId,
-    createdAt,
+    assignedAt,
     changedAt,
+    handedFromId: null as string | null,
     cancelledAt: null as string | null,
   });
-  const cancelled = (driverId: string | null) => ({ ...planned(driverId, undefined, '2026-11-20T22:00:00.000Z'), cancelledAt: '2026-11-20T22:00:00.000Z' });
+  const cancelled = (driverId: string | null, assignedAt: string | null = ASSIGNED) => ({ ...on(driverId, assignedAt, LATER), cancelledAt: LATER });
 
-  it('is none for a day with no Assignments that was never Sent', () => {
-    expect(dayState([], null)).toEqual({ state: 'none' });
+  it('is none for a day with no Assignments', () => {
+    expect(dayState([])).toEqual({ state: 'none' });
   });
 
-  it('is Draft, with the count Unassigned, for a planned day not Sent yet', () => {
-    expect(dayState([planned('drv-a'), planned(null), planned(null)], null)).toEqual({ state: 'draft', unassigned: 2 });
-    expect(dayState([planned('drv-a')], null)).toEqual({ state: 'draft', unassigned: 0 });
+  it('is Draft while any Assignment is a Draft, counting each Draft, Unassigned or with a Driver', () => {
+    expect(dayState([on('drv-a'), on(null), on(null)])).toEqual({ state: 'draft', drafts: 3 });
+    expect(dayState([on('drv-a', ASSIGNED), on(null)])).toEqual({ state: 'draft', drafts: 1 });
+    expect(dayState([on('drv-a', ASSIGNED, LATER), on(null)])).toEqual({ state: 'draft', drafts: 1 });
   });
 
-  it('is Sent when nothing is Changed or Added since the Send', () => {
-    expect(dayState([planned('drv-a'), planned(null)], SENT)).toEqual({ state: 'sent' });
+  it('does not count a cancelled Draft: it is off the day', () => {
+    expect(dayState([on(null), cancelled(null, null)])).toEqual({ state: 'draft', drafts: 1 });
+    expect(draftsOn([on(null), cancelled(null, null), on('drv-a', ASSIGNED)])).toBe(1);
   });
 
-  it('is not none for a day whose only Assignments are cancelled: they are still on it', () => {
-    expect(dayState([cancelled('drv-a')], SENT)).toEqual({ state: 'changed' });
-    expect(dayState([cancelled(null)], null)).toEqual({ state: 'draft', unassigned: 0 });
+  it('is Assigned once every Assignment on it is, and none is Changed or Added', () => {
+    expect(dayState([on('drv-a', ASSIGNED), on('drv-b', ASSIGNED)])).toEqual({ state: 'assigned' });
   });
 
-  it('does not count a cancelled Assignment Unassigned: it is off the day', () => {
-    expect(dayState([planned(null), cancelled(null)], null)).toEqual({ state: 'draft', unassigned: 1 });
-    expect(unassignedOn([planned(null), cancelled(null), planned('drv-a')])).toBe(1);
-  });
-
-  it('is Changed once one Assignment is Changed or Added since the Send', () => {
-    expect(dayState([planned('drv-a'), planned('drv-b', undefined, '2026-11-20T22:00:00.000Z')], SENT)).toEqual({ state: 'changed' });
-    expect(dayState([planned('drv-a'), planned(null, '2026-11-20T22:00:00.000Z')], SENT)).toEqual({ state: 'changed' });
+  it('is Changed once one Assigned Assignment is Changed, cancelled or Added', () => {
+    expect(dayState([on('drv-a', ASSIGNED), on('drv-b', ASSIGNED, LATER)])).toEqual({ state: 'changed' });
+    expect(dayState([cancelled('drv-a')])).toEqual({ state: 'changed' });
+    expect(dayState([on('drv-a', '2026-11-20T13:00:00.000Z')])).toEqual({ state: 'changed' });
   });
 });
 
 describe('a day state on its week strip tile', () => {
   it.each([
     [{ state: 'none' } as const, '–'],
-    [{ state: 'draft', unassigned: 0 } as const, 'Not sent'],
-    [{ state: 'draft', unassigned: 1 } as const, '1 unassigned'],
-    [{ state: 'draft', unassigned: 2 } as const, '2 unassigned'],
-    [{ state: 'sent' } as const, 'Sent'],
+    [{ state: 'draft', drafts: 1 } as const, '1 draft'],
+    [{ state: 'draft', drafts: 2 } as const, '2 drafts'],
+    [{ state: 'assigned' } as const, 'Assigned'],
     [{ state: 'changed' } as const, 'Changed'],
   ])('reads %o as "%s"', (state, word) => {
     expect(stateWord(state)).toBe(word);
