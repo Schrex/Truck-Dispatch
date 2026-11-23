@@ -107,6 +107,12 @@ As in [`tech-stack.md`](tech-stack.md#testing):
 
 - **Worker tests:** today only, required items, the repair note, append-only (405), problems opened from an Inspection, mid-day reports only for the checked-in Truck, fix, and the latest Inspection counting.
 - **Page tests:** the Check in card and its states, answering and Finish, open problems shown at the start, Report a problem, the Board's check-in line and red mark, and Settings' checklist and problem list.
+- **New: browser end-to-end** (Playwright, phone-sized screen) against the real built app with a local D1. It is a few journeys, not every rule:
+  - A Driver checks in with one Needs repair.
+  - Dave sees the check-in and the red mark on the Board.
+  - The Driver reports a problem.
+  - Dave marks it fixed in Settings.
+  - It runs in CI next to the existing tests. It is new in phase 2, so it lands with step 2.2.
 
 ## Out of scope
 

@@ -36,6 +36,7 @@ A good test says what Dave or a Driver would see, or what the API answers, for a
 - **The Worker's API, called as a request** against a real local D1, migrated from `migrations/` and reseeded for each test (`worker/src/app.test.ts`).
 - **The page in jsdom with a fake API** (`src/App.test.tsx`, `src/pages/*.test.tsx`, `src/components/*.test.tsx`).
 - **The day rules as pure functions** (`shared/days.test.ts`): Working days and Holidays across years, words and arrow targets, day states, Changed and Added.
+- **Browser end-to-end** (Playwright, from phase 2): a few whole journeys through the real built app with a local D1, on a phone-sized screen. Rules stay in the two seams above; these only prove the pieces work together.
 
 `scripts/smoke.mjs` adds read-only checks against staging, run by CI after each deploy.
 
