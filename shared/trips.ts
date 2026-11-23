@@ -76,6 +76,11 @@ export interface Match {
   assignmentId: string | null;
   rule: 1 | 2 | 3 | 4 | 5 | 6 | 7;
   reason: string;
+  /**
+   * A tie: the Assignments (ids, in Dave's order) that fit equally at `rule`.
+   * The Truck did planned work and Dave picks which ("Which Assignment?").
+   */
+  candidates?: string[];
 }
 
 /** A visit after cleaning, with the raw rows it came from. */
@@ -159,16 +164,26 @@ export interface TruckLogColumn {
   job: string | null;
   pickUp: string | null;
   dropOff: string | null;
-  /** Null on an unverified column: Dave decides what was hauled. */
   material: string | null;
-  /** Null on an unverified column: Dave decides whether it was loaded. */
-  loads: number | null;
+  loads: number;
   /** From the Loads' Tickets (phase 4); null until they are read. */
   tons: number | null;
   /** Null until it has a Trip. */
   truckingHours: number | null;
-  /** Work no Assignment explains (an extra job), added after Dave's: unverified until Dave answers it. */
-  unverified: boolean;
+}
+
+/**
+ * One piece of Unplanned work as the Truck log shows it, after Dave's
+ * columns: its Places and times, never a Pick up or Drop off.
+ */
+export interface TruckLogUnplanned {
+  /** The Unplanned work's id. */
+  id: string;
+  /** Where it went, in order: the Place's short name, else Fleet's geofence code. */
+  places: string[];
+  /** When each of its Trips left: out on the first, back on the last. */
+  tripsLeftAt: string[];
+  truckingHours: number;
 }
 
 /** One Trip as the Truck log lists it (the drives to and from the shop). */
@@ -181,24 +196,43 @@ export interface TruckLogTrip {
   miles: number;
 }
 
+/** One Place a piece of Unplanned work went to: its Place, else only Fleet's geofence code. */
+export interface UnplannedPlace {
+  placeId: string | null;
+  code: string;
+}
+
 /**
- * Work the Truck did that no Assignment explains: a written Trip nothing fits
- * (or two Assignments fit), with the way straight back from where it went when
- * that comes next. The Truck log writes it as an extra, unverified column;
- * whether it was a Load and of what, Dave decides.
+ * Unplanned work (GLOSSARY.md): written Trips in a row that no Assignment
+ * explains, between the Trips an Assignment explains (or the shop), taken as
+ * one piece for Dave to answer. The Truck cannot tell which way material
+ * went, so it has its Places and times only: no From, no To, no Job, no Loads.
  */
-export interface UnverifiedJob {
-  /** Its first Trip's leftAt. */
+export interface UnplannedWork {
+  /**
+   * Its first Trip's leftAt. Stable while the piece grows during the day, so
+   * an answer to it (later: make an Assignment, link, not a haul) can name it.
+   */
   id: string;
-  fromPlaceId: string | null;
-  toPlaceId: string | null;
-  fromCode: string;
-  toCode: string;
+  /** Its Trips in order; none belongs to an Assignment. */
   trips: Trip[];
-  /** The Job of where it went, else of where it came from. */
-  job: TripJob | null;
-  /** From leaving on its first Trip to arriving at the end of its last, 2 decimals. */
+  /** Where it went, in the order first reached, each once: "J25008 Los Flamboyanes ⇄ J611 Bishop Kearney". */
+  places: UnplannedPlace[];
+  /** Leaving on its first Trip. */
+  leftAt: string;
+  /** Arriving at the end of its last. */
+  arrivedAt: string;
+  /** leftAt to arrivedAt, in hours, 2 decimals. */
   truckingHours: number;
+}
+
+/** A tie: "Which Assignment? A1 or A3". */
+export interface WhichAssignment {
+  /** The Trip's leftAt. */
+  id: string;
+  trip: Trip;
+  /** The Assignments (ids, in Dave's order) that fit it equally. */
+  candidates: string[];
 }
 
 /** One ignition change from the ping history. */
@@ -224,13 +258,10 @@ export interface TripDay {
   visits: CleanVisit[];
   trips: Trip[];
   assignments: AssignmentTrips[];
-  /**
-   * The written Trips no Assignment explains (none fits, or two do), in
-   * order: listed under the Truck log's columns for Dave to answer next morning.
-   */
-  unexplained: Trip[];
-  /** The unexplained Trips as extra jobs, each with its way back: the Truck log's unverified columns. */
-  unverified: UnverifiedJob[];
+  /** The Unplanned work: written Trips no Assignment explains, in pieces, for Dave to answer next morning. */
+  unplanned: UnplannedWork[];
+  /** The written Trips two or more Assignments fit equally: planned work, not Unplanned work; Dave picks which. */
+  whichAssignment: WhichAssignment[];
   /** The written Trips to or from the shop or a yard (rule 3): leaving in the morning, getting back at the end of the day. */
   shopTrips: Trip[];
   /** The Truck's day: Driver, start and end, miles, Total hours. */
@@ -365,7 +396,13 @@ export function matchTrip(
     const fit = routes.filter(({ r }) => rule.fits(r, from, to));
     if (fit.length === 1) return { kind: rule.kind, assignmentId: fit[0].a.id, rule: rule.rule, reason: rule.reason };
     if (fit.length > 1)
-      return { kind: null, assignmentId: null, rule: rule.rule, reason: `${fit.length} Assignments fit (${fit.map((f) => f.a.label).join(', ')}); Dave chooses` };
+      return {
+        kind: null,
+        assignmentId: null,
+        rule: rule.rule,
+        reason: `${fit.length} Assignments fit (${fit.map((f) => f.a.label).join(', ')}); Dave chooses`,
+        candidates: fit.map((f) => f.a.id),
+      };
     return null;
   };
 
@@ -493,52 +530,77 @@ function truckDayOf(input: TripDayInput, visits: CleanVisit[], trips: Trip[]): T
   };
 }
 
-/**
- * The way straight back from where a Trip went that no Assignment explains is
- * part of that same extra job, not a drive to some Assignment's pickup: it goes
- * to Dave with it. Only an empty guess (rules 4 to 7) is taken back; a Trip
- * that matches an Assignment's route (rules 1, 2) or the shop (rule 3) keeps its match.
- */
-const WAY_BACK: Match = { kind: null, assignmentId: null, rule: 7, reason: 'The way back from a Trip no Assignment explains; Dave answers both' };
-function withWaysBack(trips: Trip[]): Trip[] {
-  return trips.map((t, i) => {
-    const out = trips[i - 1];
-    const isWayBack =
-      out && out.match.kind === null && out.match.rule === 7 && out.match !== WAY_BACK &&
-      t.fromPlaceId === out.toPlaceId && t.toPlaceId === out.fromPlaceId && t.match.rule >= 4;
-    return isWayBack ? { ...t, match: WAY_BACK } : t;
-  });
-}
+/** "Nothing fits": rule 7, so no Assignments tied for the Trip either. */
+const fitsNone = (m: Match) => m.kind === null && m.rule === 7;
 
-/** The unexplained Trips grouped into extra jobs: one out, with its way back when that follows. */
-function unverifiedJobs(trips: Trip[], places: TripPlace[], jobs: TripJob[]): UnverifiedJob[] {
-  const result: UnverifiedJob[] = [];
+/**
+ * The drive back into a piece of Unplanned work's own Places. Where a piece
+ * of Unplanned work already went, a Trip back there that only an empty guess
+ * explains (rule 4, "going to the Assignment's pickup", for one Assignment
+ * or tied between several) is the Unplanned
+ * work's way back, not that Assignment's: on 16 Nov the 14:33 drive from
+ * Bishop Kearney back to J25008 is the Unplanned work's, so A1 keeps its
+ * 3.02 h. A Trip on an Assignment's route (rules 1, 2), to the shop (3), a
+ * Load guess (5, 6) or a tie still belongs to the planned work and ends the
+ * piece. The spec says only "a run covers the way back"; this is the rule
+ * chosen for it.
+ */
+const BACK_INTO_UNPLANNED: Match = {
+  kind: null,
+  assignmentId: null,
+  rule: 7,
+  reason: 'Back to where this Unplanned work already went; Dave answers it with the rest',
+};
+
+/**
+ * Take each run of Trips nothing fits as one piece of Unplanned work, with the
+ * drives back into it. Every Trip is walked (an unwritten last one is taken
+ * back too, so it is never shown as an Assignment's for two minutes); only
+ * written Trips make up the pieces.
+ */
+function withUnplanned(trips: Trip[]): { trips: Trip[]; unplanned: UnplannedWork[] } {
+  const out: Trip[] = [];
+  const runs: Trip[][] = [];
+  let open: Trip[] | null = null;
+  const visited = new Set<string>();
   for (const t of trips) {
-    if (!t.written || t.match.kind !== null) continue;
-    const open = result.at(-1);
-    if (t.match === WAY_BACK && open && open.trips.at(-1) === trips[trips.indexOf(t) - 1]) {
-      open.trips.push(t);
-      continue;
+    const backInto = open !== null && t.match.rule === 4 && visited.has(t.toCode.toLowerCase());
+    if (fitsNone(t.match) || backInto) {
+      const trip = backInto ? { ...t, match: BACK_INTO_UNPLANNED } : t;
+      if (open === null) {
+        open = [];
+        runs.push(open);
+        visited.clear();
+        visited.add(t.fromCode.toLowerCase());
+      }
+      open.push(trip);
+      visited.add(t.toCode.toLowerCase());
+      out.push(trip);
+    } else {
+      open = null;
+      out.push(t);
     }
-    result.push({
-      id: t.leftAt,
-      fromPlaceId: t.fromPlaceId,
-      toPlaceId: t.toPlaceId,
-      fromCode: t.fromCode,
-      toCode: t.toCode,
-      trips: [t],
-      job: jobOf({ fromPlaceId: t.fromPlaceId, toPlaceId: t.toPlaceId }, places, jobs),
-      truckingHours: 0,
-    });
   }
-  return result.map((j) => ({ ...j, truckingHours: round((ms(j.trips.at(-1)!.arrivedAt) - ms(j.trips[0].leftAt)) / HOUR) }));
+  const unplanned = runs
+    .map((run) => run.filter((t) => t.written))
+    .filter((run) => run.length > 0)
+    .map((run): UnplannedWork => {
+      const places: UnplannedPlace[] = [];
+      for (const t of run)
+        for (const [placeId, code] of [[t.fromPlaceId, t.fromCode], [t.toPlaceId, t.toCode]] as const)
+          if (!places.some((p) => p.code.toLowerCase() === code.toLowerCase())) places.push({ placeId, code });
+      const leftAt = run[0].leftAt;
+      const arrivedAt = run.at(-1)!.arrivedAt;
+      return { id: leftAt, trips: run, places, leftAt, arrivedAt, truckingHours: round((ms(arrivedAt) - ms(leftAt)) / HOUR) };
+    });
+  return { trips: out, unplanned };
 }
 
 /** One Truck's day as the Worker would know it at `now`. */
 export function buildTripDay(input: TripDayInput): TripDay {
   const known = knownAt(input.visits, input.now);
   const { visits, dropped, merged } = clean(known, input.places);
-  const trips: Trip[] = withWaysBack(pair(visits, input.now).map((t) => ({ ...t, match: matchTrip(t, input.assignments, input.places) })));
+  const { trips, unplanned } = withUnplanned(pair(visits, input.now).map((t) => ({ ...t, match: matchTrip(t, input.assignments, input.places) })));
   // Inside cleaned visits only: a drive-through's miles are already in the Trip across it,
   // and a short exit's miles are inside the joined visit.
   const insidePlaces = round(visits.reduce((sum, v) => sum + (v.exitOdometer === null ? 0 : v.exitOdometer - v.entryOdometer), 0));
@@ -552,8 +614,10 @@ export function buildTripDay(input: TripDayInput): TripDay {
     visits,
     trips,
     assignments: summarize(input, trips),
-    unexplained: trips.filter((t) => t.written && t.match.kind === null),
-    unverified: unverifiedJobs(trips, input.places, input.jobs ?? []),
+    unplanned,
+    whichAssignment: trips
+      .filter((t) => t.written && t.match.candidates)
+      .map((trip) => ({ id: trip.leftAt, trip, candidates: trip.match.candidates! })),
     shopTrips: trips.filter((t) => t.written && t.match.rule === 3),
     truckDay: truckDayOf(input, visits, trips),
     unknownCodes,

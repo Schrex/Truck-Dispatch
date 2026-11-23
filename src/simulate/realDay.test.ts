@@ -61,32 +61,42 @@ describe('The Trip builder on the real day (MCK-55-17, Mon 16 Nov 2026)', () => 
     expect(at('reroute').assignments[0].loads).toBe(5);
   });
 
-  describe('Trips with no Assignment, for Dave to answer next morning', () => {
-    const forDave = (id: string, time?: string) => at(id, time).unexplained.map((t) => `${easternTime(t.leftAt)} ${t.fromCode} → ${t.toCode}`);
+  describe('Unplanned work: Trips no Assignment explains, for Dave to answer next morning', () => {
+    /** Each piece as "J25008 Los Flamboyanes ⇄ J611 Bishop Kearney · 14:15–14:43 · 2 Trips · 0.46 h". */
+    const unplanned = (id: string, time?: string) =>
+      at(id, time).unplanned.map(
+        (w) => `${w.places.map((p) => p.code).join(' ⇄ ')} · ${easternTime(w.leftAt)}–${easternTime(w.arrivedAt)} · ${w.trips.length} Trips · ${w.truckingHours} h`,
+      );
 
-    it('as planned: the 14:15 Trip from J25008 to Bishop Kearney, and the 14:33 way back from it', () => {
-      expect(forDave('planned')).toEqual(['14:15 J25008 Los Flamboyanes → J611 Bishop Kearney', '14:33 J611 Bishop Kearney → J25008 Los Flamboyanes']);
+    it('as planned, at end of day: one piece, the drive to Bishop Kearney and back, 14:15 to 14:43', () => {
+      expect(unplanned('planned')).toEqual(['J25008 Los Flamboyanes ⇄ J611 Bishop Kearney · 14:15–14:43 · 2 Trips · 0.46 h']);
+      expect(at('planned').unplanned[0].trips.map((t) => easternTime(t.leftAt))).toEqual(['14:15', '14:33']);
     });
 
-    it('as planned: the two make one unverified extra job, J25008 → Bishop Kearney and back, 14:15 to 14:43', () => {
-      const jobs = at('planned').unverified;
-      expect(jobs.map((j) => `${j.fromCode} → ${j.toCode} ${j.trips.length} Trips ${j.truckingHours} h`)).toEqual([
-        'J25008 Los Flamboyanes → J611 Bishop Kearney 2 Trips 0.46 h',
-      ]);
-      expect(jobs[0].job).toMatchObject({ jobNumber: 'J611' });
+    it('as planned: neither Trip is any Assignment’s, so nothing shows a Pick up or Drop off for it', () => {
+      const d = at('planned');
+      expect(d.unplanned[0].trips.map((t) => t.match.assignmentId)).toEqual([null, null]);
+      expect(d.assignments.map((a) => a.loads)).toEqual([4, 2]);
+      expect(d.whichAssignment).toEqual([]);
     });
 
-    it('with the reroute at 11:20 it is A1’s work, so there is no extra job', () => {
-      expect(at('reroute').unverified).toEqual([]);
+    it('with the reroute at 11:20 the Bishop Kearney Trips are A1’s, so there is none', () => {
+      expect(unplanned('reroute')).toEqual([]);
     });
 
-    it('with the reroute at 11:20 that Trip is A1’s Load, so there are none', () => {
-      expect(forDave('reroute')).toEqual([]);
+    it('before 14:23 there is none; it grows as each Trip is written', () => {
+      expect(unplanned('planned', '14:16:59')).toEqual([]);
+      expect(unplanned('planned', '14:24:59')).toEqual([]);
+      // The 14:15 Trip is written 2 min after it reached Bishop Kearney at 14:23:53.
+      expect(unplanned('planned', '14:25:59')).toEqual(['J25008 Los Flamboyanes ⇄ J611 Bishop Kearney · 14:15–14:23 · 1 Trips · 0.14 h']);
+      expect(unplanned('planned', '14:45:59')).toEqual(['J25008 Los Flamboyanes ⇄ J611 Bishop Kearney · 14:15–14:43 · 2 Trips · 0.46 h']);
+      expect(at('planned', '14:45:59').unplanned[0].id).toBe(at('planned', '14:25:59').unplanned[0].id);
     });
 
-    it('only Trips written by `now`: none at 14:16, while the Truck has not yet reached Bishop Kearney', () => {
-      expect(forDave('planned', '14:16:59')).toEqual([]);
-      expect(forDave('planned', '14:25:59')).toEqual(['14:15 J25008 Los Flamboyanes → J611 Bishop Kearney']);
+    it('never shows the drive back as A1’s, even in the two minutes before it is written', () => {
+      const d = at('planned', '14:44:59');
+      expect(d.trips.at(-1)).toMatchObject({ fromCode: 'J611 Bishop Kearney', written: false, match: { assignmentId: null } });
+      expect(d.assignments[0].truckingHours).toBe(3.02);
     });
   });
 
@@ -106,7 +116,7 @@ describe('The Trip builder on the real day (MCK-55-17, Mon 16 Nov 2026)', () => 
   describe('Trucking hours: leaving for an Assignment’s first Trip to arriving at the end of its last, loaded or empty', () => {
     const hours = (id: string, time?: string) => at(id, time).assignments.map((a) => a.truckingHours);
 
-    it('as planned, at end of day: A1 08:24 to its last Load at 11:25, 3.02 (the way back from Bishop Kearney is the extra job’s); A2 11:30 to 13:54, 2.40', () => {
+    it('as planned, at end of day: A1 08:24 to its last Load at 11:25, 3.02 (the drive back from Bishop Kearney is the Unplanned work’s); A2 11:30 to 13:54, 2.40', () => {
       expect(hours('planned')).toEqual([3.02, 2.4]);
     });
 
