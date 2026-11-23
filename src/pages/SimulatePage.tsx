@@ -119,7 +119,7 @@ export function SimulatePage() {
           </div>
         </div>
         <TruckLog truck={REAL_DAY.truck} date={REAL_DAY.date} truckDay={day.tripDay.truckDay}>
-          <TruckLogAssignments columns={day.truckLog.columns} unexplained={day.truckLog.unexplained} />
+          <TruckLogAssignments columns={day.truckLog.columns} shopTrips={day.truckLog.shopTrips} />
         </TruckLog>
       </main>
     </div>

@@ -31,9 +31,14 @@ const columns = () =>
   within(screen.getByRole('region', { name: 'Truck log' }))
     .getAllByRole('group', { name: /^Assignment \d/ })
     .map((col) => Object.fromEntries([...col.querySelectorAll('dt')].map((dt) => [dt.textContent, dt.nextElementSibling?.textContent])));
-/** The Trips no Assignment explains, as listed under the columns. */
-const forDave = () =>
-  within(within(screen.getByRole('region', { name: 'Truck log' })).getByRole('group', { name: 'Trips with no Assignment' }))
+/** The Truck log's names for its columns, in order: Dave's Assignments, then the unverified extra jobs. */
+const columnNames = () =>
+  within(screen.getByRole('region', { name: 'Truck log' }))
+    .getAllByRole('group', { name: /^Assignment \d/ })
+    .map((col) => col.getAttribute('aria-label'));
+/** The drives to and from the shop, as listed under the columns. */
+const shopLog = () =>
+  within(within(screen.getByRole('region', { name: 'Truck log' })).getByRole('group', { name: 'To and from the shop' }))
     .queryAllByRole('listitem')
     .map((li) => li.textContent);
 
@@ -171,8 +176,8 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
     });
   });
 
-  describe('Truck log columns: one per Assignment, and the Trips with no Assignment', () => {
-    it('at end of day: A1 and A2 as Assignment 1 and 2, tons from Tickets, and the 14:15 Bishop Kearney Trip for Dave', () => {
+  describe('Truck log columns: one per Assignment, one per unverified extra job, and the drives to and from the shop', () => {
+    it('at end of day: A1 and A2 as Assignment 1 and 2, tons from Tickets, and the Bishop Kearney stop as Assignment 3, unverified, for Dave', () => {
       render(<SimulatePage />, { wrapper: MemoryRouter });
       expect(columns()).toEqual([
         {
@@ -182,7 +187,7 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
           Material: 'Fill',
           '# of loads': '4',
           '# of tons': 'from Tickets',
-          'Trucking hours': '6.32',
+          'Trucking hours': '3.02',
         },
         {
           Job: 'J25008 Los Flamboyanes',
@@ -193,16 +198,36 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
           '# of tons': 'from Tickets',
           'Trucking hours': '2.40',
         },
+        {
+          Job: 'J611 Bishop Kearney',
+          'Pick up': 'J25008 Los Flamboyanes',
+          'Drop off': 'J611 Bishop Kearney',
+          Material: 'Unknown · Dave decides',
+          '# of loads': 'Unknown · Dave decides',
+          '# of tons': 'from Tickets',
+          'Trucking hours': '0.46',
+        },
       ]);
-      expect(forDave()).toEqual(['14:15–14:23 · J25008 Los Flamboyanes → J611 Bishop Kearney']);
+      expect(columnNames()).toEqual(['Assignment 1', 'Assignment 2', 'Assignment 3 · unverified']);
     });
 
-    it('with the reroute at 11:20 the Bishop Kearney Trip counts on A1, and no Trip is left for Dave', () => {
+    it('at end of day logs the drive out of the shop in the morning and the drive back to it', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      expect(shopLog()).toEqual([
+        '06:24–07:02 · Shop → J25008 Los Flamboyanes · 20.59 mi · empty',
+        '15:41–16:03 · J25008 Los Flamboyanes → Shop · 18.39 mi · empty',
+      ]);
+      setClock(15 * 60 + 50);
+      expect(shopLog()).toEqual(['06:24–07:02 · Shop → J25008 Los Flamboyanes · 20.59 mi · empty']);
+      setClock(6 * 60);
+      expect(within(screen.getByRole('group', { name: 'To and from the shop' })).getByText('None yet')).toBeTruthy();
+    });
+
+    it('with the reroute at 11:20 the Bishop Kearney Trip counts on A1, so there is no unverified column', () => {
       render(<SimulatePage />, { wrapper: MemoryRouter });
       choose('reroute');
       expect(columns()[0]).toMatchObject({ Job: 'J611 Bishop Kearney', 'Drop off': 'J611 Bishop Kearney', '# of loads': '5' });
-      expect(forDave()).toEqual([]);
-      expect(within(screen.getByRole('group', { name: 'Trips with no Assignment' })).getByText('None')).toBeTruthy();
+      expect(columnNames()).toEqual(['Assignment 1', 'Assignment 2']);
     });
 
     it('at 10:02 shows what is known by then: A1 2 loads and its hours so far, A2 nothing yet', () => {
@@ -212,7 +237,7 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
         ['2', '1.59'],
         ['0', ''],
       ]);
-      expect(forDave()).toEqual([]);
+      expect(columnNames()).toEqual(['Assignment 1', 'Assignment 2']);
     });
   });
 

@@ -25,10 +25,11 @@ These come from the simulation spec (#55) and are built in the Trip builder (`sh
 
 - **The Truck's day's Driver, without Inspections.** The Driver whose Assignments that day name the Truck (an Assignment with no Truck names his usual one), otherwise the Driver whose usual Truck it is. If more than one fits, nobody is chosen and the Truck log asks "Who was driving?". This stands in for the phase 2 rule (whoever last inspected it) until Inspections exist; see P4.
 - **An Assignment's Job comes from its Places:** the Job of its drop-off, otherwise of its pick-up (its route as it is now, so a reroute can change it). The Assignment has no Job field. A Place belongs to at most one Job (`places.job_id`).
-- **Trucking hours** of an Assignment run from the leave time of its first linked Trip to the arrive time of its last, loaded or empty. They follow the matching rules as they are, so two Assignments' hours can overlap: on 16 Nov as planned, A1 runs 08:24 to 14:43 (6.32 h) because its last linked Trip is the empty drive from Bishop Kearney back to J25008 (rule 4, "going to the Assignment's pickup"), while A2 runs 11:30 to 13:54 (2.40 h).
+- **Trucking hours** of an Assignment run from the leave time of its first linked Trip to the arrive time of its last, loaded or empty. On 16 Nov as planned, A1 runs 08:24 to its last Load at 11:25 (3.02 h) and A2 11:30 to 13:54 (2.40 h). The empty drive from Bishop Kearney back to J25008 at 14:33 would fit rule 4 ("going to A1's pickup") and stretch A1 to 14:43, overlapping A2; it is the way back from a Trip nothing explains, so it goes to Dave with that Trip instead (see the rules below).
 - **Total hours** run from the Truck's day's start time to its end time (see build order 1).
 - **Tons** are the sum of the Ticket quantities on an Assignment's Loads (phase 4). Until Tickets exist the Truck log shows them blank, marked "from Tickets". Nobody types them.
-- **Trips with no Assignment** (none fits, or two do) are listed under the Truck log's columns once written, for Dave to answer next morning. In the simulation they are shown, not answerable.
+- **Trips with no Assignment** (none fits, or two do), each with its way straight back when that follows, are an **extra job**: an extra Truck log column after Dave's Assignments, "Assignment 3 · unverified", with its Job (of where it went, else where it came from), Pick up, Drop off and Trucking hours. Whether it was a Load and of what Material is Dave's to decide next morning, so both read "Unknown · Dave decides". In the simulation they are shown, not answerable.
+- **To and from the shop**: below the columns, the Truck log lists the drives out of the shop in the morning and back to it at the end of the day, with times and miles.
 
 ## What one real day shows (MCK-55-17, Mon 16 Nov 2026)
 
@@ -68,7 +69,7 @@ WALWDOLO  → J25008     12:08 → 12:36   21.2 mi   load  A2   ┐
 J25008    → WALWDOLO   12:54 → 13:18   21.2 mi   empty A2   │ 2 Loads on A2
 WALWDOLO  → J25008     13:29 → 13:54   21.2 mi   load  A2   ┘
 J25008    → J611       14:15 → 14:23    3.5 mi   NULL  (Dave answers next morning)
-J611      → J25008     14:33 → 14:43    3.7 mi   empty A1 (to its pickup)
+J611      → J25008     14:33 → 14:43    3.7 mi   NULL  (the way back from J611: one side trip for Dave)
 J25008    → SHOP       15:41 → 16:03   18.4 mi   empty
 ```
 
@@ -138,6 +139,10 @@ An Assignment cancelled after `left_at` still matches; one cancelled before does
 | 5 | An Assignment has From = A, To empty | `load` | that Assignment |
 | 6 | An Assignment has To = B, From empty, and A is a plant | `load` | that Assignment |
 | 7 | Nothing fits | NULL | none; Dave answers |
+
+**The way back from a Trip nothing explains goes with it.** When a rule 7 Trip A → B is followed straight away by B → A, and that drive back was only matched by rules 4–7 (an empty guess), the drive back is NULL too: one side trip for Dave to answer, not a drive to some Assignment's pickup. A drive back that fits an Assignment's route (rules 1, 2) or the shop (rule 3) keeps its match.
+
+**Rule 3 is an assumption, not a measurement.** Fleet only records when the Truck entered and left each geofence, nothing about what it carried. A Trip to or from the shop or a yard is taken as empty because Trucks do not load there; a Ticket would be the only proof otherwise.
 
 Rules 2–4 come before 5–6 on purpose. Otherwise:
 - with To empty, the drive to the shop and the drive to the next plant become Loads;
