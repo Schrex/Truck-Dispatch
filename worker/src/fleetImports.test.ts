@@ -25,7 +25,7 @@ const storedVisits = async (truckId: string) =>
 
 describe('Importing a JSON Fleet export', () => {
   it('stores the 18 visits of the 16 Nov export for Truck 55 and says 18 new', async () => {
-    const { truckId } = await setUpTruck55(d1, send);
+    const { truckId } = await setUpTruck55(send);
     const response = await importFile('2026-11-16-1502.json');
     expect(response.status).toBe(201);
     const { import: made } = (await response.json()) as { import: FleetImport };
@@ -37,13 +37,13 @@ describe('Importing a JSON Fleet export', () => {
   });
 
   it('stores the open J25008 visit from 14:43 with no exit time', async () => {
-    const { truckId } = await setUpTruck55(d1, send);
+    const { truckId } = await setUpTruck55(send);
     await importFile('2026-11-16-1502.json');
     expect((await storedVisits(truckId)).at(-1)).toMatchObject({ geofenceCode: 'J25008 Los Flamboyanes', enteredAt: '2026-11-16T19:43:31.000Z', exitedAt: null });
   });
 
   it('records the Import and links it to Mon 16 Nov', async () => {
-    const { truckId } = await setUpTruck55(d1, send);
+    const { truckId } = await setUpTruck55(send);
     const { import: made } = (await (await importFile('2026-11-16-1502.json')).json()) as { import: FleetImport };
     const DB = d1.database();
     expect(await DB.prepare('SELECT truck_id AS truckId, file_name AS fileName, format, imported_at AS importedAt, added FROM fleet_imports WHERE id = ?').bind(made.id).first()).toEqual({
@@ -53,7 +53,7 @@ describe('Importing a JSON Fleet export', () => {
   });
 
   it('adds only the visits it has not stored when the next cut of the day comes', async () => {
-    const { truckId } = await setUpTruck55(d1, send);
+    const { truckId } = await setUpTruck55(send);
     const added = async (name: string) => ((await (await importFile(name)).json()) as { import: FleetImport }).import.added;
     expect(await added('2026-11-16-cut-1015.json')).toBe(8);
     expect(await added('2026-11-16-cut-1305.json')).toBe(6);
