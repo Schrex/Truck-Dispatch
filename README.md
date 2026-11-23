@@ -43,9 +43,12 @@ Tap **+** on a Driver's lane (or on "Unassigned"), tap the chips you know (or ty
 
 | Path | What |
 |---|---|
-| `src/` | React pages (React 18, react-router 6, Tailwind 3, shadcn/ui, sonner toasts, Hub theme tokens in `src/index.css`): Board at `/` (or the Driver view, on a device that chose it), Driver view at `/driver`, Settings at `/settings`, all also under `/truck-dispatch/` |
+| `src/` | React pages (React 18, react-router 6, Tailwind 3, shadcn/ui, sonner toasts, Hub theme tokens in `src/index.css`): Board at `/` (or the Driver view, on a device that chose it), Driver view at `/driver`, Settings at `/settings`, and the phase 3 Simulation at `/simulate` (one Truck's day of HCSS Fleet data run through the Trip builder in the page: a real day of MCK-55-17 by default, the tests' made-up day, or an entry/exit JSON uploaded in the page; nothing is saved), all also under `/truck-dispatch/` |
 | `worker/src/` | Worker: removes the `/truck-dispatch` prefix, then serves the API (`api.ts`) or page files |
 | `shared/types.ts` | API shapes used by both |
+| `shared/trips.ts`, `shared/trips.fixture.ts` | The phase 3 Trip builder (pure): cleans one Truck's raw Fleet visits, pairs them into Trips, matches each to an Assignment as it was when the Trip left, and works out loads, Now and Done; and a fake day with the times and odometers of a real one and made-up names. Not used by the Worker yet. Design: `docs/design/telematics-backend.md` |
+| `shared/fleetImport.ts` | Reads an HCSS Fleet entry/exit export (`{ Result: [...] }`) into Places and raw visits for the Trip builder. |
+| `src/simulate/datasets.ts` | The Simulation's days: MCK-55-17 on 16 Nov 2026 from the real Fleet export, Supabase meter readings and ping history (real Place names, unlike the seed), the made-up day, and an uploaded day. The real day's Assignments are a guess. |
 | `shared/base.ts` | The `/truck-dispatch` prefix, used by both |
 | `shared/days.ts` | Day rules used by both, with no date library: Working days and the six Holidays, next and previous Working day, the word for a day (Today, Next Monday), short dates and arrow labels, and the Assign rules: whether an Assignment is Changed or Added since it was Assigned, a day's state (none, Draft with the count of Drafts, Assigned, Changed; cancelled Drafts are not counted) and its week strip word |
 | `migrations/` | D1 schema only. Create with `bunx wrangler d1 migrations create truck-dispatch <name>` |

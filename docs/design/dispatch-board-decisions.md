@@ -103,6 +103,8 @@ trips           id, truck_id, date, from_place_id?, to_place_id?, left_at, arriv
 meter_readings  truck_id, read_at, odometer, engine_hours   PK (truck_id, read_at)
 ```
 
+Detailed design, evidence from one real day, and proposed changes (`fleet_visits` in place of `fleet_events`, Fleet access): `docs/design/telematics-backend.md`.
+
 ### Phase 4: tickets and sign-off
 ```
 tickets    id, date, driver_id, truck_id, trip_id? (its Load), photo_key (R2), taken_at,

@@ -5,6 +5,7 @@ import { storedView } from '@/lib/deviceView';
 import { BoardPage } from '@/pages/BoardPage';
 import { DriverPage } from '@/pages/DriverPage';
 import { SettingsPage } from '@/pages/SettingsPage';
+import { SimulatePage } from '@/pages/SimulatePage';
 
 /**
  * The Board, or the Driver view on a device that chose it (Scheduler |
@@ -23,6 +24,8 @@ export function App() {
         <Route path="/" element={<Home />} />
         <Route path="/driver" element={<DriverPage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        {/* One Truck's day with fake data, to see how Trips are built (phase 3 design). */}
+        <Route path="/simulate" element={<SimulatePage />} />
       </Routes>
       {/* Save and failure messages, raised from any page with toast(). */}
       <Toaster />
