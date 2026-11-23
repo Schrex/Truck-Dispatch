@@ -1,6 +1,7 @@
 /** Shapes the API takes and returns, shared by the Worker and the page. */
 import type { FleetExportRow } from './fleetExport';
-import type { TripDay, TripPlace, TruckLogColumn, TruckLogTrip, TruckLogUnplanned, TruckLogWhichAssignment } from './trips';
+import type { TripDay, TripPlace } from './trips';
+import type { TruckLogBody } from './truckLog';
 
 export interface Driver {
   id: string;
@@ -543,7 +544,7 @@ export interface TruckLogDay {
   /** The Assignments shown (Assigned, naming this Truck, not discarded), in Dave's order, on their route at `at`, each with its Trip part. */
   assignments: Assignment[];
   /** The Truck log's body (shared/truckLog.ts), one column per shown Assignment. */
-  truckLog: { columns: TruckLogColumn[]; unplanned: TruckLogUnplanned[]; whichAssignment: TruckLogWhichAssignment[]; shopTrips: TruckLogTrip[] };
+  truckLog: TruckLogBody;
   /** Every geofence code in the day's stored visits that no active Place has, as an Import lists them. */
   codesWithNoPlace: CodeWithNoPlace[];
   /** The Unplanned work, each with the Driver at its time, and the ties, as the lanes show them (the same as the day read's). */

@@ -29,7 +29,10 @@ export interface TruckLog<A extends TruckLogAssignment> {
   shopTrips: TruckLogTrip[];
 }
 
-const jobName = (job: TripJob | null) => (job ? [job.jobNumber, job.name].filter(Boolean).join(' ') : null);
+/** The Truck log's body without the Assignments: what the screens draw (TruckLogAssignments). */
+export type TruckLogBody = Omit<TruckLog<TruckLogAssignment>, 'assignments'>;
+
+const jobName =(job: TripJob | null) => (job ? [job.jobNumber, job.name].filter(Boolean).join(' ') : null);
 
 export function truckLog<A extends TruckLogAssignment>({ tripDay, places, assignments, labels = {} }: TruckLogInput<A>): TruckLog<A> {
   const placeName = (id: string | null) => places.find((p) => p.id === id)?.name ?? null;
@@ -94,10 +97,14 @@ export function truckLog<A extends TruckLogAssignment>({ tripDay, places, assign
  * leaves (null with no check-in to the Truck before it: "Driver not known"),
  * and each tie with its Assignments by id. Never a guessed Driver.
  */
-export function truckLogLanes(tripDay: TripDay, log: Pick<TruckLog<TruckLogAssignment>, 'unplanned' | 'whichAssignment'>, truck: TruckDayInput | null): DayLanes {
-  // The body is built from the same Trip day in the same order: it gives the Places' names.
+export function truckLogLanes(tripDay: TripDay, log: Pick<TruckLogBody, 'unplanned' | 'whichAssignment'>, truck: TruckDayInput | null): DayLanes {
+  // The body is built from the same Trip day: it gives the Places' names, found by id.
+  const named = <T extends { id: string }>(list: T[], id: string) => list.find((x) => x.id === id)!;
   return {
-    unplanned: tripDay.unplanned.map((w, i) => ({ id: w.id, places: log.unplanned[i].places, leftAt: w.leftAt, arrivedAt: w.arrivedAt, driver: driverAt(truck, w.leftAt) })),
-    whichAssignment: tripDay.whichAssignment.map((q, i) => ({ id: q.id, from: log.whichAssignment[i].from, to: log.whichAssignment[i].to, assignmentIds: q.candidates })),
+    unplanned: tripDay.unplanned.map((w) => ({ id: w.id, places: named(log.unplanned, w.id).places, leftAt: w.leftAt, arrivedAt: w.arrivedAt, driver: driverAt(truck, w.leftAt) })),
+    whichAssignment: tripDay.whichAssignment.map((q) => {
+      const { from, to } = named(log.whichAssignment, q.id);
+      return { id: q.id, from, to, assignmentIds: q.candidates };
+    }),
   };
 }
