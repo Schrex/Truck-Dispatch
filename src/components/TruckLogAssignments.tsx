@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
+import { FROM_THE_TRUCK, MARK_PILL } from '@/components/AssignmentBlock';
 import { EmptyBox } from '@/components/States';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { easternTime } from '../../shared/days';
 import type { TruckLogColumn, TruckLogTrip, TruckLogUnplanned, TruckLogWhichAssignment } from '../../shared/trips';
@@ -42,7 +44,7 @@ export function TruckLogAssignments({
     <div className="space-y-4 border-t p-3">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {columns.map((column, i) => {
-          const name = `Assignment ${i + 1}${column.fromTheTruck ? ' · From the Truck' : ''}`;
+          const name = `Assignment ${i + 1}${column.fromTheTruck ? ` · ${FROM_THE_TRUCK.word}` : ''}`;
           const rows: [string, ReactNode][] = [
             ['Job', column.job ?? ''],
             ['Pick up', column.pickUp ?? ''],
@@ -57,7 +59,7 @@ export function TruckLogAssignments({
               <h3 className="flex items-center gap-2 border-b px-3 py-1 text-xs font-semibold uppercase tracking-wide">
                 Assignment {i + 1}
                 {column.fromTheTruck && (
-                  <span className="rounded-full border border-foreground/40 px-2 py-0.5 text-[11px] normal-case tracking-normal">From the Truck</span>
+                  <span className={cn(MARK_PILL, FROM_THE_TRUCK.className, 'normal-case tracking-normal')}>{FROM_THE_TRUCK.word}</span>
                 )}
               </h3>
               <dl role="group" aria-label={name} className="divide-y">

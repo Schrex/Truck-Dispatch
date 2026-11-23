@@ -50,7 +50,10 @@ const MARKS: Record<Exclude<SinceSent, null>, { word: string; className: string 
  * The mark on an Assignment Dave made afterwards from Unplanned work: outlined,
  * not green, because it was Assigned after the fact and is never Added.
  */
-const FROM_THE_TRUCK = { word: 'From the Truck', className: 'border border-foreground/40 bg-background text-foreground' };
+export const FROM_THE_TRUCK = { word: 'From the Truck', className: 'border border-foreground/40 bg-background text-foreground' };
+
+/** A mark's pill: Changed, Added, Cancelled, From the Truck. */
+export const MARK_PILL = 'rounded-full px-2 py-0.5 text-[11px] font-semibold leading-4';
 
 /** The mark on a cancelled block, in place of Changed: greyed like the block itself. */
 const CANCELLED = { word: 'Cancelled', className: 'border border-muted-foreground/40 bg-background text-muted-foreground' };
@@ -175,13 +178,13 @@ export function AssignmentBlock({
         {mark && (
           <>
             {!assignment.cancelledAt && SEPARATOR}
-            <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold leading-4', mark.className)}>{mark.word}</span>
+            <span className={cn(MARK_PILL, mark.className)}>{mark.word}</span>
           </>
         )}
         {assignment.fromTheTruck && (
           <>
             {SEPARATOR}
-            <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold leading-4', FROM_THE_TRUCK.className)}>{FROM_THE_TRUCK.word}</span>
+            <span className={cn(MARK_PILL, FROM_THE_TRUCK.className)}>{FROM_THE_TRUCK.word}</span>
           </>
         )}
       </span>
