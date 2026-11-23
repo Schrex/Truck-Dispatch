@@ -4,9 +4,9 @@ import { clock } from './clock';
 import { codesWithNoPlaceIn } from './fleetImports';
 import { json, refuse } from './http';
 import { addDays, easternMoment, easternTime, isCalendarDate } from '../../shared/days';
-import { buildTripDay, routeAt, type FleetVisit, type TripAssignment, type TripJob, type TripPlace, type TruckCheckIn } from '../../shared/trips';
-import { truckLog } from '../../shared/truckLog';
-import type { Assignment, AssignmentTripPart, TruckLogDay } from '../../shared/types';
+import { buildTripDay, routeAt, type FleetVisit, type TripAssignment, type TripJob, type TripPlace, type TruckCheckIn, type TruckDayInput } from '../../shared/trips';
+import { truckLog, truckLogLanes } from '../../shared/truckLog';
+import type { Assignment, AssignmentTripPart, DayTruck, TruckLogDay } from '../../shared/types';
 
 /**
  * A Truck's stored day: its stored Fleet visits and the day's Assignments that
@@ -50,20 +50,33 @@ type StoredTruck = { id: string; number: string };
 /**
  * Each Trip part the stored visits give the Assignments on a date, by
  * Assignment id: every Truck with visits that day is built whole, as of its
- * latest Import, as the Truck log route opens it. The board's day read
+ * latest Import, as the Truck log route opens it. The Driver's day read
  * attaches them; an Assignment no stored Trip matched has none.
  */
 export async function storedTripParts(env: Env, date: string): Promise<Map<string, AssignmentTripPart>> {
+  return (await storedDay(env, date)).parts;
+}
+
+/**
+ * A date's stored Trips as the board reads them: each Assignment's Trip part
+ * (as storedTripParts), and each Truck with visits that day, with its
+ * Unplanned work (each with the Driver at its time) and ties. No Truck has
+ * visits: `trucks` is empty.
+ */
+export async function storedDay(env: Env, date: string): Promise<{ parts: Map<string, AssignmentTripPart>; trucks: DayTruck[] }> {
   const { results: trucks } = await env.DB.prepare(
-    `SELECT DISTINCT t.id, t.number FROM fleet_visits v JOIN trucks t ON t.id = v.truck_id WHERE v.entered_at >= ? AND v.entered_at < ?`,
+    `SELECT DISTINCT t.id, t.number FROM fleet_visits v JOIN trucks t ON t.id = v.truck_id WHERE v.entered_at >= ? AND v.entered_at < ? ORDER BY t.number`,
   )
     .bind(easternMoment(date, 0, 0), easternMoment(addDays(date, 1), 0, 0))
     .all<StoredTruck>();
   const parts = new Map<string, AssignmentTripPart>();
+  const days: DayTruck[] = [];
   for (const truck of trucks) {
-    for (const a of (await storedTruckDay(env, truck, date, null)).assignments) if (a.trips) parts.set(a.id, a.trips);
+    const day = await storedTruckDay(env, truck, date, null);
+    for (const a of day.assignments) if (a.trips) parts.set(a.id, a.trips);
+    days.push({ truckId: truck.id, truckNumber: truck.number, ...day.lanes });
   }
-  return parts;
+  return { parts, trucks: days };
 }
 
 /** A Truck's stored day, built at the clock minute `at` (null: the default clock). `date` and `at` are already checked. */
@@ -131,6 +144,12 @@ async function storedTruckDay(env: Env, truck: StoredTruck, date: string, at: st
   }));
   const driverRows = drivers.results as unknown as { id: string; name: string; defaultTruckId: string | null }[];
 
+  const truckInput: TruckDayInput = {
+    id: truck.id,
+    drivers: driverRows,
+    assignments: assignmentRows.map((a) => ({ driverId: a.driverId, truckId: a.truckId })),
+    checkIns: checkIns.results as unknown as TruckCheckIn[],
+  };
   const tripDay = buildTripDay({
     places: tripPlaces,
     jobs: jobs.results as unknown as TripJob[],
@@ -139,12 +158,7 @@ async function storedTruckDay(env: Env, truck: StoredTruck, date: string, at: st
     assignments: tripAssignments,
     now: moment,
     dayOver,
-    truck: {
-      id: truck.id,
-      drivers: driverRows,
-      assignments: assignmentRows.map((a) => ({ driverId: a.driverId, truckId: a.truckId })),
-      checkIns: checkIns.results as unknown as TruckCheckIn[],
-    },
+    truck: truckInput,
   });
 
   // Shown as the board shows them: discarded ones are hidden, though their Trips stay theirs. A checked-in
@@ -174,5 +188,6 @@ async function storedTruckDay(env: Env, truck: StoredTruck, date: string, at: st
     assignments,
     truckLog: log,
     codesWithNoPlace: await codesWithNoPlaceIn(DB, stored),
+    lanes: truckLogLanes(tripDay, log, truckInput),
   };
 }

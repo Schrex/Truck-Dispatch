@@ -262,9 +262,52 @@ export interface ChangedAssignment {
   cancelled?: Assignment;
 }
 
-/** A day's Assignments (GET api/assignments?date=). */
+/**
+ * A day's Assignments (GET api/assignments?date=), and, on a day a Truck has
+ * stored visits, each such Truck's Unplanned work and ties for the lanes.
+ */
 export interface Day {
   assignments: Assignment[];
+  /** Each Truck with stored visits that day; left out when none has any. */
+  trucks?: DayTruck[];
+}
+
+/**
+ * A piece of Unplanned work as the lanes show it: in the lane of the Driver
+ * at its time (the latest check-in to the Truck at or before it leaves), or,
+ * with no check-in before it, in the "Driver not known · Truck 55" row.
+ */
+export interface StoredUnplanned {
+  /** The Unplanned work's id: its first Trip's leftAt. */
+  id: string;
+  /** Where it went, in order: the Place's short name, else Fleet's geofence code. */
+  places: string[];
+  leftAt: string;
+  arrivedAt: string;
+  /** The Driver at its time; null when nobody had checked in to the Truck ("Who was driving?"). */
+  driver: { id: string; name: string } | null;
+}
+
+/** A Trip two or more Assignments fit equally, as the lanes ask it: "Which Assignment?". Never Unplanned work. */
+export interface StoredWhichAssignment {
+  /** The Trip's leftAt. */
+  id: string;
+  from: string;
+  to: string;
+  /** The Assignments that fit it, by id, in Dave's order. */
+  assignmentIds: string[];
+}
+
+/** A stored day's Unplanned work and ties, as the board's lanes and the Fleet imports page's Scheduler view show them. */
+export interface DayLanes {
+  unplanned: StoredUnplanned[];
+  whichAssignment: StoredWhichAssignment[];
+}
+
+/** One Truck's Unplanned work and ties on the day read. */
+export interface DayTruck extends DayLanes {
+  truckId: string;
+  truckNumber: string;
 }
 
 /**
@@ -490,6 +533,8 @@ export interface TruckLogDay {
   truckLog: { columns: TruckLogColumn[]; unplanned: TruckLogUnplanned[]; whichAssignment: TruckLogWhichAssignment[]; shopTrips: TruckLogTrip[] };
   /** Every geofence code in the day's stored visits that no active Place has, as an Import lists them. */
   codesWithNoPlace: CodeWithNoPlace[];
+  /** The Unplanned work, each with the Driver at its time, and the ties, as the lanes show them (the same as the day read's). */
+  lanes: DayLanes;
 }
 
 /** A refusal: each field that is wrong, with a plain message. */

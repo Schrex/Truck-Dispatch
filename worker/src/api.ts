@@ -4,7 +4,7 @@ import { json, readJson, refuse, text } from './http';
 import { handleInspections } from './inspections';
 import { handleTruckProblems } from './truckProblems';
 import { handleFleetImports } from './fleetImports';
-import { handleTruckLogs, storedTripParts } from './truckLogs';
+import { handleTruckLogs, storedDay, storedTripParts } from './truckLogs';
 import { exists, handleList, isActive, isList } from './lists';
 import { checkTyped, saveLinked, typedIn, type Typed } from './typedNames';
 import { DAY_ORDER, SELECT_ASSIGNMENT, marked, type AssignmentRow } from './assignmentQueries';
@@ -165,16 +165,18 @@ const LAST_IN_LANE = '(SELECT COALESCE(MAX(position) + 1, 0) FROM assignments WH
 /**
  * A day's Assignments, Drafts and Assigned ones (cancelled ones Dave discarded
  * left out), each marked Changed or Added since it was Assigned, and each one a
- * stored Trip matched with its Trip part (see storedTripParts).
+ * stored Trip matched with its Trip part. On a day a Truck has stored visits,
+ * each such Truck's Unplanned work and ties too, for the lanes (see storedDay).
  */
 async function readDay(env: Env, date: string | null): Promise<Response> {
   if (!isCalendarDate(date)) return refuse({ date: PICK_DATE });
-  const [{ results }, parts] = await Promise.all([
+  const [{ results }, { parts, trucks }] = await Promise.all([
     env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.date = ? AND a.discarded_at IS NULL ${DAY_ORDER}`).bind(date).all<AssignmentRow>(),
-    storedTripParts(env, date),
+    storedDay(env, date),
   ]);
   const withTrips = (a: Assignment): Assignment => (parts.has(a.id) ? { ...a, trips: parts.get(a.id) } : a);
-  return json({ assignments: results.map(marked).map(withTrips) } satisfies Day);
+  // No key with no stored visits, so such a day answers exactly as before.
+  return json({ assignments: results.map(marked).map(withTrips), ...(trucks.length > 0 && { trucks }) } satisfies Day);
 }
 
 /**

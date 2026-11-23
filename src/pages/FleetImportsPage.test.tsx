@@ -8,7 +8,7 @@ import './FleetImportsPage';
 import { REAL_DAY } from '@/simulate/realDay';
 import { readFleetJson, type FleetExportRow } from '../../shared/fleetExport';
 import { buildTripDay, type TripAssignment } from '../../shared/trips';
-import { truckLog } from '../../shared/truckLog';
+import { truckLog, truckLogLanes } from '../../shared/truckLog';
 import { easternMoment } from '../../shared/days';
 import type { Assignment, Driver, FleetImport, NewFleetImport, Truck, TruckLogDay } from '../../shared/types';
 // The 16 Nov export pulled at 15:02, as Dave downloads it from HCSS Fleet.
@@ -90,6 +90,7 @@ function storedDay(truckId: string, date: string, rows: FleetExportRow[], asOf: 
   return {
     truckId, truckNumber: '55', date, asOf, clock: opened, at, dayOver, places: REAL_DAY.places, tripDay, labels, assignments,
     truckLog: truckLogBody, codesWithNoPlace: rows.some((r) => r.geofenceCode === 'sunset') ? [{ code: 'sunset', driveThrough: true }] : [],
+    lanes: truckLogLanes(tripDay, truckLogBody, null),
   };
 }
 const noVisits = (truckId: string, date: string) => storedDay(truckId, date, [], null);

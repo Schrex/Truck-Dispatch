@@ -4,8 +4,8 @@
  * and from the shop, and each Assignment's Trip part. Shared so the Simulation
  * and the Worker never disagree. Pure.
  */
-import type { Assignment } from './types';
-import type { TripDay, TripJob, TripPlace, TruckLogColumn, TruckLogTrip, TruckLogUnplanned, TruckLogWhichAssignment } from './trips';
+import type { Assignment, DayLanes } from './types';
+import { driverAt, type TripDay, type TripJob, type TripPlace, type TruckDayInput, type TruckLogColumn, type TruckLogTrip, type TruckLogUnplanned, type TruckLogWhichAssignment } from './trips';
 
 /** An Assignment as the Truck log needs it: its route at the log's time, by Place name. */
 export type TruckLogAssignment = Pick<Assignment, 'id' | 'fromPlaceName' | 'toPlaceName' | 'materialName' | 'fromTheTruck'>;
@@ -85,4 +85,18 @@ export function truckLog<A extends TruckLogAssignment>({ tripDay, places, assign
     }),
   );
   return { assignments: withParts, columns, unplanned, whichAssignment, shopTrips };
+}
+
+/**
+ * The Unplanned work and ties as the lanes show them, from a Trip day and the
+ * Truck log body built from it: each piece with the Driver at the time it
+ * leaves (null with no check-in to the Truck before it: "Driver not known"),
+ * and each tie with its Assignments by id. Never a guessed Driver.
+ */
+export function truckLogLanes(tripDay: TripDay, log: Pick<TruckLog<TruckLogAssignment>, 'unplanned' | 'whichAssignment'>, truck: TruckDayInput | null): DayLanes {
+  // The body is built from the same Trip day in the same order: it gives the Places' names.
+  return {
+    unplanned: tripDay.unplanned.map((w, i) => ({ id: w.id, places: log.unplanned[i].places, leftAt: w.leftAt, arrivedAt: w.arrivedAt, driver: driverAt(truck, w.leftAt) })),
+    whichAssignment: tripDay.whichAssignment.map((q, i) => ({ id: q.id, from: log.whichAssignment[i].from, to: log.whichAssignment[i].to, assignmentIds: q.candidates })),
+  };
 }

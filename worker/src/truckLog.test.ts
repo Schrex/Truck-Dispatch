@@ -3,7 +3,7 @@ import { apiOn, inspection } from './testing/api';
 import { fleetRows, fleetXlsxRows, setUpTruck55 } from './testing/fleet';
 import { localD1 } from './testing/localD1';
 import { easternTime } from '../../shared/days';
-import type { Assignment, Place, TruckLogDay } from '../../shared/types';
+import type { Assignment, Day, Place, StoredUnplanned, TruckLogDay } from '../../shared/types';
 
 const d1 = localD1();
 const send = apiOn(d1);
@@ -454,6 +454,80 @@ describe('The Driver of a stored day, from check-ins', () => {
       expect(board.find((a) => a.id === id)?.trips).toEqual(fromLog(id));
       expect(cards.find((a) => a.id === id)?.trips).toEqual(fromLog(id));
     }
+  });
+});
+
+const readBoardDay = async ({ date = MONDAY, NOW = TUESDAY }: { date?: string; NOW?: string } = {}) => {
+  const response = await send('GET', `/api/assignments?date=${date}`, undefined, { NOW });
+  expect(response.status).toBe(200);
+  return (await response.json()) as Day;
+};
+
+/** A piece of Unplanned work as the board reads: "Randy: J25008 Los Flamboyanes ⇄ J611 Bishop Kearney 14:15–14:43". */
+const unplannedLine = (w: StoredUnplanned) =>
+  `${w.driver?.name ?? 'Driver not known'}: ${w.places.join(' ⇄ ')} ${easternTime(w.leftAt)}–${easternTime(w.arrivedAt)}`;
+
+describe('Unplanned work on the day read', () => {
+  it("gives Truck 55's Unplanned work to Randy when he checked in to it at 06:00", async () => {
+    const { truckId, randy } = await planMonday();
+    await checkIn(randy, truckId, mondayAt('06:00'));
+    await importCut('2026-11-16-cut-1620.json');
+
+    const day = await readBoardDay();
+    expect(day.trucks).toHaveLength(1);
+    expect(day.trucks![0]).toMatchObject({ truckId, truckNumber: '55', whichAssignment: [] });
+    expect(day.trucks![0].unplanned.map(unplannedLine)).toEqual(['Randy: J25008 Los Flamboyanes ⇄ J611 Bishop Kearney 14:15–14:43']);
+    expect(day.trucks![0].unplanned[0].driver).toEqual({ id: randy, name: 'Randy' });
+  });
+
+  it('gives it no Driver when nobody checked in to the Truck', async () => {
+    await planMonday();
+    await importCut('2026-11-16-cut-1620.json');
+
+    const day = await readBoardDay();
+    expect(day.trucks![0].unplanned.map(unplannedLine)).toEqual(['Driver not known: J25008 Los Flamboyanes ⇄ J611 Bishop Kearney 14:15–14:43']);
+  });
+
+  it('gives a piece the Driver at the time it leaves, after a handover', async () => {
+    const { truckId, randy, a1, a2 } = await planMonday();
+    await checkIn(randy, truckId, mondayAt('06:00'));
+    await checkIn('drv-a', truckId, mondayAt('14:00'));
+    await importCut('2026-11-16-cut-1620.json');
+
+    const day = await readBoardDay();
+    expect(day.trucks![0].unplanned.map(unplannedLine)).toEqual(['Sample Driver A: J25008 Los Flamboyanes ⇄ J611 Bishop Kearney 14:15–14:43']);
+    const loads = (id: string) => day.assignments.find((a) => a.id === id)?.trips?.loads;
+    expect([loads(a1.id), loads(a2.id)]).toEqual([4, 2]);
+  });
+
+  it('asks "Which Assignment?" with both Assignments when two fit a Trip, and never makes it Unplanned work', async () => {
+    const { truckId, randy, a1, placeId } = await planMonday();
+    const twin = await assigned({ driverId: randy, fromPlaceId: placeId('J25008 Los Flamboyanes'), toPlaceId: placeId('Villager') });
+    await checkIn(randy, truckId, mondayAt('06:00'));
+    await importCut('2026-11-16-cut-1620.json');
+
+    const { unplanned, whichAssignment } = (await readBoardDay()).trucks![0];
+    expect(whichAssignment.length).toBeGreaterThan(0);
+    expect(whichAssignment[0]).toMatchObject({ from: 'J25008 Los Flamboyanes', to: 'Villager', assignmentIds: [a1.id, twin.id] });
+    const tied = new Set(whichAssignment.map((q) => q.id));
+    expect(unplanned.some((w) => tied.has(w.id))).toBe(false);
+    const log = await readLog(truckId);
+    expect(log.tripDay.unplanned.flatMap((w) => w.trips).some((t) => tied.has(t.leftAt))).toBe(false);
+  });
+
+  it('gives the Truck log route the same Unplanned work and ties as the day read', async () => {
+    const { truckId, randy } = await planMonday();
+    await checkIn(randy, truckId, mondayAt('06:00'));
+    await importCut('2026-11-16-cut-1620.json');
+
+    const log = await readLog(truckId);
+    const { truckId: _id, truckNumber: _n, ...onTheDay } = (await readBoardDay()).trucks![0];
+    expect(log.lanes).toEqual(onTheDay);
+  });
+
+  it('has no trucks on a day with no stored visits', async () => {
+    await planMonday();
+    expect(await readBoardDay({ date: '2026-11-17' })).not.toHaveProperty('trucks');
   });
 });
 
