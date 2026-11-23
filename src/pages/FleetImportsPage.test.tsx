@@ -76,7 +76,13 @@ const SHOWN = [shown('a1', 'J25008 Los Flamboyanes', 'Villager', 'Fill'), shown(
  * the Trip builder and the shared Truck log function. A past day by default;
  * `today` builds it as the Worker does on the day itself, at the latest Import.
  */
-function storedDay(truckId: string, date: string, rows: FleetExportRow[], asOf: string | null, { today = false, clock }: { today?: boolean; clock?: string } = {}): TruckLogDay {
+function storedDay(
+  truckId: string,
+  date: string,
+  rows: FleetExportRow[],
+  asOf: string | null,
+  { today = false, clock, randyCheckedIn = false }: { today?: boolean; clock?: string; randyCheckedIn?: boolean } = {},
+): TruckLogDay {
   const visits = rows.map((r) => ({ geofenceCode: r.geofenceCode, enteredAt: r.enteredAt, exitedAt: r.exitedAt, entryOdometer: r.entryOdometer, exitOdometer: r.exitOdometer }));
   const opened = clock ?? (today ? '13:10' : '23:59');
   // The end of the clock minute, never past the latest Import, as the Worker builds it.
@@ -90,14 +96,22 @@ function storedDay(truckId: string, date: string, rows: FleetExportRow[], asOf: 
   return {
     truckId, truckNumber: '55', date, asOf, clock: opened, at, dayOver, places: REAL_DAY.places, tripDay, labels, assignments,
     truckLog: truckLogBody, codesWithNoPlace: rows.some((r) => r.geofenceCode === 'sunset') ? [{ code: 'sunset', driveThrough: true }] : [],
-    lanes: truckLogLanes(tripDay, truckLogBody, null),
+    // Randy's check-in at 06:00 gives the Unplanned work its Driver; with none it has no Driver known.
+    lanes: truckLogLanes(tripDay, truckLogBody, randyCheckedIn ? RANDY_AT_6 : null),
   };
 }
+/** Truck 55 with Randy checked in to it at 06:00 on Mon 16 Nov. */
+const RANDY_AT_6 = {
+  id: 'trk-55',
+  drivers: [{ id: 'drv-randy', name: 'Randy', defaultTruckId: 'trk-55' }],
+  assignments: [],
+  checkIns: [{ driverId: 'drv-randy', at: '2026-11-16T11:00:00.000Z' }],
+};
 const noVisits = (truckId: string, date: string) => storedDay(truckId, date, [], null);
 /** The stored days the Worker has, by "truckId date": each built at the clock asked for (none: as the Worker opens it). */
 let storedDays: Record<string, (clock?: string) => TruckLogDay>;
 /** Stores a Truck's day for the stub to answer, at whatever clock the page asks. */
-const store = (truckId: string, date: string, rows: FleetExportRow[], asOf: string | null, options: { today?: boolean } = {}) => {
+const store = (truckId: string, date: string, rows: FleetExportRow[], asOf: string | null, options: { today?: boolean; randyCheckedIn?: boolean } = {}) => {
   storedDays[`${truckId} ${date}`] = (clock) => storedDay(truckId, date, rows, asOf, { ...options, clock });
 };
 /** The clock each read of a stored day asked for, in order; null when it asked for none. */
@@ -364,6 +378,22 @@ describe('A stored day on the Fleet imports page', () => {
       pickDay('trk-55', '2026-11-16');
       await within(await screen.findByRole('region', { name: 'Scheduler view' })).findByRole('article', { name: 'Randy' });
     };
+
+    it("shows the Unplanned work in Randy's lane, after A2, when he checked in to Truck 55", async () => {
+      store('trk-55', '2026-11-16', readFleetJson(JSON.parse(CUT_1620)), AS_OF, { randyCheckedIn: true });
+      await openPage();
+      pickDay('trk-55', '2026-11-16');
+      const lane = await within(await screen.findByRole('region', { name: 'Scheduler view' })).findByRole('article', { name: 'Randy' });
+      expect(within(lane).getByRole('group', { name: '1 Unplanned work' }).textContent).toBe('1 Unplanned work' + 'J25008 Los Flamboyanes ⇄ J611 Bishop Kearney · 14:15–14:43');
+      expect(within(scheduler()).queryByRole('article', { name: /^Driver not known/ })).toBeNull();
+    });
+
+    it('shows the Unplanned work in a row under the lanes, "Driver not known · Truck 55", when nobody checked in', async () => {
+      await openMonday();
+      expect(within(within(scheduler()).getByRole('article', { name: 'Randy' })).queryByText(/Unplanned work/)).toBeNull();
+      const row = within(scheduler()).getByRole('article', { name: 'Driver not known · Truck 55' });
+      expect(within(row).getByRole('group', { name: '1 Unplanned work' }).textContent).toBe('1 Unplanned work' + 'J25008 Los Flamboyanes ⇄ J611 Bishop Kearney · 14:15–14:43');
+    });
 
     it("opens Mon 16 Nov at the end of the day: Randy's lane with A1 and A2 Done, and his cards with their last Loads", async () => {
       await openMonday();

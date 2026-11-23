@@ -242,13 +242,11 @@ function StoredDayViews({
   clock: number;
   onClock: (next: SetStateAction<number>) => void;
 }) {
-  const { truckDay } = day.tripDay;
   /** The Drivers with Assignments on the day, in the order they first come. */
   const onTheDay = [...new Map(day.assignments.flatMap((a) => (a.driverId ? [[a.driverId, a.driverName ?? '']] : []))).entries()];
   const laneDrivers = drivers?.filter((d) => onTheDay.some(([id]) => id === d.id)) ?? null;
-  /** The Truck's Unplanned work is on its Driver's lane; while "Who was driving?" is open, on each who fits. */
-  const laneUnplanned = (driverId: string) =>
-    (truckDay.driver ? truckDay.driver.id === driverId : truckDay.driverCandidates.some((d) => d.id === driverId)) ? day.truckLog.unplanned.length : 0;
+  /** As the board shows them: each piece of Unplanned work in the lane of the Driver at its time, else "Driver not known". */
+  const stored = [{ truckId: day.truckId, truckNumber: day.truckNumber, ...day.lanes }];
 
   return (
     <>
@@ -265,7 +263,7 @@ function StoredDayViews({
               assignments={day.assignments}
               drivers={laneDrivers}
               trucks={allTrucks}
-              unplanned={Object.fromEntries(onTheDay.map(([id]) => [id, laneUnplanned(id)]))}
+              stored={stored}
             />
           </section>
           {onTheDay.length > 0 && (
@@ -283,7 +281,7 @@ function StoredDayViews({
           <TripLog trips={day.tripDay.trips} places={day.places} assignmentLabels={day.labels} />
         </div>
       </div>
-      <TruckLog truck={{ number: day.truckNumber, hcssCode: trucks.find((t) => t.id === day.truckId)?.hcssCode ?? null }} date={day.date} truckDay={truckDay} noMeterReadings>
+      <TruckLog truck={{ number: day.truckNumber, hcssCode: trucks.find((t) => t.id === day.truckId)?.hcssCode ?? null }} date={day.date} truckDay={day.tripDay.truckDay} noMeterReadings>
         <TruckLogAssignments
           columns={day.truckLog.columns}
           unplanned={day.truckLog.unplanned}
