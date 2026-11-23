@@ -247,14 +247,14 @@ describe('The clock of a stored day', () => {
     expect(log.tripDay.truckDay.endAt).toBeNull();
   });
 
-  it("gives A1 its Trip part at 10:02: 2 Loads, Now, 1.59 h, and A2 none yet", async () => {
+  it("gives A1 its Trip part at 10:02: 2 Loads, Now, 1.59 h, and A2 none, no Trip matching it yet", async () => {
     const { truckId, a1, a2 } = await planMonday();
     await importCut('2026-11-16-cut-1620.json');
     const log = await readLog(truckId, { at: '10:02' });
     const part = (id: string) => log.assignments.find((a) => a.id === id)?.trips;
     expect(part(a1.id)).toMatchObject({ loads: 2, status: 'now', truckingHours: 1.59 });
     expect(easternTime(part(a1.id)!.since!)).toBe('08:24');
-    expect(part(a2.id)?.status ?? 'none').toBe('none');
+    expect(part(a2.id)).toBeUndefined();
     expect(log.truckLog.columns.find((c) => c.id === a1.id)).toMatchObject({ loads: 2, truckingHours: 1.59 });
   });
 
@@ -438,6 +438,22 @@ describe('The Driver of a stored day, from check-ins', () => {
     expect(log.truckLog.columns.find((c) => c.id === a1.id)?.loads).toBe(4);
   });
 
+  it("keeps the Trip part of an Assignment naming another Truck that has visits too, when its Driver checked in to this one", async () => {
+    const { truckId, randy, placeId } = await planMonday();
+    const truck77 = ((await (await send('POST', '/api/trucks', { number: '77', hcssCode: 'MCK-77-19' })).json()) as { truck: { id: string } }).truck.id;
+    const onTruck77 = await assigned({ driverId: randy, truckId: truck77, fromPlaceId: placeId('J611 Bishop Kearney'), toPlaceId: placeId('J25008 Los Flamboyanes') });
+    await checkIn(randy, truckId, mondayAt('06:00'));
+    await importCut('2026-11-16-cut-1620.json');
+    const parked = { equipmentCode: 'MCK-77-19', geofenceCode: 'SHOP', enteredAt: '2026-11-16T05:00:00.000Z', exitedAt: null, entryOdometer: null, exitOdometer: null };
+    expect((await send('POST', '/api/fleet-imports', { fileName: 'truck-77.json', format: 'json', rows: [parked] }, { NOW: AFTER_1620 })).status).toBe(201);
+
+    const fromLog = (await readLog(truckId)).assignments.find((a) => a.id === onTruck77.id)?.trips;
+    expect(fromLog?.loads).toBeGreaterThan(0);
+    expect((await readLog(truck77)).assignments.find((a) => a.id === onTruck77.id)?.trips).toBeUndefined();
+    expect((await readBoard()).find((a) => a.id === onTruck77.id)?.trips).toEqual(fromLog);
+    expect((await readDriver(randy)).find((a) => a.id === onTruck77.id)?.trips).toEqual(fromLog);
+  });
+
   it('gives the board and the Driver page the same Trip parts as the Truck log', async () => {
     const { truckId, randy, a1, a2, placeId } = await planMonday();
     const hisA1 = await assigned({ driverId: 'drv-a', truckId: 'trk-21', fromPlaceId: placeId('J25008 Los Flamboyanes'), toPlaceId: placeId('Villager') });
@@ -447,7 +463,7 @@ describe('The Driver of a stored day, from check-ins', () => {
 
     const log = await readLog(truckId);
     const fromLog = (id: string) => log.assignments.find((a) => a.id === id)?.trips;
-    expect([fromLog(hisA1.id)?.loads, fromLog(a1.id)?.loads, fromLog(a2.id)?.loads]).toEqual([4, 0, 2]);
+    expect([fromLog(hisA1.id)?.loads, fromLog(a1.id)?.loads, fromLog(a2.id)?.loads]).toEqual([4, undefined, 2]);
     const board = await readBoard();
     const cards = [...(await readDriver('drv-a')), ...(await readDriver(randy))];
     for (const id of [hisA1.id, a1.id, a2.id]) {

@@ -21,7 +21,7 @@ export interface TruckLogInput<A extends TruckLogAssignment> {
 }
 
 export interface TruckLog<A extends TruckLogAssignment> {
-  /** The Assignments as given, each with its Trip part when it has Trips. */
+  /** The Assignments as given, each with its Trip part once a Trip matched it (none before). */
   assignments: (A & { trips: Assignment['trips'] })[];
   columns: TruckLogColumn[];
   unplanned: TruckLogUnplanned[];
@@ -37,7 +37,8 @@ export function truckLog<A extends TruckLogAssignment>({ tripDay, places, assign
   const withParts = assignments.map((a) => {
     const trips = tripsOf(a.id);
     let part: Assignment['trips'];
-    if (trips) {
+    // No Trip matched it: no Trip part, so another Truck's part for it is never overwritten.
+    if (trips && trips.status !== 'none') {
       const { assignmentId: _id, empties: _empties, job: _job, ...shown } = trips;
       part = shown;
     }
