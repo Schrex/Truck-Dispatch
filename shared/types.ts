@@ -337,10 +337,22 @@ export interface DriverAssignment extends Assignment {
  * One Driver's day (GET api/drivers/:id/days/:date): only his Assigned
  * Assignments, in Dave's order, cancelled ones included. His Drafts are left
  * out, so a day with none Assigned has no Assignments ("Nothing from Dave yet").
+ * On today only, it also has his Truck log, when that Truck has stored visits.
  */
 export interface DriverDay {
   date: string;
   assignments: DriverAssignment[];
+  /**
+   * Today's Truck log of the Truck he checked in to today, else his usual
+   * Truck, as of the latest Import, as the Truck log route opens it. Left
+   * out on any other day, and when that Truck has no stored visits today.
+   */
+  truckLog?: DriverTruckLog;
+}
+
+/** A Truck's stored day as a Driver reads it: with the Truck's HCSS code, for the Truck log's header. */
+export interface DriverTruckLog extends TruckLogDay {
+  hcssCode: string | null;
 }
 
 /**

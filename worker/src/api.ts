@@ -4,7 +4,7 @@ import { json, readJson, refuse, text } from './http';
 import { handleInspections } from './inspections';
 import { handleTruckProblems } from './truckProblems';
 import { handleFleetImports } from './fleetImports';
-import { handleTruckLogs, storedDay, storedTripParts } from './truckLogs';
+import { driverTruckLog, handleTruckLogs, storedDay, storedTripParts } from './truckLogs';
 import { exists, handleList, isActive, isList } from './lists';
 import { checkTyped, saveLinked, typedIn, type Typed } from './typedNames';
 import { DAY_ORDER, SELECT_ASSIGNMENT, marked, type AssignmentRow } from './assignmentQueries';
@@ -204,11 +204,12 @@ const WAS_FIELDS = [
  * Days before today are read like the rest, so the phone still shows today
  * after midnight Eastern until it refreshes. Each one a stored Trip matched has
  * its Trip part, by the same whole-Truck days as the board (storedTripParts).
+ * Today, his Truck's stored day comes too (driverTruckLog).
  */
 async function readDriverDay(env: Env, driverId: string, date: string): Promise<Response> {
   if (!isCalendarDate(date)) return refuse({ date: PICK_DATE });
   if (!(await exists(env, 'drivers', driverId))) return json({ error: 'not_found' }, 404);
-  const [[{ results: rows }, { results: kept }], parts] = await Promise.all([
+  const [[{ results: rows }, { results: kept }], parts, truckLog] = await Promise.all([
     env.DB.batch<AssignmentRow & { id: string; before: string }>([
       env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.date = ? AND a.driver_id = ? AND a.assigned_at IS NOT NULL AND a.dismissed_at IS NULL ${DAY_ORDER}`).bind(date, driverId),
       env.DB.prepare(
@@ -217,6 +218,7 @@ async function readDriverDay(env: Env, driverId: string, date: string): Promise<
       ).bind(date, driverId),
     ]),
     storedTripParts(env, date),
+    driverTruckLog(env, driverId, date),
   ]);
   // Newest first, so the last one set for each Assignment is its first.
   const asAssigned = new Map(kept.map((row) => [row.id, JSON.parse(row.before) as Partial<Assignment>]));
@@ -225,7 +227,7 @@ async function readDriverDay(env: Env, driverId: string, date: string): Promise<
     const was = assignment.sinceSent === 'changed' && before ? wasWhenAssigned(assignment, before) : {};
     return parts.has(assignment.id) ? { ...assignment, trips: parts.get(assignment.id), was } : { ...assignment, was };
   });
-  return json({ date, assignments } satisfies DriverDay);
+  return json((truckLog ? { date, assignments, truckLog } : { date, assignments }) satisfies DriverDay);
 }
 
 /** The fields a Driver reads that are not as they were when Assigned, each with the name it had then. */

@@ -1,9 +1,11 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
-import type { BusinessDay, CheckIn as CheckInRead, Driver, DriverAssignment, DriverDay } from '../../shared/types';
-import { addDays, dayLabel, shortDate, weekdayName } from '../../shared/days';
+import type { BusinessDay, CheckIn as CheckInRead, Driver, DriverAssignment, DriverDay, DriverTruckLog } from '../../shared/types';
+import { addDays, dayLabel, easternTime, shortDate, weekdayName } from '../../shared/days';
 import { CheckIn } from '@/components/CheckIn';
 import { DriverCard } from '@/components/DriverCard';
+import { TruckLog } from '@/components/TruckLog';
+import { TruckLogAssignments } from '@/components/TruckLogAssignments';
 import { PageHeader } from '@/components/PageHeader';
 import { ViewToggle } from '@/components/ViewToggle';
 import { Button } from '@/components/ui/button';
@@ -321,6 +323,25 @@ function DaySection({
         <p className="animate-rise rounded-lg border border-dashed bg-card/60 p-6 text-center text-lg text-muted-foreground">Nothing from Dave yet for {weekdayName(shown.date)}.</p>
       )}
       {shown?.assignments.map((assignment, i) => <DriverCard key={assignment.id} assignment={assignment} index={i} onDismiss={onDismiss} />)}
+      {shown?.truckLog && <HisTruckLog log={shown.truckLog} />}
     </section>
+  );
+}
+
+/**
+ * His Truck log, under Today's cards: the Truck he checked in to today (else
+ * his usual one), as of the latest Import, filling in as Imports arrive. The
+ * same Truck log as on the Fleet imports page; Unplanned work is shown, not
+ * answered. His day read has it only on today, and only once that Truck has
+ * stored visits.
+ */
+function HisTruckLog({ log }: { log: DriverTruckLog }) {
+  return (
+    <div className="animate-rise space-y-2 pt-2">
+      <TruckLog truck={{ number: log.truckNumber, hcssCode: log.hcssCode }} date={log.date} truckDay={log.tripDay.truckDay} noMeterReadings>
+        <TruckLogAssignments columns={log.truckLog.columns} unplanned={log.truckLog.unplanned} whichAssignment={log.truckLog.whichAssignment} shopTrips={log.truckLog.shopTrips} />
+      </TruckLog>
+      {log.asOf && <p className="text-sm text-muted-foreground">As of the Import at {easternTime(log.asOf)}</p>}
+    </div>
   );
 }
