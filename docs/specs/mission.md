@@ -17,7 +17,7 @@ Turn Dave's plan for the day into a finished **Truck log** for every Truck, ever
 
 One pipeline with four steps. Each step fills part of the Truck log:
 
-1. **Plan.** Dave plans each Driver's day as Assignments in order, and Sends it. Drivers see their day on their phone, with every later change marked.
+1. **Plan.** Dave plans each Driver's day as Assignments in order, and Assigns each to its Driver. Drivers see their day on their phone, with every later change marked.
 2. **Check in.** The Driver confirms which Truck he took and does the Inspection. Anything that Needs repair becomes a Truck problem that Dave sees.
 3. **Trips.** The Truck's own movements become Trips. A Trip that matches an Assignment's pick-up and drop-off is a Load.
 4. **Close the day.** The Driver photographs each Ticket and signs off; Dave answers what is left. The result is the Truck log: who drove, the Inspection, the Trips and Loads with their Tickets, miles and hours.
@@ -32,10 +32,10 @@ One pipeline with four steps. Each step fills part of the Truck log:
 
 - **Nobody types the log.** Trips come from the Truck, quantities come from Tickets, and hours and miles come from the meters. People answer only what is left blank.
 - **Faster than the Slack message.** If planning a day takes Dave longer than posting in #trucks, the app has failed.
-- **Changes are normal.** A Sent day changes all day. Drivers see every change at once and marked, with no lock and no "send again" (ADR 0003).
+- **Changes are normal.** Assigned work changes all day. Drivers see every change at once and marked, with no lock and no "Assign again" (ADR 0005, which replaced ADR 0003's day-level Send).
 - **Nothing is lost.** Entries are made inactive, never deleted. A cancelled Assignment stays visible. An Inspection is never edited, only followed by a newer one.
 - **One set of words.** `GLOSSARY.md` is the vocabulary for code, UI and docs.
-- **Rules live in the Worker.** Past days, Send and the US Eastern day are enforced by the server, so they are the same on every device (ADR 0004).
+- **Rules live in the Worker.** Past days, Assign and the US Eastern day are enforced by the server, so they are the same on every device (ADR 0004).
 - **Fits the Hub.** It is its own app, with its own Worker and database (ADR 0001), built on the Hub's stack and looks (ADR 0002), so plugging it into the Hub later is one forwarding step.
 
 ## Out of scope (for now)

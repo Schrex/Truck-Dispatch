@@ -6,8 +6,8 @@
  *
  * Plain date arithmetic on UTC midnights, no date library, so the same code
  * runs in the Worker and in the browser whatever the viewer's time zone.
- * Rules that read a day's Assignments and its send (a day's state, Changed
- * and Added) belong here too, taking those as plain values, as these take today.
+ * Rules that read Assignments (Changed, Added, a day's state) belong here
+ * too, taking them as plain values, as these take today.
  */
 
 import type { SinceSent } from './types';
@@ -139,7 +139,7 @@ export function shortDate(date: string): string {
   return `${WEEKDAYS[weekday(date)].slice(0, 3)}, ${MONTHS[m - 1]} ${d}`;
 }
 
-/** "Monday": the day's name in full, as the Driver view says it ("Dave hasn't sent Monday yet."). */
+/** "Monday": the day's name in full, as the Driver view says it ("Nothing from Dave yet for Monday."). */
 export function weekdayName(date: string): string {
   return WEEKDAYS[weekday(date)];
 }
@@ -176,76 +176,93 @@ export function previousWorkingDay(date: string): string {
   return day;
 }
 
-/**
- * The times of an Assignment the Send rules read. Every time here is an ISO
- * 8601 moment in UTC, as the Worker writes them, so comparing the text
- * compares the moments.
- */
-export interface SentTimes {
-  createdAt: string;
-  /** Its last change a Driver can see (a field, a cancel, Put back, its own move), null until then. */
-  changedAt: string | null;
+/** The business runs on US Eastern time: the day there decides which day is today and whether work was Assigned on its own day. */
+const BUSINESS_TIME_ZONE = 'America/New_York';
+
+const businessDate = new Intl.DateTimeFormat('en-CA', {
+  timeZone: BUSINESS_TIME_ZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+/** The date a moment (an ISO 8601 time, or a Date) falls on in US Eastern, YYYY-MM-DD: 03:30 UTC on 20 November is still the 19th. */
+export function businessDateOf(moment: string | Date): string {
+  return businessDate.format(typeof moment === 'string' ? new Date(moment) : moment);
 }
 
 /**
- * Whether an Assignment is Added (made after its day's first Send) or Changed
- * (changed after it), given when the day was Sent, null for a Draft. One added
- * after the Send stays Added however often it changes: to the Driver it is
- * new. A change in the very moment of the Send is not after it.
+ * What the Changed and Added rule reads of an Assignment. Every time here is
+ * an ISO 8601 moment in UTC, as the Worker writes them, so comparing the text
+ * compares the moments.
  */
-export function sinceSent(assignment: SentTimes, sentAt: string | null): SinceSent {
-  if (sentAt === null) return null;
-  if (assignment.createdAt > sentAt) return 'added';
-  if (assignment.changedAt !== null && assignment.changedAt > sentAt) return 'changed';
+export interface AssignedTimes {
+  /** Its day, YYYY-MM-DD. */
+  date: string;
+  /** When Dave Assigned it; null for a Draft. */
+  assignedAt: string | null;
+  /** Its last change a Driver can see (a field, a cancel, Put back, its own move), null until then. */
+  changedAt: string | null;
+  /** The Assignment it was handed over from, when it was given straight to its Driver from another Driver; otherwise null. */
+  handedFromId: string | null;
+}
+
+/**
+ * Whether an Assignment is Added or Changed, as its Driver is told. A Draft is
+ * neither: its Driver sees nothing of it. Added: Assigned on its own day (US
+ * Eastern), or handed over from another Driver; one Added stays Added however
+ * often it changes, since to the Driver it is new. Changed: changed after it
+ * was Assigned (a change in the very moment of the Assign is not after it).
+ */
+export function sinceSent(assignment: AssignedTimes): SinceSent {
+  const { assignedAt, changedAt } = assignment;
+  if (assignedAt === null) return null;
+  if (assignment.handedFromId !== null || businessDateOf(assignedAt) === assignment.date) return 'added';
+  if (changedAt !== null && changedAt > assignedAt) return 'changed';
   return null;
 }
 
 /**
- * A day's state, for the header and the week strip: none ("–") for a day with
- * no Assignments at all and never Sent; Draft, with how many are Unassigned,
- * until it is Sent; then Sent, or Changed once any Assignment on it is Changed
- * or Added since the Send. A cancelled Assignment is still on its day, so a
- * day with only cancelled ones is not empty, but it is not counted Unassigned.
+ * A day's state, for the week strip: none ("–") for a day with no
+ * Assignments; Draft, with how many Drafts it holds (Unassigned ones
+ * included), while any Assignment on it is still a Draft; then Assigned, or
+ * Changed once any Assignment on it is Changed or Added. A cancelled Draft is
+ * off the day and is not counted; a cancelled Assigned one is Changed.
  */
-export type DayState = { state: 'none' } | { state: 'draft'; unassigned: number } | { state: 'sent' } | { state: 'changed' };
+export type DayState = { state: 'none' } | { state: 'draft'; drafts: number } | { state: 'assigned' } | { state: 'changed' };
 
-/** What the day rules read of an Assignment for its lane: its Driver (null for Unassigned) and whether it is cancelled. */
-export interface LaneTimes {
-  driverId: string | null;
+/** What the day rules read of an Assignment besides its times: whether it is cancelled. */
+export interface DayTimes extends AssignedTimes {
   cancelledAt: string | null;
 }
 
-/**
- * How many of a day's Assignments are Unassigned and still to be done: a
- * cancelled one is off the day, so it waits for no Driver and is left out.
- */
-export function unassignedOn(assignments: LaneTimes[]): number {
-  return assignments.filter((a) => a.driverId === null && a.cancelledAt === null).length;
+/** How many of a day's Assignments are Drafts still to be done: a cancelled one is off the day, so it is left out. */
+export function draftsOn(assignments: Pick<DayTimes, 'assignedAt' | 'cancelledAt'>[]): number {
+  return assignments.filter((a) => a.assignedAt === null && a.cancelledAt === null).length;
 }
 
-/** The state of a day from its Assignments and when it was first Sent (null for a Draft). */
-export function dayState(assignments: (SentTimes & LaneTimes)[], sentAt: string | null): DayState {
-  if (sentAt === null) {
-    if (assignments.length === 0) return { state: 'none' };
-    return { state: 'draft', unassigned: unassignedOn(assignments) };
-  }
-  return assignments.some((a) => sinceSent(a, sentAt) !== null) ? { state: 'changed' } : { state: 'sent' };
+/** The state of a day from its Assignments. */
+export function dayState(assignments: DayTimes[]): DayState {
+  const drafts = draftsOn(assignments);
+  if (drafts > 0) return { state: 'draft', drafts };
+  const assigned = assignments.filter((a) => a.assignedAt !== null);
+  if (assigned.length === 0) return { state: 'none' };
+  return assigned.some((a) => sinceSent(a) !== null) ? { state: 'changed' } : { state: 'assigned' };
 }
 
 /**
- * A day's state as its week strip tile says it, as the Daily Schedule's do:
- * "–" for a day with nothing, "Not sent" for a Draft, or how many are
- * Unassigned on a Draft that still has some ("2 unassigned"), Sent, Changed.
- * Takes a day state as dayState gives it or as the week read answers it.
+ * A day's state as its week strip tile says it: "–" for a day with nothing,
+ * how many Drafts ("2 drafts", "1 draft"), Assigned, Changed. Takes a day
+ * state as dayState gives it or as the week read answers it.
  */
-export function stateWord(day: { state: DayState['state']; unassigned?: number }): string {
+export function stateWord(day: { state: DayState['state']; drafts?: number }): string {
   switch (day.state) {
     case 'none':
       return '–';
     case 'draft':
-      return day.unassigned ? `${day.unassigned} unassigned` : 'Not sent';
-    case 'sent':
-      return 'Sent';
+      return day.drafts === 1 ? '1 draft' : `${day.drafts ?? 0} drafts`;
+    case 'assigned':
+      return 'Assigned';
     case 'changed':
       return 'Changed';
   }

@@ -65,7 +65,7 @@ function json(method: string, body: unknown): RequestInit {
   return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
 }
 
-/** A day's Assignments, each marked Changed or Added since the Send, and when the day was first Sent (null for a Draft). */
+/** A day's Assignments, Drafts and Assigned ones alike, each marked Changed or Added since it was Assigned. */
 export function fetchDay(date: string): Promise<Day> {
   return request<Day>(`api/assignments?date=${encodeURIComponent(date)}`);
 }
@@ -76,11 +76,12 @@ export async function fetchWeek(monday: string): Promise<WeekDay[]> {
 }
 
 /**
- * Sends a day to the Drivers; answers when it was first Sent. Sending a Sent
- * day again changes nothing. Refused for a day with no Assignments or before today.
+ * Assign: gives one Assignment to its Driver, who sees it from then on
+ * (ADR 0005). Answers it Assigned. Refused for one with no Driver, a
+ * cancelled one or one on a day before today, with the Worker's message.
  */
-export async function sendDay(date: string): Promise<string> {
-  return (await request<{ sentAt: string }>(`api/days/${encodeURIComponent(date)}/send`, { method: 'POST' })).sentAt;
+export async function assignAssignment(id: string): Promise<Assignment> {
+  return (await request<{ assignment: Assignment }>(`api/assignments/${encodeURIComponent(id)}/assign`, { method: 'POST' })).assignment;
 }
 
 /**
@@ -99,8 +100,8 @@ export async function addAssignment(assignment: NewAssignment & TypedNames): Pro
 
 /**
  * Changes only the fields given; the rest of the Assignment stays as it is.
- * On a Sent day a new Driver answers the copy added in his lane and the
- * first one, cancelled.
+ * Once it is Assigned, a new Driver answers the copy added in his lane and
+ * the first one, cancelled.
  */
 export function changeAssignment(id: string, changes: AssignmentChange): Promise<ChangedAssignment> {
   return request<ChangedAssignment>(`api/assignments/${encodeURIComponent(id)}`, json('PATCH', changes));
@@ -135,8 +136,8 @@ export function copyDayTo(from: string, to: string): Promise<CopiedDay> {
 }
 
 /**
- * ✕: the Worker deletes the Assignment on a Draft day (answers null) and
- * cancels it on a Sent day (answers it, cancelled and kept in its place).
+ * ✕: the Worker deletes a Draft (answers null) and cancels an Assigned
+ * Assignment (answers it, cancelled and kept in its place).
  */
 export async function takeOffAssignment(id: string): Promise<Assignment | null> {
   // A delete answers 204 with no body, read as an empty answer.
@@ -148,16 +149,16 @@ export async function putBackAssignment(id: string): Promise<Assignment> {
   return (await request<{ assignment: Assignment }>(`api/assignments/${encodeURIComponent(id)}/put-back`, { method: 'POST' })).assignment;
 }
 
-/**
- * One Driver's day for the Driver view: only that it is a Draft until Dave
- * Sends it, then his Assignments in Dave's order, cancelled ones included,
- * marked Changed (with what they were) or Added.
- */
-/** The Driver's first Sent day after tomorrow with work for him, or null. */
-export async function fetchNextSent(driverId: string): Promise<string | null> {
-  return (await request<{ date: string | null }>(`api/drivers/${encodeURIComponent(driverId)}/next-sent`)).date;
+/** The Driver's first day after tomorrow with an Assigned Assignment for him that is not cancelled, or null. */
+export async function fetchNextAssigned(driverId: string): Promise<string | null> {
+  return (await request<{ date: string | null }>(`api/drivers/${encodeURIComponent(driverId)}/next-assigned`)).date;
 }
 
+/**
+ * One Driver's day for the Driver view: only his Assigned Assignments in
+ * Dave's order, cancelled ones included, marked Changed (with what they were)
+ * or Added; none while Dave has Assigned him nothing that day.
+ */
 export function fetchDriverDay(driverId: string, date: string): Promise<DriverDay> {
   return request<DriverDay>(`api/drivers/${encodeURIComponent(driverId)}/days/${encodeURIComponent(date)}`);
 }

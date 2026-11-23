@@ -16,7 +16,8 @@ Legend: ✅ done · 🟡 in review · ⬜ to do · ⛔ blocked
 6. ✅ Driver view: pick your name, see your Sent day
 7. ✅ Fixes from trying it on staging ([PR #40](https://github.com/Schrex/Truck-Dispatch/pull/40), on staging 23 Nov): Driver view reaches any day, Foreman on cards, Send hint, composer folds on Save, no HCSS wording on Trucks
 8. ⬜ Decide whether Places keep "On the truck map" in Settings (it comes from the HCSS boundary, like the Truck wording that was removed)
-9. ⬜ Dave uses it for real for one week alongside #trucks, and we fix what he hits (to confirm)
+9. 🟡 Assign each Assignment on its own, replacing Send per day (spec #44, ADR 0005)
+10. ⬜ Dave uses it for real for one week alongside #trucks, and we fix what he hits (to confirm)
 
 ## Phase 2: Check in (which Truck, Inspection, Truck problems)
 

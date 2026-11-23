@@ -6,6 +6,7 @@ import { AssignmentBlock } from './AssignmentBlock';
 import { Lanes } from './Lanes';
 
 let next = 0;
+/** An Assignment as the board reads it; Assigned unless a test makes it a Draft, so its block shows no Draft mark. */
 const assignment = (fields: Partial<Assignment>): Assignment => ({
   id: `a${++next}`,
   date: '2026-11-20',
@@ -27,6 +28,8 @@ const assignment = (fields: Partial<Assignment>): Assignment => ({
   updatedAt: '2026-11-19T20:00:00.000Z',
   changedAt: null,
   cancelledAt: null,
+  assignedAt: '2026-11-19T21:15:00.000Z',
+  handedFromId: null,
   sinceSent: null,
   ...fields,
 });
@@ -122,6 +125,20 @@ describe('Lanes', () => {
     rerender(<Lanes assignments={[]} drivers={drivers} trucks={trucks} onAdd={onAdd} composingFor="drv-b" composer={<p>The composer</p>} />);
     expect(within(screen.getByRole('article', { name: 'Sample Driver B' })).getByText('The composer')).toBeTruthy();
     expect(screen.getAllByText('The composer')).toHaveLength(1);
+  });
+
+  it('offers Assign on a Draft in an active Driver\'s lane, never in a removed Driver\'s, whom no one would reach', () => {
+    render(
+      <Lanes
+        assignments={[assignment({ ...a, note: 'Haul stone', assignedAt: null }), assignment({ ...x, note: 'Fill the shop', assignedAt: null })]}
+        drivers={drivers}
+        trucks={trucks}
+        onEdit={vi.fn()}
+        onAssign={vi.fn()}
+      />,
+    );
+    expect(within(screen.getByRole('article', { name: 'Sample Driver A' })).queryAllByRole('button', { name: /^Assign/ })).toHaveLength(1);
+    expect(within(screen.getByRole('article', { name: 'Sample Driver X' })).queryAllByRole('button', { name: /^Assign/ })).toHaveLength(0);
   });
 
   it('still shows every Assignment, by its Driver\'s name, while the Drivers have not loaded', () => {
@@ -289,7 +306,7 @@ describe('Changed and Added marks', () => {
   it.each([
     ['Changed', 'changed'],
     ['Added', 'added'],
-  ] as const)('mark a block %s since the day was Sent, also in the name of its edit button', (word, sinceSent) => {
+  ] as const)('mark a block %s since it was Assigned, also in the name of its edit button', (word, sinceSent) => {
     render(
       <ul>
         <AssignmentBlock assignment={assignment({ ...haul, sinceSent })} first onEdit={vi.fn()} />
@@ -297,6 +314,22 @@ describe('Changed and Added marks', () => {
     );
     expect(screen.getByRole('listitem').textContent).toBe(`First · ${word} · Sample Plant · Haul stone`);
     expect(screen.getByRole('button', { name: `Edit Sample Plant · Haul stone · ${word}` })).toBeTruthy();
+  });
+
+  it('mark a Draft with a dashed outline and the word Draft, and offer Assign on it only with a Driver', () => {
+    const onAssign = vi.fn(async () => {});
+    render(
+      <ul>
+        <AssignmentBlock assignment={assignment({ ...haul, assignedAt: null })} first onEdit={vi.fn()} onAssign={onAssign} />
+        <AssignmentBlock assignment={assignment({ ...haul, driverId: null, driverName: null, note: 'Unplanned', assignedAt: null })} first onEdit={vi.fn()} onAssign={onAssign} />
+      </ul>,
+    );
+    const edit = screen.getByRole('button', { name: 'Edit Sample Plant · Haul stone · Draft' });
+    expect(edit.textContent).toBe('First · Draft · Sample Plant · Haul stone');
+    expect(edit.className).toMatch(/border-dashed/);
+    expect(screen.getAllByRole('button', { name: /^Assign / }).map((button) => button.getAttribute('aria-label'))).toEqual(['Assign Sample Plant · Haul stone']);
+    fireEvent.click(screen.getByRole('button', { name: 'Assign Sample Plant · Haul stone' }));
+    expect(onAssign).toHaveBeenCalledWith(expect.objectContaining({ note: 'Haul stone', driverId: 'drv-a' }));
   });
 
   it('mark nothing on a block that is neither', () => {

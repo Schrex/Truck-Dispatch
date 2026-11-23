@@ -163,43 +163,55 @@ export interface Assignment {
    */
   changedAt: string | null;
   /**
-   * When ✕ cancelled it on its Sent day; null when it is not cancelled. A
-   * cancelled Assignment is kept in its place, struck through, and opens only
-   * to Put back, which empties this again.
+   * When ✕ cancelled it after it was Assigned; null when it is not cancelled.
+   * A cancelled Assignment is kept in its place, struck through, and opens
+   * only to Put back, which empties this again. (✕ deletes a Draft.)
    */
   cancelledAt: string | null;
-  /** Whether it is Changed or Added since its day was Sent; null on a Draft day or when neither. */
+  /**
+   * When Dave Assigned it (POST api/assignments/:id/assign); null while it is
+   * a Draft, which its Driver sees nothing of.
+   */
+  assignedAt: string | null;
+  /**
+   * The Assignment it was handed over from, when it is the copy made by giving
+   * an Assigned Assignment straight to another Driver (Assigned at once, so
+   * Added); otherwise null.
+   */
+  handedFromId: string | null;
+  /** Whether it is Changed or Added since it was Assigned; null on a Draft or when neither. */
   sinceSent: SinceSent;
 }
 
 /**
- * What an Assignment is since its day was Sent: Changed (altered after the
- * Send) or Added (made after it). The board marks it, and the Driver sees
- * "Changed by Dave" or "Added by Dave".
+ * What an Assignment is since it was Assigned: Changed (altered after the
+ * Assign) or Added (Assigned on its own day, or handed over from another
+ * Driver). The board marks it, and the Driver sees "Changed by Dave" or
+ * "Added by Dave".
  */
 export type SinceSent = 'changed' | 'added' | null;
 
 /**
  * What a change answers (PATCH api/assignments/:id): the Assignment as it now
- * is. On a Sent day a new Driver cancels the Assignment for the first one and
- * adds a copy in the new lane: then `assignment` is the copy and `cancelled`
- * the first one, kept in its place.
+ * is. Once it is Assigned, a new Driver cancels it for the first one and adds
+ * a copy in the new lane: then `assignment` is the copy (Assigned to the new
+ * Driver, or a Draft in Unassigned) and `cancelled` the first one, kept in
+ * its place.
  */
 export interface ChangedAssignment {
   assignment: Assignment;
   cancelled?: Assignment;
 }
 
-/** A day's Assignments and when it was first Sent, null while it is a Draft (GET api/assignments?date=). */
+/** A day's Assignments (GET api/assignments?date=). */
 export interface Day {
   assignments: Assignment[];
-  sentAt: string | null;
 }
 
 /**
  * What Start from or Copy to answers: the day copied, the day it was copied
- * onto, and that day's Assignments as they now are (all of them copies, as a
- * copy is made only onto an empty day).
+ * onto, and that day's Assignments as they now are (all of them copies, and
+ * all Drafts, as a copy is made only onto an empty day).
  */
 export interface CopiedDay {
   from: string;
@@ -208,35 +220,36 @@ export interface CopiedDay {
 }
 
 /**
- * What a Changed Assignment's fields the Driver reads were when its day was
- * Sent ("was Cobblestone"): only those that differ now, each with the name it
- * had then; null when it was empty (for the Truck, his own).
+ * What a Changed Assignment's fields the Driver reads were when it was
+ * Assigned ("was Cobblestone"): only those that differ now, each with the
+ * name it had then; null when it was empty (for the Truck, his own).
  */
 export type Was = Partial<Pick<Assignment, 'truckNumber' | 'fromPlaceName' | 'toPlaceName' | 'materialName' | 'foremanName' | 'note'>>;
 
-/** An Assignment as a Driver sees it: with what it was when Sent, empty unless it is Changed. */
+/** An Assignment as a Driver sees it: with what it was when Assigned, empty unless it is Changed. */
 export interface DriverAssignment extends Assignment {
   was: Was;
 }
 
 /**
- * One Driver's day (GET api/drivers/:id/days/:date): nothing but that it is a
- * Draft until Dave Sends it; then his Assignments in Dave's order, cancelled
- * ones included.
+ * One Driver's day (GET api/drivers/:id/days/:date): only his Assigned
+ * Assignments, in Dave's order, cancelled ones included. His Drafts are left
+ * out, so a day with none Assigned has no Assignments ("Nothing from Dave yet").
  */
-export type DriverDay =
-  | { date: string; state: 'draft' }
-  | { date: string; state: 'sent'; sentAt: string; assignments: DriverAssignment[] };
+export interface DriverDay {
+  date: string;
+  assignments: DriverAssignment[];
+}
 
 /**
  * One day on the week strip: its state by the shared day rules (none, Draft,
- * Sent or Changed), how many of its Assignments are Unassigned, and the
- * Holiday on it, if any.
+ * Assigned or Changed), how many Drafts it holds that are not cancelled
+ * (Unassigned ones included), and the Holiday on it, if any.
  */
 export interface WeekDay {
   date: string;
-  state: 'none' | 'draft' | 'sent' | 'changed';
-  unassigned: number;
+  state: 'none' | 'draft' | 'assigned' | 'changed';
+  drafts: number;
   holiday: string | null;
 }
 

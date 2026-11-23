@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { toast } from './components/ui/sonner';
-import { dayState, holidayName, sinceSent, unassignedOn, weekDates } from '../shared/days';
+import { dayState, draftsOn, holidayName, sinceSent, weekDates, type DayTimes } from '../shared/days';
 
 /**
  * The API as the page sees it: today in US Eastern is Thursday 2026-11-19,
@@ -19,13 +19,14 @@ let failSaves = false;
 let refuse: Record<string, string> | null = null;
 let copyRefusal: { status: number; body: unknown } | null = null;
 let failLists = false;
-/** When each Sent day was first Sent, as the Worker's day_sends keeps it. */
-let daySends: Record<string, string> = {};
-let sendRefusal: { status: number; body: unknown } | null = null;
+/** What Assign answers instead of Assigning, when a test says so. */
+let assignRefusal: { status: number; body: unknown } | null = null;
 /** When the week strip's read fails. */
 let failWeeks = false;
-/** When the Worker records a Send: 4:15 PM Eastern on Thursday 2026-11-19. */
-const SENT_AT = '2026-11-19T21:15:00.000Z';
+/** When an Assignment set up by a test was Assigned: 4:15 PM Eastern on Thursday 2026-11-19, before its day. */
+const ASSIGNED_AT = '2026-11-19T21:15:00.000Z';
+/** When the Worker records an Assign the page makes: 5:45 PM Eastern on Thursday 2026-11-19. */
+const NOW = '2026-11-19T22:45:00.000Z';
 const drivers = [
   { id: 'drv-a', name: 'Sample Driver A', defaultTruckId: 'trk-21', active: true },
   { id: 'drv-b', name: 'Sample Driver B', defaultTruckId: 'trk-24', active: true },
@@ -93,12 +94,14 @@ const resolve = (body: {
 /** Where the Worker puts an Assignment that joins a lane: after the last one already in it. */
 const lastInLane = (date: unknown, driverId: unknown) =>
   Math.max(-1, ...assignments.filter((a) => a.date === date && (a.driverId ?? null) === (driverId ?? null)).map((a) => Number(a.position ?? 0))) + 1;
-/** An Assignment as the Worker answers it: marked Changed or Added since its day was Sent, by the shared day rules. */
-const marked = (a: Record<string, unknown>) => ({
-  cancelledAt: null,
-  ...a,
-  sinceSent: sinceSent({ createdAt: String(a.createdAt), changedAt: (a.changedAt as string | null) ?? null }, daySends[String(a.date)] ?? null),
-});
+/**
+ * An Assignment as the Worker answers it: a Draft unless it was Assigned, and
+ * marked Changed or Added by the shared day rules.
+ */
+const marked = (a: Record<string, unknown>) => {
+  const full = { cancelledAt: null, assignedAt: null, handedFromId: null, changedAt: null, ...a } as unknown as Record<string, unknown> & DayTimes;
+  return { ...full, sinceSent: sinceSent(full) };
+};
 /** The latest day before `date` with an Assignment that is not cancelled: the one Start from copies. */
 const latestBefore = (date: string) =>
   assignments
@@ -122,25 +125,10 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     if (failWeeks) return answer({ error: 'oops' }, 500);
     // Each day's state by the shared day rules, as the Worker reads it.
     const days = weekDates(week[1]).map((date) => {
-      const planned = assignments
-        .filter((a) => a.date === date)
-        .map((a) => ({
-          driverId: (a.driverId as string | null) ?? null,
-          createdAt: String(a.createdAt),
-          changedAt: (a.changedAt as string | null) ?? null,
-          cancelledAt: (a.cancelledAt as string | null) ?? null,
-        }));
-      const unassigned = unassignedOn(planned);
-      return { date, state: dayState(planned, daySends[date] ?? null).state, unassigned, holiday: holidayName(date) };
+      const planned = assignments.filter((a) => a.date === date).map(marked);
+      return { date, state: dayState(planned).state, drafts: draftsOn(planned), holiday: holidayName(date) };
     });
     return answer({ days });
-  }
-  const sending = /\/api\/days\/([^/]+)\/send$/.exec(url.pathname);
-  if (sending && init?.method === 'POST') {
-    sent.push({ send: sending[1] });
-    if (sendRefusal) return answer(sendRefusal.body, sendRefusal.status);
-    daySends[sending[1]] ??= SENT_AT;
-    return answer({ date: sending[1], sentAt: daySends[sending[1]] });
   }
   const startingFrom = /\/api\/days\/([^/]+)\/start-from$/.exec(url.pathname);
   const copyingTo = /\/api\/days\/([^/]+)\/copy-to$/.exec(url.pathname);
@@ -154,7 +142,7 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     if (assignments.some((a) => a.date === to)) return answer({ error: 'day_planned', message: 'That day already has Assignments, so nothing was copied onto it.' }, 409);
     const copies = assignments
       .filter((a) => a.date === from && !a.cancelledAt)
-      .map((a, i) => ({ ...a, id: `c${assignments.length + i + 1}`, date: to, note: null, createdAt: '2026-11-19T22:00:00.000Z', updatedAt: '2026-11-19T22:00:00.000Z', changedAt: null }));
+      .map((a, i) => ({ ...a, id: `c${assignments.length + i + 1}`, date: to, note: null, createdAt: '2026-11-19T22:00:00.000Z', updatedAt: '2026-11-19T22:00:00.000Z', changedAt: null, assignedAt: null, handedFromId: null }));
     assignments.push(...copies);
     return answer({ from, to, assignments: copies.map(marked) }, 201);
   }
@@ -165,6 +153,16 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const back = assignments.find((a) => a.id === puttingBack[1])!;
     if (back.cancelledAt) Object.assign(back, { cancelledAt: null, updatedAt: '2026-11-19T22:30:00.000Z', changedAt: '2026-11-19T22:30:00.000Z' });
     return answer({ assignment: marked(back) });
+  }
+  const assigning = /\/api\/assignments\/([^/]+)\/assign$/.exec(url.pathname);
+  if (assigning && init?.method === 'POST') {
+    sent.push({ assign: assigning[1] });
+    if (assignRefusal) return answer(assignRefusal.body, assignRefusal.status);
+    // Gives it to its Driver, keeping the first time if it was Assigned already, as the Worker does.
+    const given = assignments.find((a) => a.id === assigning[1])!;
+    if (!given.driverId) return answer({ error: 'unassigned', message: 'This Assignment has no Driver yet. Give it a Driver, then Assign it.' }, 409);
+    given.assignedAt ??= NOW;
+    return answer({ assignment: marked(given) });
   }
   const moving = /\/api\/assignments\/([^/]+)\/move$/.exec(url.pathname);
   if (moving && init?.method === 'POST') {
@@ -206,8 +204,9 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const { fromPlaceName: _from, toPlaceName: _to, materialName: _material, ...ids } = before;
     const fields = resolve({ ...ids, ...JSON.parse(String(init.body)) } as Parameters<typeof resolve>[0]);
     const sameLane = (before.driverId ?? null) === fields.driverId;
-    // On a Sent day a new Driver cancels it for the first one and adds a copy, last in the new lane.
-    if (!sameLane && daySends[String(before.date)]) {
+    // Once it is Assigned a new Driver cancels it for the first one and adds a copy, last in the new lane:
+    // Assigned at once to a Driver (handed over, so Added), a Draft in Unassigned.
+    if (!sameLane && before.assignedAt) {
       Object.assign(before, { cancelledAt: '2026-11-19T22:00:00.000Z', updatedAt: '2026-11-19T22:00:00.000Z', changedAt: '2026-11-19T22:00:00.000Z' });
       const copy = {
         ...fields,
@@ -217,6 +216,8 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         updatedAt: '2026-11-19T22:00:00.000Z',
         changedAt: null,
         cancelledAt: null,
+        assignedAt: fields.driverId ? '2026-11-19T22:00:00.000Z' : null,
+        handedFromId: fields.driverId ? before.id : null,
       };
       assignments.push(copy);
       return answer({ assignment: marked(copy), cancelled: marked(before) });
@@ -233,9 +234,9 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   if (one && init?.method === 'DELETE') {
     sent.push({ delete: one[1] });
     if (failSaves) return answer({ error: 'oops' }, 500);
-    // ✕ cancels on a Sent day, keeping the Assignment; on a Draft day it deletes it.
+    // ✕ cancels an Assigned one, keeping it; it deletes a Draft.
     const off = assignments.find((a) => a.id === one[1])!;
-    if (daySends[String(off.date)]) {
+    if (off.assignedAt) {
       off.cancelledAt ??= '2026-11-19T22:00:00.000Z';
       Object.assign(off, { updatedAt: off.cancelledAt, changedAt: off.cancelledAt });
       return answer({ assignment: marked(off) });
@@ -250,7 +251,7 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     .filter((a) => a.date === date)
     .sort((a, b) => Number(a.position ?? 0) - Number(b.position ?? 0))
     .map(marked);
-  return answer({ assignments: day, sentAt: daySends[date] ?? null });
+  return answer({ assignments: day });
 });
 
 const open = (address: string) => {
@@ -260,8 +261,11 @@ const open = (address: string) => {
 const address = () => window.location.pathname + window.location.search;
 const subtitle = () => screen.getByRole('heading', { level: 1 }).nextElementSibling?.textContent;
 const lane = (driver: string) => screen.getByRole('article', { name: driver });
-/** A lane's blocks as they read, in order. */
-const blocks = (driver: string) => within(lane(driver)).queryAllByRole('listitem').map((block) => block.textContent);
+/** A lane's blocks as they read, in order: the block itself (its edit button on a day that can be changed), without its Assign. */
+const blocks = (driver: string) =>
+  within(lane(driver))
+    .queryAllByRole('listitem')
+    .map((block) => (within(block).queryByRole('button', { name: /^Edit / }) ?? block).textContent);
 
 beforeEach(() => {
   assignments = [];
@@ -272,8 +276,7 @@ beforeEach(() => {
   refuse = null;
   copyRefusal = null;
   failLists = false;
-  daySends = {};
-  sendRefusal = null;
+  assignRefusal = null;
   failWeeks = false;
   api.mockClear();
   vi.stubGlobal('fetch', api);
@@ -490,7 +493,7 @@ describe('the lanes', () => {
     open('/?date=2026-11-20');
     await waitFor(() => expect(lanes()).toEqual(['Sample Driver A', 'Sample Driver B', 'Sample Driver X', 'Unassigned']));
     expect(within(lane('Sample Driver X')).getByText('Removed')).toBeTruthy();
-    expect(blocks('Sample Driver X')).toEqual(['First · Haul stone']);
+    expect(blocks('Sample Driver X')).toEqual(['First · Draft · Haul stone']);
 
     fireEvent.click(screen.getByRole('button', { name: 'Next Working day, Mon 23' }));
     await screen.findByText(/^Nothing planned for /);
@@ -505,8 +508,8 @@ describe('the lanes', () => {
     ];
     open('/?date=2026-11-20');
     expect(await screen.findByText('Move the excavator')).toBeTruthy();
-    expect(blocks('Sample Driver A')).toEqual(['First · Sample Plant → Sample Site North · Truck 21 (his own)', 'Then · Move the excavator · Truck 21 (his own)']);
-    expect(blocks('Unassigned')).toEqual(['First · Who takes this?']);
+    expect(blocks('Sample Driver A')).toEqual(['First · Draft · Sample Plant → Sample Site North · Truck 21 (his own)', 'Then · Draft · Move the excavator · Truck 21 (his own)']);
+    expect(blocks('Unassigned')).toEqual(['First · Draft · Who takes this?']);
     expect(within(lane('Sample Driver B')).getByText('Nothing planned yet')).toBeTruthy();
   });
 
@@ -591,8 +594,8 @@ describe('the composer', () => {
     ]);
     await waitFor(() =>
       expect(blocks('Sample Driver A')).toEqual([
-        'First · Haul stone · Truck 21 (his own)',
-        'Then · Sample Plant → Sample Site North (Sample Foreman A) · 2" minus · Truck 21 (his own)',
+        'First · Draft · Haul stone · Truck 21 (his own)',
+        'Then · Draft · Sample Plant → Sample Site North (Sample Foreman A) · 2" minus · Truck 21 (his own)',
       ]),
     );
   });
@@ -610,7 +613,7 @@ describe('the composer', () => {
     expect(sent).toEqual([
       { date: '2026-11-20', driverId: null, truckId: null, fromPlaceName: 'Sample New Pit', toPlaceId: 'plc-north', materialName: 'sample dirt', foremanId: null, note: null },
     ]);
-    await waitFor(() => expect(blocks('Unassigned')).toEqual(['First · Sample New Pit → Sample Site North · Sample Dirt']));
+    await waitFor(() => expect(blocks('Unassigned')).toEqual(['First · Draft · Sample New Pit → Sample Site North · Sample Dirt']));
   });
 
   it('drops a typed name when a chip is picked instead, and leaves a row blank when its picked chip is tapped again', async () => {
@@ -633,7 +636,7 @@ describe('the composer', () => {
     await day();
     save(await compose('Unassigned'));
     expect(await screen.findByText('Assignment saved')).toBeTruthy();
-    await waitFor(() => expect(blocks('Unassigned')).toEqual(['First · No details yet']));
+    await waitFor(() => expect(blocks('Unassigned')).toEqual(['First · Draft · No details yet']));
   });
 
   it('lets the same Place be both Pick up and Drop off', async () => {
@@ -660,7 +663,7 @@ describe('the composer', () => {
 
     expect(await screen.findByText('Assignment saved')).toBeTruthy();
     expect(sent).toEqual([expect.objectContaining({ driverId: 'drv-b', truckId: 'trk-21', note: 'Back by noon' })]);
-    await waitFor(() => expect(blocks('Sample Driver B')).toEqual(['First · Back by noon · Truck 21']));
+    await waitFor(() => expect(blocks('Sample Driver B')).toEqual(['First · Draft · Back by noon · Truck 21']));
     expect(within(lane('Sample Driver B')).getByText('Truck 21', { selector: 'li span' }).className).not.toContain('text-muted-foreground');
   });
 
@@ -669,7 +672,7 @@ describe('the composer', () => {
     save(await compose('Sample Driver B'));
     expect(await screen.findByText('Assignment saved')).toBeTruthy();
     expect(sent).toEqual([expect.objectContaining({ driverId: 'drv-b', truckId: null })]);
-    await waitFor(() => expect(blocks('Sample Driver B')).toEqual(['First · No details yet · Truck 24 (his own)']));
+    await waitFor(() => expect(blocks('Sample Driver B')).toEqual(['First · Draft · No details yet · Truck 24 (his own)']));
     expect(within(lane('Sample Driver B')).getByText('Truck 24', { selector: 'li span' }).className).toContain('text-muted-foreground');
   });
 
@@ -855,22 +858,22 @@ describe('opening an Assignment', () => {
   it('opens a tapped block in its lane as a sentence of chips with its note, and closes it when tapped again', async () => {
     assignments = [planned({ fromPlaceId: 'plc-plant', fromPlaceName: 'Sample Plant', materialId: 'mat-minus', materialName: '2" minus' })];
     open('/?date=2026-11-20');
-    const opened = await openBlock('Sample Plant · 2" minus · Haul stone');
+    const opened = await openBlock('Sample Plant · 2" minus · Haul stone · Draft');
     expect(within(lane('Sample Driver A')).getByRole('region', { name: 'Open Assignment' })).toBe(opened);
     expect(sentenceOf(opened)).toEqual([
       'Driver: Sample Driver A', 'Material: 2" minus', 'From: Sample Plant', 'To: no Place', 'Truck: His own', 'Foreman: no Foreman',
     ]);
     expect((within(opened).getByRole('textbox', { name: 'Note' }) as HTMLTextAreaElement).value).toBe('Haul stone');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Edit Sample Plant · 2" minus · Haul stone' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Sample Plant · 2" minus · Haul stone · Draft' }));
     expect(screen.queryByRole('region', { name: 'Open Assignment' })).toBeNull();
   });
 
   it('keeps one Assignment open at a time', async () => {
     assignments = [planned(), planned({ id: 'a2', driverId: 'drv-b', driverName: 'Sample Driver B', note: 'Topsoil haul' })];
     open('/?date=2026-11-20');
-    await openBlock('Haul stone');
-    await openBlock('Topsoil haul');
+    await openBlock('Haul stone · Draft');
+    await openBlock('Topsoil haul · Draft');
     expect(screen.getAllByRole('region', { name: 'Open Assignment' })).toHaveLength(1);
     expect(within(lane('Sample Driver B')).getByRole('region', { name: 'Open Assignment' })).toBeTruthy();
   });
@@ -878,7 +881,7 @@ describe('opening an Assignment', () => {
   it('offers each part\'s list, active entries only, with "Leave blank", Unassigned for the Driver and His own for the Truck', async () => {
     assignments = [planned()];
     open('/?date=2026-11-20');
-    const opened = await openBlock('Haul stone');
+    const opened = await openBlock('Haul stone · Draft');
     expect(choicesIn(tapPart(opened, 'Driver'))).toEqual(['Sample Driver A', 'Sample Driver B', 'Unassigned']);
     expect(choicesIn(tapPart(opened, 'Material'))).toEqual(['2" minus', 'Sample Dirt', 'Leave blank', 'Or type it']);
     expect(choicesIn(tapPart(opened, 'From'))).toEqual(['Sample Plant', 'Sample Site North', 'Leave blank', 'Or type it']);
@@ -892,7 +895,7 @@ describe('opening an Assignment', () => {
   it('still offers, and shows, an entry made inactive since that the Assignment uses', async () => {
     assignments = [planned({ driverId: 'drv-x', driverName: 'Sample Driver X', truckId: 'trk-99', truckNumber: '99', fromPlaceId: 'plc-x', fromPlaceName: 'Sample Old Pit' })];
     open('/?date=2026-11-20');
-    const opened = await openBlock('Sample Old Pit · Haul stone · Truck 99');
+    const opened = await openBlock('Sample Old Pit · Haul stone · Truck 99 · Draft');
     expect(sentenceOf(opened).slice(0, 5)).toEqual(['Driver: Sample Driver X', 'Material: no Material', 'From: Sample Old Pit', 'To: no Place', 'Truck: 99']);
     expect(choicesIn(tapPart(opened, 'From'))).toEqual(['Sample Plant', 'Sample Site North', 'Sample Old Pit (removed)', 'Leave blank', 'Or type it']);
     expect(choicesIn(tapPart(opened, 'To'))).toEqual(['Sample Plant', 'Sample Site North', 'Leave blank', 'Or type it']);
@@ -901,18 +904,18 @@ describe('opening an Assignment', () => {
   it('saves a chip on its own, sending only that field, and the block shows it', async () => {
     assignments = [planned()];
     open('/?date=2026-11-20');
-    const opened = await openBlock('Haul stone');
+    const opened = await openBlock('Haul stone · Draft');
     pick(opened, 'Material', 'Sample Dirt');
     await waitFor(() => expect(sentenceOf(opened)[1]).toBe('Material: Sample Dirt'));
     expect(sent).toEqual([{ materialId: 'mat-dirt' }]);
-    expect(blocks('Sample Driver A')).toEqual(['First · Haul stone · Sample Dirt · Truck 21 (his own)']);
+    expect(blocks('Sample Driver A')).toEqual(['First · Draft · Haul stone · Sample Dirt · Truck 21 (his own)']);
     expect(within(opened).queryByRole('group')).toBeNull();
   });
 
   it('types a From, To or Material not in the list with "Or type it", saved by name on Enter or on leaving the box', async () => {
     assignments = [planned()];
     open('/?date=2026-11-20');
-    const opened = await openBlock('Haul stone');
+    const opened = await openBlock('Haul stone · Draft');
     fireEvent.click(within(tapPart(opened, 'From')).getByRole('button', { name: 'Or type it' }));
     const from = within(opened).getByRole('textbox', { name: 'From, typed' });
     fireEvent.change(from, { target: { value: ' Sample Pit ' } });
@@ -935,19 +938,19 @@ describe('opening an Assignment', () => {
   it('clears a part with "Leave blank", and sets the Truck back to His own', async () => {
     assignments = [planned({ materialId: 'mat-minus', materialName: '2" minus', truckId: 'trk-24', truckNumber: '24' })];
     open('/?date=2026-11-20');
-    const opened = await openBlock('Haul stone · 2" minus · Truck 24');
+    const opened = await openBlock('Haul stone · 2" minus · Truck 24 · Draft');
     pick(opened, 'Material', 'Leave blank');
     await waitFor(() => expect(sentenceOf(opened)[1]).toBe('Material: no Material'));
     pick(opened, 'Truck', 'His own');
     await waitFor(() => expect(sentenceOf(opened)[4]).toBe('Truck: His own'));
     expect(sent).toEqual([{ materialId: null }, { truckId: null }]);
-    expect(blocks('Sample Driver A')).toEqual(['First · Haul stone · Truck 21 (his own)']);
+    expect(blocks('Sample Driver A')).toEqual(['First · Draft · Haul stone · Truck 21 (his own)']);
   });
 
   it('saves the note on its own when Dave leaves it', async () => {
     assignments = [planned({ materialId: 'mat-minus', materialName: '2" minus' })];
     open('/?date=2026-11-20');
-    const opened = await openBlock('Haul stone · 2" minus');
+    const opened = await openBlock('Haul stone · 2" minus · Draft');
     const note = within(opened).getByRole('textbox', { name: 'Note' });
     fireEvent.change(note, { target: { value: 'Haul topsoil' } });
     fireEvent.blur(note);
@@ -961,18 +964,18 @@ describe('opening an Assignment', () => {
   it('says so when a chip cannot be saved, and keeps showing the value it had', async () => {
     assignments = [planned()];
     open('/?date=2026-11-20');
-    const opened = await openBlock('Haul stone');
+    const opened = await openBlock('Haul stone · Draft');
     failSaves = true;
     pick(opened, 'Material', 'Sample Dirt');
     expect(await within(opened).findByText('Could not save the Material. Try again.')).toBeTruthy();
     expect(sentenceOf(opened)[1]).toBe('Material: no Material');
-    expect(blocks('Sample Driver A')).toEqual(['First · Haul stone · Truck 21 (his own)']);
+    expect(blocks('Sample Driver A')).toEqual(['First · Draft · Haul stone · Truck 21 (his own)']);
   });
 
   it('shows the Worker\'s message when a change is refused, e.g. for a day that is now past', async () => {
     assignments = [planned()];
     open('/?date=2026-11-20');
-    const opened = await openBlock('Haul stone');
+    const opened = await openBlock('Haul stone · Draft');
     api.mockImplementationOnce(async () =>
       new Response(JSON.stringify({ error: 'past_day', message: 'This Assignment is on a day before today, which is read-only.' }), { status: 409 }),
     );
@@ -984,9 +987,9 @@ describe('opening an Assignment', () => {
   it('moves it to the end of another Driver\'s lane when the Driver changes, still open', async () => {
     assignments = [planned(), planned({ id: 'a2', driverId: 'drv-b', driverName: 'Sample Driver B', note: 'Topsoil haul' })];
     open('/?date=2026-11-20');
-    const opened = await openBlock('Haul stone');
+    const opened = await openBlock('Haul stone · Draft');
     pick(opened, 'Driver', 'Sample Driver B');
-    await waitFor(() => expect(blocks('Sample Driver B')).toEqual(['First · Topsoil haul · Truck 24 (his own)', 'Then · Haul stone · Truck 24 (his own)']));
+    await waitFor(() => expect(blocks('Sample Driver B')).toEqual(['First · Draft · Topsoil haul · Truck 24 (his own)', 'Then · Draft · Haul stone · Truck 24 (his own)']));
     expect(sent).toEqual([{ driverId: 'drv-b' }]);
     expect(within(lane('Sample Driver A')).getByText('Nothing planned yet')).toBeTruthy();
     expect(within(lane('Sample Driver B')).getByRole('region', { name: 'Open Assignment' })).toBeTruthy();
@@ -995,8 +998,8 @@ describe('opening an Assignment', () => {
   it('moves it to the end of the Unassigned lane when it is taken off its Driver', async () => {
     assignments = [planned(), planned({ id: 'a2', driverId: null, driverName: null, note: 'Who takes this?' })];
     open('/?date=2026-11-20');
-    pick(await openBlock('Haul stone'), 'Driver', 'Unassigned');
-    await waitFor(() => expect(blocks('Unassigned')).toEqual(['First · Who takes this?', 'Then · Haul stone']));
+    pick(await openBlock('Haul stone · Draft'), 'Driver', 'Unassigned');
+    await waitFor(() => expect(blocks('Unassigned')).toEqual(['First · Draft · Who takes this?', 'Then · Draft · Haul stone']));
     expect(sent).toEqual([{ driverId: null }]);
   });
 
@@ -1011,11 +1014,11 @@ describe('opening an Assignment', () => {
     it('moves it one place earlier or later in its lane, and it stays open', async () => {
       assignments = three();
       open('/?date=2026-11-20');
-      const opened = await openBlock('Topsoil haul');
+      const opened = await openBlock('Topsoil haul · Draft');
       fireEvent.click(within(opened).getByRole('button', { name: 'Do this first' }));
-      await waitFor(() => expect(lineup()).toEqual(['First · Topsoil haul', 'Then · Haul stone', 'Then · Fill the shop']));
+      await waitFor(() => expect(lineup()).toEqual(['First · Draft · Topsoil haul', 'Then · Draft · Haul stone', 'Then · Draft · Fill the shop']));
       fireEvent.click(within(screen.getByRole('region', { name: 'Open Assignment' })).getByRole('button', { name: 'Do this later' }));
-      await waitFor(() => expect(lineup()).toEqual(['First · Haul stone', 'Then · Topsoil haul', 'Then · Fill the shop']));
+      await waitFor(() => expect(lineup()).toEqual(['First · Draft · Haul stone', 'Then · Draft · Topsoil haul', 'Then · Draft · Fill the shop']));
       expect(sent).toEqual([{ direction: 'earlier' }, { direction: 'later' }]);
     });
 
@@ -1023,15 +1026,14 @@ describe('opening an Assignment', () => {
       assignments = [...three(), planned({ id: 'a4', driverId: 'drv-b', driverName: 'Sample Driver B', note: 'Alone' })];
       open('/?date=2026-11-20');
       const moves = (opened: HTMLElement) => within(opened).queryAllByRole('button', { name: /^Do this/ }).map((b) => b.textContent);
-      expect(moves(await openBlock('Haul stone'))).toEqual(['Do this later']);
-      expect(moves(await openBlock('Topsoil haul'))).toEqual(['Do this first', 'Do this later']);
-      expect(moves(await openBlock('Fill the shop'))).toEqual(['Do this first']);
-      expect(moves(await openBlock('Alone'))).toEqual([]);
+      expect(moves(await openBlock('Haul stone · Draft'))).toEqual(['Do this later']);
+      expect(moves(await openBlock('Topsoil haul · Draft'))).toEqual(['Do this first', 'Do this later']);
+      expect(moves(await openBlock('Fill the shop · Draft'))).toEqual(['Do this first']);
+      expect(moves(await openBlock('Alone · Draft'))).toEqual([]);
     });
 
-    it('marks only the one moved Changed on a Sent day', async () => {
-      assignments = three();
-      daySends = { '2026-11-20': '2026-11-19T20:30:00.000Z' };
+    it('marks only the one moved Changed once they are Assigned', async () => {
+      assignments = three().map((a) => ({ ...a, assignedAt: '2026-11-19T20:30:00.000Z' }));
       open('/?date=2026-11-20');
       fireEvent.click(within(await openBlock('Fill the shop')).getByRole('button', { name: 'Do this first' }));
       await waitFor(() => expect(lineup()).toEqual(['First · Haul stone', 'Then · Changed · Fill the shop', 'Then · Topsoil haul']));
@@ -1040,32 +1042,31 @@ describe('opening an Assignment', () => {
     it('says so when a move fails, and keeps the order', async () => {
       assignments = three();
       open('/?date=2026-11-20');
-      const opened = await openBlock('Topsoil haul');
+      const opened = await openBlock('Topsoil haul · Draft');
       failSaves = true;
       fireEvent.click(within(opened).getByRole('button', { name: 'Do this first' }));
       expect(await within(opened).findByText('Could not move the Assignment. Try again.')).toBeTruthy();
-      expect(lineup()).toEqual(['First · Haul stone', 'Then · Topsoil haul', 'Then · Fill the shop']);
+      expect(lineup()).toEqual(['First · Draft · Haul stone', 'Then · Draft · Topsoil haul', 'Then · Draft · Fill the shop']);
     });
   });
 
   describe('✕ and Put back', () => {
-    const SENT = { '2026-11-20': SENT_AT };
+    const ASSIGNED = { assignedAt: ASSIGNED_AT };
     /** A block's frame: the button that opens it. */
     const frameOf = (words: string) => screen.getByRole('button', { name: `Edit ${words}` });
 
-    it('deletes the Assignment with ✕ on a Draft day, leaving nothing behind', async () => {
+    it('deletes a Draft with ✕, leaving nothing behind', async () => {
       assignments = [planned()];
       open('/?date=2026-11-20');
-      fireEvent.click(within(await openBlock('Haul stone')).getByRole('button', { name: 'Delete' }));
+      fireEvent.click(within(await openBlock('Haul stone · Draft')).getByRole('button', { name: 'Delete' }));
       await waitFor(() => expect(within(lane('Sample Driver A')).getByText('Nothing planned yet')).toBeTruthy());
       expect(sent).toEqual([{ delete: 'a1' }]);
       expect(screen.queryByRole('region', { name: 'Open Assignment' })).toBeNull();
       expect(await screen.findByText(/^Nothing planned for /)).toBeTruthy();
     });
 
-    it('cancels it with ✕ on a Sent day: it stays in its place, struck through, greyed and marked Cancelled', async () => {
-      assignments = [planned(), planned({ id: 'a2', note: 'Topsoil haul', position: 1 })];
-      daySends = SENT;
+    it('cancels an Assigned one with ✕: it stays in its place, struck through, greyed and marked Cancelled', async () => {
+      assignments = [planned(ASSIGNED), planned({ id: 'a2', note: 'Topsoil haul', position: 1, ...ASSIGNED })];
       open('/?date=2026-11-20');
       fireEvent.click(within(await openBlock('Haul stone')).getByRole('button', { name: 'Cancel' }));
       await waitFor(() => expect(blocks('Sample Driver A')).toEqual([
@@ -1077,12 +1078,10 @@ describe('opening an Assignment', () => {
       expect(screen.getByText('1 Assignment')).toBeTruthy();
       expect(frameOf('Haul stone · Cancelled').className).toMatch(/line-through/);
       expect(frameOf('Haul stone · Cancelled').className).toMatch(/opacity/);
-      expect(screen.getByRole('status', { name: 'Day state' }).textContent).toBe('Changed since Sent');
     });
 
     it('opens a cancelled Assignment only to Put back, which restores it, marked Changed', async () => {
-      assignments = [planned({ cancelledAt: '2026-11-19T22:00:00.000Z', changedAt: '2026-11-19T22:00:00.000Z' })];
-      daySends = SENT;
+      assignments = [planned({ cancelledAt: '2026-11-19T22:00:00.000Z', changedAt: '2026-11-19T22:00:00.000Z', ...ASSIGNED })];
       open('/?date=2026-11-20');
       fireEvent.click(await screen.findByRole('button', { name: 'Edit Haul stone · Cancelled' }));
       const opened = screen.getByRole('region', { name: 'Open Assignment' });
@@ -1100,9 +1099,8 @@ describe('opening an Assignment', () => {
       expect(within(reopened).getByRole('button', { name: 'Driver: Sample Driver A' })).toBeTruthy();
     });
 
-    it('cancels it for the first Driver and adds it last in the other Driver\'s lane on a Sent day, still open there', async () => {
-      assignments = [planned(), planned({ id: 'a2', driverId: 'drv-b', driverName: 'Sample Driver B', note: 'Topsoil haul' })];
-      daySends = SENT;
+    it('cancels an Assigned one for the first Driver and adds it, Assigned, last in the other Driver\'s lane, still open there', async () => {
+      assignments = [planned(ASSIGNED), planned({ id: 'a2', driverId: 'drv-b', driverName: 'Sample Driver B', note: 'Topsoil haul', ...ASSIGNED })];
       open('/?date=2026-11-20');
       pick(await openBlock('Haul stone'), 'Driver', 'Sample Driver B');
       await waitFor(() => expect(blocks('Sample Driver B')).toEqual(['First · Topsoil haul · Truck 24 (his own)', 'Then · Added · Haul stone · Truck 24 (his own)']));
@@ -1113,16 +1111,15 @@ describe('opening an Assignment', () => {
     it('says so when ✕ fails, and keeps the Assignment', async () => {
       assignments = [planned()];
       open('/?date=2026-11-20');
-      const opened = await openBlock('Haul stone');
+      const opened = await openBlock('Haul stone · Draft');
       failSaves = true;
       fireEvent.click(within(opened).getByRole('button', { name: 'Delete' }));
       expect(await within(opened).findByText('Could not delete the Assignment. Try again.')).toBeTruthy();
-      expect(blocks('Sample Driver A')).toEqual(['First · Haul stone · Truck 21 (his own)']);
+      expect(blocks('Sample Driver A')).toEqual(['First · Draft · Haul stone · Truck 21 (his own)']);
     });
 
     it('says so when Put back fails, and keeps it cancelled', async () => {
-      assignments = [planned({ cancelledAt: '2026-11-19T22:00:00.000Z', changedAt: '2026-11-19T22:00:00.000Z' })];
-      daySends = SENT;
+      assignments = [planned({ cancelledAt: '2026-11-19T22:00:00.000Z', changedAt: '2026-11-19T22:00:00.000Z', ...ASSIGNED })];
       open('/?date=2026-11-20');
       fireEvent.click(await screen.findByRole('button', { name: 'Edit Haul stone · Cancelled' }));
       const opened = screen.getByRole('region', { name: 'Open Assignment' });
@@ -1136,7 +1133,7 @@ describe('opening an Assignment', () => {
   it('has no dialog and no Duplicate: the Assignment is changed where it sits', async () => {
     assignments = [planned()];
     open('/?date=2026-11-20');
-    const opened = await openBlock('Haul stone');
+    const opened = await openBlock('Haul stone · Draft');
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(within(opened).queryByText(/Duplicate/)).toBeNull();
     expect(within(opened).queryByRole('textbox', { name: 'Date' })).toBeNull();
@@ -1157,7 +1154,7 @@ describe('opening an Assignment', () => {
   it('shows today with its add and edit controls', async () => {
     assignments = [planned({ date: '2026-11-19' })];
     open('/?date=2026-11-19');
-    expect(await screen.findByRole('button', { name: 'Edit Haul stone' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Edit Haul stone · Draft' })).toBeTruthy();
     expect(await screen.findByRole('button', { name: 'Add an Assignment for Sample Driver A' })).toBeTruthy();
   });
 
@@ -1165,7 +1162,7 @@ describe('opening an Assignment', () => {
     assignments = [planned({ driverId: 'drv-x', driverName: 'Sample Driver X' })];
     open('/?date=2026-11-20');
     expect(await within(await findLane('Sample Driver X')).findByText('Haul stone')).toBeTruthy();
-    expect(within(lane('Sample Driver X')).getByRole('listitem').textContent).toBe('First · Haul stone');
+    expect(blocks('Sample Driver X')).toEqual(['First · Draft · Haul stone']);
   });
 });
 
@@ -1217,8 +1214,7 @@ describe('starting a day from another', () => {
   });
 
   it('offers neither on a day that has Assignments, even if all are cancelled', async () => {
-    daySends = { '2026-11-23': SENT_AT };
-    assignments = [planned(), planned({ id: 'a2', date: '2026-11-23', cancelledAt: '2026-11-19T22:00:00.000Z' })];
+    assignments = [planned(), planned({ id: 'a2', date: '2026-11-23', cancelledAt: '2026-11-19T22:00:00.000Z', assignedAt: ASSIGNED_AT })];
     open('/?date=2026-11-23');
     expect(await within(await screen.findByRole('article', { name: 'Sample Driver A' })).findByText(/Sample Dirt/)).toBeTruthy();
     expect(screen.queryByText(/^Nothing planned for /)).toBeNull();
@@ -1257,8 +1253,7 @@ describe('starting a day from another', () => {
   });
 
   it('offers no Copy to on a past day whose Assignments are all cancelled, nor on today or a later day', async () => {
-    daySends = { '2026-11-17': SENT_AT };
-    assignments = [planned({ date: '2026-11-17', cancelledAt: '2026-11-17T22:00:00.000Z' }), planned({ id: 'a2' })];
+    assignments = [planned({ date: '2026-11-17', cancelledAt: '2026-11-17T22:00:00.000Z', assignedAt: '2026-11-16T21:15:00.000Z' }), planned({ id: 'a2' })];
     open('/?date=2026-11-17');
     await screen.findByText('Haul stone');
     await act(async () => {});
@@ -1292,113 +1287,90 @@ describe('starting a day from another', () => {
   });
 });
 
-describe('sending a day', () => {
-  // The page's today is Thursday 2026-11-19; Friday 2026-11-20 is planned at 3:00 PM Eastern.
+describe('assigning', () => {
+  // The page's today is Thursday 2026-11-19; Friday 2026-11-20 is planned.
   const planned = (fields: Record<string, unknown> = {}) => ({
     id: 'a1', date: '2026-11-20', driverId: 'drv-a', driverName: 'Sample Driver A', note: 'Haul stone', position: 0,
     createdAt: '2026-11-19T20:00:00.000Z', updatedAt: '2026-11-19T20:00:00.000Z', changedAt: null, ...fields,
   });
-  const dayState = () => screen.getByRole('status', { name: 'Day state' }).textContent;
-  const sendButton = () => screen.queryByRole('button', { name: 'Send' });
+  const assignButtons = () => screen.queryAllByRole('button', { name: /^Assign / }).map((button) => button.getAttribute('aria-label'));
+  const tile = (day: string) => within(screen.getByRole('navigation', { name: 'Week' })).getByRole('button', { name: new RegExp(`^${day}\\b`) });
 
-  it('shows a planned day as a Draft with when it was last saved, and Sends it with one tap', async () => {
-    assignments = [planned(), planned({ id: 'a2', note: 'Topsoil haul', updatedAt: '2026-11-19T21:12:00.000Z' })];
+  it('shows a Draft with a Driver with a dashed outline, a Draft tag and Assign on its block, and an Assigned one as before', async () => {
+    assignments = [planned(), planned({ id: 'a2', note: 'Topsoil haul', position: 1, assignedAt: ASSIGNED_AT })];
     open('/?date=2026-11-20');
-    await screen.findByText('Haul stone');
-    await waitFor(() => expect(dayState()).toBe('Draft · not sent yet · saved 4:12 PM'));
-    expect(screen.getByText("Drivers can't see this day until you Send.")).toBeTruthy();
-
-    fireEvent.click(sendButton()!);
-
-    await waitFor(() => expect(dayState()).toBe('Sent Thu, Nov 19 · 4:15 PM'));
-    expect(sent).toEqual([{ send: '2026-11-20' }]);
-    expect(sendButton()).toBeNull();
-    expect(screen.queryByText("Drivers can't see this day until you Send.")).toBeNull();
+    await waitFor(() => expect(assignButtons()).toEqual(['Assign Haul stone']));
+    expect(blocks('Sample Driver A')).toEqual(['First · Draft · Haul stone · Truck 21 (his own)', 'Then · Topsoil haul · Truck 21 (his own)']);
+    expect(screen.getByRole('button', { name: 'Edit Haul stone · Draft' }).className).toMatch(/border-dashed/);
+    expect(screen.getByRole('button', { name: 'Edit Topsoil haul' }).className).not.toMatch(/border-dashed/);
   });
 
-  it('says when the day was last saved after a delete too, never going back to an earlier save', async () => {
-    assignments = [planned(), planned({ id: 'a2', note: 'Topsoil haul', position: 1, updatedAt: '2026-11-19T21:12:00.000Z' })];
-    open('/?date=2026-11-20');
-    await waitFor(() => expect(dayState()).toBe('Draft · not sent yet · saved 4:12 PM'));
-    vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(new Date('2026-11-19T21:30:00.000Z'));
-    try {
-      fireEvent.click(await screen.findByRole('button', { name: 'Edit Topsoil haul' }));
-      fireEvent.click(within(screen.getByRole('region', { name: 'Open Assignment' })).getByRole('button', { name: 'Delete' }));
-      await waitFor(() => expect(screen.queryByText('Topsoil haul')).toBeNull());
-      expect(dayState()).toBe('Draft · not sent yet · saved 4:30 PM');
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('offers no Send yet on a day with nothing planned', async () => {
-    open('/?date=2026-11-20');
-    await screen.findByText(/^Nothing planned for /);
-    await waitFor(() => expect(dayState()).toBe('Draft · not sent yet'));
-    expect((sendButton() as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.queryByText("Drivers can't see this day until you Send.")).toBeNull();
-  });
-
-  it('shows a Sent day with its sent time and no Send button', async () => {
+  it('Assigns it with one tap on its block: it loses its Draft look and the week strip says Assigned', async () => {
     assignments = [planned()];
-    daySends = { '2026-11-20': SENT_AT };
     open('/?date=2026-11-20');
-    await screen.findByText('Haul stone');
-    await waitFor(() => expect(dayState()).toBe('Sent Thu, Nov 19 · 4:15 PM'));
-    expect(sendButton()).toBeNull();
+    await waitFor(() => expect(tile('Fri 20').getAttribute('aria-label')).toBe('Fri 20 · Tomorrow · 1 draft'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Assign Haul stone' }));
+    await waitFor(() => expect(blocks('Sample Driver A')).toEqual(['First · Haul stone · Truck 21 (his own)']));
+    expect(sent).toEqual([{ assign: 'a1' }]);
+    expect(assignButtons()).toEqual([]);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() => expect(tile('Fri 20').getAttribute('aria-label')).toBe('Fri 20 · Tomorrow · Assigned'));
   });
 
-  it('says the day is Changed since Sent and marks the blocks Changed and Added', async () => {
-    assignments = [
-      planned({ changedAt: '2026-11-19T22:00:00.000Z' }),
-      planned({ id: 'a2', note: 'Topsoil haul', position: 1, createdAt: '2026-11-19T22:30:00.000Z' }),
-      planned({ id: 'a3', note: 'Fill the shop', position: 2 }),
-    ];
-    daySends = { '2026-11-20': SENT_AT };
-    open('/?date=2026-11-20');
-    await screen.findByText('Haul stone');
-    await waitFor(() => expect(dayState()).toBe('Changed since Sent'));
-    expect(blocks('Sample Driver A')).toEqual([
-      'First · Changed · Haul stone · Truck 21 (his own)',
-      'Then · Added · Topsoil haul · Truck 21 (his own)',
-      'Then · Fill the shop · Truck 21 (his own)',
-    ]);
+  it('marks one Assigned on its own day Added', async () => {
+    assignments = [planned({ date: '2026-11-19' })];
+    open('/?date=2026-11-19');
+    fireEvent.click(await screen.findByRole('button', { name: 'Assign Haul stone' }));
+    await waitFor(() => expect(blocks('Sample Driver A')).toEqual(['First · Added · Haul stone · Truck 21 (his own)']));
   });
 
-  it('marks a block Changed once Dave changes it on a Sent day', async () => {
-    assignments = [planned()];
-    daySends = { '2026-11-20': '2026-11-19T20:30:00.000Z' };
+  it('offers no Assign on an Unassigned Draft, and the Unassigned lane says to pick a Driver', async () => {
+    assignments = [planned({ driverId: null, driverName: null, note: 'Unplanned' })];
     open('/?date=2026-11-20');
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit Haul stone' }));
-    const note = within(screen.getByRole('region', { name: 'Open Assignment' })).getByRole('textbox', { name: 'Note' });
-    fireEvent.change(note, { target: { value: 'Haul dirt' } });
-    fireEvent.blur(note);
-    expect(await screen.findByRole('button', { name: 'Edit Haul dirt · Changed' })).toBeTruthy();
-    expect(dayState()).toBe('Changed since Sent');
+    expect(await within(await screen.findByRole('article', { name: 'Unassigned' })).findByText('Pick a Driver to Assign')).toBeTruthy();
+    expect(blocks('Unassigned')).toEqual(['First · Draft · Unplanned']);
+    expect(assignButtons()).toEqual([]);
   });
 
-  it('offers no Send on a day before today, but still says its state', async () => {
+  it('offers no Assign on a day before today', async () => {
     assignments = [planned({ date: '2026-11-18' })];
     open('/?date=2026-11-18');
     await screen.findByText('Haul stone');
-    await waitFor(() => expect(dayState()).toBe('Draft · not sent yet · saved 3:00 PM'));
-    expect(sendButton()).toBeNull();
+    await waitFor(() => expect(api.mock.calls.some(([url]) => String(url).endsWith('/api/today'))).toBe(true));
+    await act(async () => {});
+    expect(assignButtons()).toEqual([]);
+    expect(within(lane('Sample Driver A')).getByRole('listitem').textContent).toBe('First · Draft · Haul stone · Truck 21 (his own)');
+  });
+
+  it('names ✕ by the Assignment: Delete on a Draft, Cancel on an Assigned one', async () => {
+    assignments = [planned(), planned({ id: 'a2', note: 'Topsoil haul', position: 1, assignedAt: ASSIGNED_AT })];
+    open('/?date=2026-11-20');
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit Haul stone · Draft' }));
+    expect(within(screen.getByRole('region', { name: 'Open Assignment' })).getByRole('button', { name: 'Delete' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Topsoil haul' }));
+    expect(within(screen.getByRole('region', { name: 'Open Assignment' })).getByRole('button', { name: 'Cancel' })).toBeTruthy();
+  });
+
+  it('has no Send and no day-level line about Drivers not seeing the day', async () => {
+    assignments = [planned()];
+    open('/?date=2026-11-20');
+    await screen.findByRole('button', { name: 'Assign Haul stone' });
+    expect(screen.queryByRole('button', { name: 'Send' })).toBeNull();
+    expect(screen.queryByText(/until you Send/)).toBeNull();
+    expect(screen.queryByRole('status', { name: 'Day state' })).toBeNull();
   });
 
   it.each([
-    ['a refusal', { status: 409, body: { error: 'nothing_to_send', message: 'This day has no Assignments to Send. Plan the day first.' } }, 'This day has no Assignments to Send. Plan the day first.'],
-    ['a refused date', { status: 400, body: { error: 'invalid', fields: { date: 'Days before today are read-only, so they cannot be Sent.' } } }, 'Days before today are read-only, so they cannot be Sent.'],
-    ['a failure', { status: 500, body: { error: 'oops' } }, 'Could not Send this day'],
-  ])('shows the Worker\'s message for %s, and the day stays a Draft', async (_what, refusal, message) => {
-    sendRefusal = refusal;
+    ['a refusal', { status: 409, body: { error: 'past_day', message: 'This day is before today, so it is read-only.' } }, 'This day is before today, so it is read-only.'],
+    ['a failure', { status: 500, body: { error: 'oops' } }, 'Could not Assign it. Try again.'],
+  ])('shows the Worker\'s message for %s, and it stays a Draft', async (_what, refusal, message) => {
+    assignRefusal = refusal;
     assignments = [planned()];
     open('/?date=2026-11-20');
-    await screen.findByText('Haul stone');
-    await waitFor(() => expect(sendButton()).toBeTruthy());
-    fireEvent.click(sendButton()!);
+    fireEvent.click(await screen.findByRole('button', { name: 'Assign Haul stone' }));
     expect(await screen.findByText(message)).toBeTruthy();
-    expect(dayState()).toBe('Draft · not sent yet · saved 3:00 PM');
+    expect(blocks('Sample Driver A')).toEqual(['First · Draft · Haul stone · Truck 21 (his own)']);
+    expect(assignButtons()).toEqual(['Assign Haul stone']);
   });
 });
 
@@ -1416,21 +1388,20 @@ describe('the week strip', () => {
   const regainFocus = () => act(() => void window.dispatchEvent(new Event('focus')));
 
   it('shows a tile for each day of the week with Today, Tomorrow and each day\'s state', async () => {
-    assignments = [planned('2026-11-17', { changedAt: '2026-11-19T22:00:00.000Z' })];
-    assignments.push(planned('2026-11-18'));
+    assignments = [planned('2026-11-17', { changedAt: '2026-11-19T22:00:00.000Z', assignedAt: ASSIGNED_AT })];
+    assignments.push(planned('2026-11-18', { assignedAt: ASSIGNED_AT }));
     assignments.push(planned('2026-11-19', { driverId: null, driverName: null }));
     assignments.push(planned('2026-11-19', { driverId: null, driverName: null }));
     assignments.push(planned('2026-11-19'));
     assignments.push(planned('2026-11-20'));
-    daySends = { '2026-11-17': SENT_AT, '2026-11-18': SENT_AT };
     open('/?date=2026-11-20');
     await waitFor(() =>
       expect(tiles()).toEqual([
         'Mon 16 · –',
         'Tue 17 · Changed',
-        'Wed 18 · Sent',
-        'Thu 19 · Today · 2 unassigned',
-        'Fri 20 · Tomorrow · Not sent',
+        'Wed 18 · Assigned',
+        'Thu 19 · Today · 3 drafts',
+        'Fri 20 · Tomorrow · 1 draft',
         'Sat 21 · –',
         'Sun 22 · –',
       ]),
@@ -1450,7 +1421,7 @@ describe('the week strip', () => {
     await waitFor(() => expect(tile('Thu 26').getAttribute('aria-label')).toBe('Thu 26 · Thanksgiving'));
     assignments = [planned('2026-11-26')];
     regainFocus();
-    await waitFor(() => expect(tile('Thu 26').getAttribute('aria-label')).toBe('Thu 26 · Thanksgiving · Not sent'));
+    await waitFor(() => expect(tile('Thu 26').getAttribute('aria-label')).toBe('Thu 26 · Thanksgiving · 1 draft'));
   });
 
   it('shows a day when its tile is tapped', async () => {
@@ -1475,16 +1446,16 @@ describe('the week strip', () => {
     expect(pager()).toBe('Nov 9 to Nov 15');
   });
 
-  it('updates after an add and after Send', async () => {
+  it('updates after an add and after Assign', async () => {
     open('/?date=2026-11-20');
     await waitFor(() => expect(tile('Fri 20').getAttribute('aria-label')).toBe('Fri 20 · Tomorrow · –'));
 
-    fireEvent.click(await within(lane('Unassigned')).findByRole('button', { name: 'Add an Assignment for Unassigned' }));
-    fireEvent.click(within(lane('Unassigned')).getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(tile('Fri 20').getAttribute('aria-label')).toBe('Fri 20 · Tomorrow · 1 unassigned'));
+    fireEvent.click(await within(lane('Sample Driver A')).findByRole('button', { name: 'Add an Assignment for Sample Driver A' }));
+    fireEvent.click(within(lane('Sample Driver A')).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(tile('Fri 20').getAttribute('aria-label')).toBe('Fri 20 · Tomorrow · 1 draft'));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
-    await waitFor(() => expect(tile('Fri 20').getAttribute('aria-label')).toBe('Fri 20 · Tomorrow · Sent'));
+    fireEvent.click(within(lane('Sample Driver A')).getByRole('button', { name: /^Assign / }));
+    await waitFor(() => expect(tile('Fri 20').getAttribute('aria-label')).toBe('Fri 20 · Tomorrow · Assigned'));
   });
 
   it('updates when the page regains the focus, for what changed elsewhere', async () => {
@@ -1492,7 +1463,7 @@ describe('the week strip', () => {
     await waitFor(() => expect(tile('Mon 16').getAttribute('aria-label')).toBe('Mon 16 · –'));
     assignments = [planned('2026-11-16')];
     regainFocus();
-    await waitFor(() => expect(tile('Mon 16').getAttribute('aria-label')).toBe('Mon 16 · Not sent'));
+    await waitFor(() => expect(tile('Mon 16').getAttribute('aria-label')).toBe('Mon 16 · 1 draft'));
   });
 
   it('still shows its days, without states, when the week cannot be read, and says so', async () => {

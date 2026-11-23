@@ -8,13 +8,13 @@ import { afterSave, Composer, EMPTY_DRAFT, type Draft } from '@/components/Compo
 import { Lanes } from '@/components/Lanes';
 import { DayNavigation, daySubtitle } from '@/components/DayNavigation';
 import { DayCopy } from '@/components/DayCopy';
-import { DaySend } from '@/components/DaySend';
 import { TakeOff } from '@/components/TakeOff';
 import { PageHeader } from '@/components/PageHeader';
 import { WeekStrip } from '@/components/WeekStrip';
 import { ViewToggle } from '@/components/ViewToggle';
 import { Button } from '@/components/ui/button';
-import { fetchBusinessDay, fetchDay, fetchList } from '@/lib/api';
+import { toast } from '@/components/ui/sonner';
+import { assignAssignment, fetchBusinessDay, fetchDay, fetchList, Refused } from '@/lib/api';
 
 /**
  * The board: one day's Assignments, one lane per Driver. The day on
@@ -27,9 +27,9 @@ import { fetchBusinessDay, fetchDay, fetchList } from '@/lib/api';
  * is open at a time. Save closes it, and its draft is kept here, so the
  * next + (in any lane) starts with the same Places and Material; Close, or
  * another day, starts it empty.
- * The header says whether the day is a Draft, Sent or Changed since Sent,
- * with Send while it is a Draft, and below it the week strip shows the
- * state of every day of the week.
+ * Each Assignment is Assigned on its own (ADR 0005): a Draft with a Driver
+ * has Assign on its block, one tap; there is no Send for the day. Below the
+ * header the week strip shows the state of every day of the week.
  */
 export function BoardPage() {
   const [search, setSearch] = useSearchParams();
@@ -42,10 +42,6 @@ export function BoardPage() {
   const [foremen, setForemen] = useState<Foreman[] | null>(null);
   const [listsFailed, setListsFailed] = useState(false);
   const [assignments, setAssignments] = useState<Assignment[] | null>(null);
-  // When the day on screen was first Sent; null while it is a Draft.
-  const [sentAt, setSentAt] = useState<string | null>(null);
-  // When the page last deleted something on the day on screen, so "saved" never goes back to an earlier save.
-  const [savedAt, setSavedAt] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   const [reloads, setReloads] = useState(0);
   const [businessDay, setBusinessDay] = useState<BusinessDay | null>(null);
@@ -87,21 +83,15 @@ export function BoardPage() {
     setComposingFor(undefined);
     setDraft(EMPTY_DRAFT);
     setOpenId(null);
-    setSavedAt(null);
   }, [date]);
 
   useEffect(() => {
     if (!date) return;
     let stale = false;
     setAssignments(null);
-    setSentAt(null);
     setFailed(false);
     fetchDay(date).then(
-      (day) => {
-        if (stale) return;
-        setAssignments(day.assignments);
-        setSentAt(day.sentAt);
-      },
+      (day) => !stale && setAssignments(day.assignments),
       () => !stale && setFailed(true),
     );
     return () => {
@@ -115,10 +105,10 @@ export function BoardPage() {
   };
   const reload = () => setReloads((n) => n + 1);
   /**
-   * Shows Assignments as the Worker answered a change, a move, a cancel or a
-   * Put back, without reading the day again (which would close the open
-   * one): each replaces itself, one the day does not have yet (the copy a Sent
-   * day's new Driver gets) joins it, then the day is put back in lane order
+   * Shows Assignments as the Worker answered a change, a move, an Assign, a
+   * cancel or a Put back, without reading the day again (which would close
+   * the open one): each replaces itself, one the day does not have yet (the
+   * copy an Assigned one's new Driver gets) joins it, then the day is put back in lane order
    * by position, ties kept in the order they were read.
    */
   const changed = (answered: Assignment[]) =>
@@ -128,14 +118,21 @@ export function BoardPage() {
       const added = answered.filter((a) => !day.some((d) => d.id === a.id));
       return [...day.map((a) => byId.get(a.id) ?? a), ...added].sort((x, y) => x.position - y.position);
     });
-  /** An Assignment ✕ deleted (on a Draft day) leaves the day, and its editor closes; the day was saved now. */
+  /** A Draft ✕ deleted leaves the day, and its editor closes. */
   const deleted = (id: string) => {
     setOpenId(null);
-    setSavedAt(new Date().toISOString());
     setAssignments((day) => day && day.filter((a) => a.id !== id));
   };
-  // The day on screen as last read or Sent: each time it changes (an add, a Send, any change), the week strip reads its states again.
-  const dayShown = useMemo(() => (assignments ? { assignments, sentAt } : null), [assignments, sentAt]);
+  /** Assign on a Draft's block: shown Assigned as the Worker answered, or the Worker's message when it refused. */
+  const assign = async (assignment: Assignment) => {
+    try {
+      changed([await assignAssignment(assignment.id)]);
+    } catch (error) {
+      toast.error(error instanceof Refused ? error.message : 'Could not Assign it. Try again.');
+    }
+  };
+  // The day on screen as last read: each time it changes (an add, an Assign, any change), the week strip reads its states again.
+  const dayShown = useMemo(() => (assignments ? { assignments } : null), [assignments]);
   const closeComposer = () => {
     setComposingFor(undefined);
     setDraft(EMPTY_DRAFT);
@@ -153,7 +150,6 @@ export function BoardPage() {
       >
         <ViewToggle current="scheduler" />
         <DayNavigation date={date} nextWorkingDay={businessDay?.nextWorkingDay ?? null} onShow={show} />
-        {date && <DaySend date={date} assignments={assignments} sentAt={sentAt} savedAt={savedAt} editable={editable} onSent={setSentAt} />}
         <Button asChild variant="outline" size="lg" className="px-5">
           <Link to="/settings">
             <Settings className="h-4 w-4" /> Settings
@@ -200,6 +196,7 @@ export function BoardPage() {
             trucks={trucks}
             places={places}
             onEdit={editable ? (assignment) => setOpenId((current) => (current === assignment.id ? null : assignment.id)) : undefined}
+            onAssign={editable ? assign : undefined}
             openId={editable ? openId : null}
             editor={(assignment, { first, last }) => (
               <AssignmentEditor
@@ -209,12 +206,12 @@ export function BoardPage() {
                 last={last}
                 onSaved={({ assignment: saved, cancelled }) => {
                   changed(cancelled ? [cancelled, saved] : [saved]);
-                  // On a Sent day a new Driver's copy is the one now open, in his lane.
+                  // Once it is Assigned, a new Driver's copy is the one now open, in his lane.
                   setOpenId(saved.id);
                 }}
                 onMoved={changed}
                 onClose={() => setOpenId(null)}
-                actions={<TakeOff assignment={assignment} sent={sentAt !== null} onDeleted={deleted} onChanged={(a) => changed([a])} />}
+                actions={<TakeOff assignment={assignment} onDeleted={deleted} onChanged={(a) => changed([a])} />}
               />
             )}
             onAdd={editable ? setComposingFor : undefined}

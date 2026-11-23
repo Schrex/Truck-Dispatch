@@ -1,6 +1,6 @@
 # Truck-Dispatch
 
-Dave plans each Driver's day as Assignments and Sends it to their phone. Later phases turn that plan, the Truck's own movements and the Driver's Tickets into a finished **Truck log** for every Truck, every day, which nobody types. Why and what next: [mission](docs/specs/mission.md) and [roadmap](docs/specs/roadmap.md).
+Dave plans each Driver's day as Assignments and Assigns each to the Driver's phone. Later phases turn that plan, the Truck's own movements and the Driver's Tickets into a finished **Truck log** for every Truck, every day, which nobody types. Why and what next: [mission](docs/specs/mission.md) and [roadmap](docs/specs/roadmap.md).
 
 **Status:** phase 1 (planning: Board, Driver view, Settings) is built and runs on staging with synthetic data. Phases 2 to 4 (check-in, Trips, Tickets and the Truck log) are designed, not built.
 
@@ -9,7 +9,7 @@ Dave plans each Driver's day as Assignments and Sends it to their phone. Later p
 | You want to… | Read |
 |---|---|
 | Understand why this exists and where it is going | [`docs/specs/mission.md`](docs/specs/mission.md), [`docs/specs/roadmap.md`](docs/specs/roadmap.md) |
-| Learn the words (Assignment, Send, Draft, Truck log…) | [`GLOSSARY.md`](GLOSSARY.md) |
+| Learn the words (Assignment, Assign, Draft, Truck log…) | [`GLOSSARY.md`](GLOSSARY.md) |
 | See what the app does today, page by page | [`docs/how-it-works.md`](docs/how-it-works.md) |
 | Call or change the API | [`docs/api.md`](docs/api.md) |
 | Know the stack and the environments | [`docs/specs/tech-stack.md`](docs/specs/tech-stack.md) |
@@ -47,7 +47,7 @@ Tap **+** on a Driver's lane (or on "Unassigned"), tap the chips you know (or ty
 | `worker/src/` | Worker: removes the `/truck-dispatch` prefix, then serves the API (`api.ts`) or page files |
 | `shared/types.ts` | API shapes used by both |
 | `shared/base.ts` | The `/truck-dispatch` prefix, used by both |
-| `shared/days.ts` | Day rules used by both, with no date library: Working days and the six Holidays, next and previous Working day, the word for a day (Today, Next Monday), short dates and arrow labels, and the Send rules: whether an Assignment is Changed or Added since its day was Sent, and a day's state (none, Draft with the count Unassigned, Sent, Changed; cancelled Assignments keep a day from being empty but are not counted Unassigned) |
+| `shared/days.ts` | Day rules used by both, with no date library: Working days and the six Holidays, next and previous Working day, the word for a day (Today, Next Monday), short dates and arrow labels, and the Assign rules: whether an Assignment is Changed or Added since it was Assigned, a day's state (none, Draft with the count of Drafts, Assigned, Changed; cancelled Drafts are not counted) and its week strip word |
 | `migrations/` | D1 schema only. Create with `bunx wrangler d1 migrations create truck-dispatch <name>` |
 | `seed/fixture.sql` | Synthetic Trucks, Drivers with usual Trucks, Jobs, Places, Materials and Foremen; `INSERT OR IGNORE`, safe to run repeatedly. No Assignments. |
 | `wrangler.jsonc` | Local app (top level), `env.preview`, `env.staging` |
