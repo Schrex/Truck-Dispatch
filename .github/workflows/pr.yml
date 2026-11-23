@@ -1,4 +1,5 @@
-# Every pull request: typecheck, tests and build in parallel, then a protected
+# Every pull request: typecheck, tests, browser end-to-end journeys and build
+# in parallel, then a protected
 # preview of the branch, linked from the PR.
 #
 # The preview is a separate Worker, "truck-dispatch-preview", with its own
@@ -32,6 +33,23 @@ jobs:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
       - run: bun run test
+
+  # Browser end-to-end journeys (Playwright): builds the app, serves it with
+  # its own fresh local D1 and a fixed clock, and drives it in headless
+  # Chromium. No traces are recorded.
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+      # Downloads Chromium only when the cache missed; the system libraries it
+      # needs are installed every time.
+      - run: bunx playwright install --with-deps chromium
+      - run: bun run e2e
 
   build:
     runs-on: ubuntu-latest
@@ -88,12 +106,14 @@ jobs:
       - if: steps.secrets.outputs.ready == 'true'
         run: node scripts/check-config.mjs "$CONFIG"
 
-      # Migrations and the synthetic seed go to the preview database only.
-      # The seed only adds missing rows.
+      # Migrations, the Inspection checklist's starting items (reference data)
+      # and the synthetic seed go to the preview database only. Each seed only
+      # adds missing rows.
       - name: Migrate and seed the preview database
         if: steps.secrets.outputs.ready == 'true'
         run: |
           bunx wrangler d1 migrations apply truck-dispatch-preview --remote --config "$CONFIG"
+          bunx wrangler d1 execute truck-dispatch-preview --remote --config "$CONFIG" --file seed/inspection-items.sql
           bunx wrangler d1 execute truck-dispatch-preview --remote --config "$CONFIG" --file seed/fixture.sql
 
       - name: Upload the preview version

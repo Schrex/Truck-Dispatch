@@ -203,6 +203,25 @@ export function easternTime(iso: string): string {
   return businessClock.format(new Date(iso));
 }
 
+const businessTime = new Intl.DateTimeFormat('en-US', {
+  timeZone: BUSINESS_TIME_ZONE,
+  hour: 'numeric',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
+
+/**
+ * The time of day a moment falls on in US Eastern, H:MM on the 24-hour clock
+ * ("6:42", "13:05"), as a check-in shows it: without AM or PM, the afternoon
+ * would read as the morning.
+ */
+export function clockTime(moment: string | Date): string {
+  const parts = businessTime.formatToParts(typeof moment === 'string' ? new Date(moment) : moment);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? '';
+  // Some runtimes pad the hour on the 24-hour clock; the check-in line does not.
+  return `${Number(part('hour'))}:${part('minute')}`;
+}
+
 /**
  * What the Changed and Added rule reads of an Assignment. Every time here is
  * an ISO 8601 moment in UTC, as the Worker writes them, so comparing the text

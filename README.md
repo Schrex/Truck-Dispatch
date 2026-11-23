@@ -36,6 +36,7 @@ Tap **+** on a Driver's lane (or on "Unassigned"), tap the chips you know (or ty
 | `bun run typecheck` | TypeScript for the page, the Worker and the scripts |
 | `bun run build` | Build the page and the Worker into `dist/` |
 | `bun run preview` | Build, then run the built Worker; the app answers at `/` and `/truck-dispatch/` |
+| `bun run e2e` | Build, start the built app with its own fresh local D1 (`.wrangler/e2e`, not yours) and a fixed clock, run the browser journeys in headless Chromium (`e2e/`), and stop it. First time: `bunx playwright install chromium` |
 | `bun run smoke <url>` | End-to-end checks against a running app (CI runs it on staging) |
 | `bun run db:reset` | Delete the local D1 and set it up again |
 
@@ -52,6 +53,8 @@ Tap **+** on a Driver's lane (or on "Unassigned"), tap the chips you know (or ty
 | `shared/base.ts` | The `/truck-dispatch` prefix, used by both |
 | `shared/days.ts` | Day rules used by both, with no date library: Working days and the six Holidays, next and previous Working day, the word for a day (Today, Next Monday), short dates and arrow labels, and the Assign rules: whether an Assignment is Changed or Added since it was Assigned, a day's state (none, Draft with the count of Drafts, Assigned, Changed; cancelled Drafts are not counted) and its week strip word |
 | `migrations/` | D1 schema only. Create with `bunx wrangler d1 migrations create truck-dispatch <name>` |
+| `e2e/` | Browser end-to-end journeys (Playwright, `playwright.config.ts`); `scripts/e2e-serve.mjs` serves the built app for them |
+| `seed/inspection-items.sql` | Reference data every environment loads, production too: the Inspection checklist's 12 starting items from the paper form, fixed ids, `INSERT OR IGNORE` so Dave's changes survive. Loaded before the fixture. |
 | `seed/fixture.sql` | Synthetic Trucks, Drivers with usual Trucks, Jobs, Places, Materials and Foremen; `INSERT OR IGNORE`, safe to run repeatedly. No Assignments. |
 | `wrangler.jsonc` | Local app (top level), `env.preview`, `env.staging` |
 
@@ -61,6 +64,6 @@ Short-lived feature branch → pull request into `main` → CI checks + a protec
 
 ## Rules for database changes
 
-- Migrations change the schema only; test data goes in `seed/fixture.sql`.
+- Migrations change the schema only; test data goes in `seed/fixture.sql`, and reference data every environment needs (such as the Inspection checklist's starting items) in its own seed file, run by `bun run setup` and every pipeline.
 - In a pull request, only add (tables, columns, indexes). Rename or drop in a later release, after nothing uses it. The preview database is shared by open PRs, and on staging the old version runs on the migrated database until the new one is live.
 - If CI says two migrations share a number, renumber yours after merging `main`.
