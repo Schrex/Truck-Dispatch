@@ -1,4 +1,4 @@
-import type { Assignment, AssignmentChange, BusinessDay, ChangedAssignment, CopiedDay, Day, DriverDay, EntryFields, ListName, Lists, NewAssignment, OrderedList, TypedNames, WeekDay } from '../../shared/types';
+import type { Assignment, AssignmentChange, BusinessDay, ChangedAssignment, CheckIn, CheckIns, CopiedDay, Day, DriverDay, Inspection, NewInspection, EntryFields, ListName, Lists, NewAssignment, OrderedList, TypedNames, WeekDay } from '../../shared/types';
 import { basePath } from './basePath';
 
 // Every call starts at the base path the page was reached under: /api/...
@@ -161,4 +161,18 @@ export async function fetchNextAssigned(driverId: string): Promise<string | null
  */
 export function fetchDriverDay(driverId: string, date: string): Promise<DriverDay> {
   return request<DriverDay>(`api/drivers/${encodeURIComponent(driverId)}/days/${encodeURIComponent(date)}`);
+}
+
+/** Each Driver's check-in on a day: his latest Inspection that day, its Truck, time and whether it needs repair. */
+export async function fetchCheckIns(date: string): Promise<CheckIn[]> {
+  return (await request<CheckIns>(`api/check-ins?date=${encodeURIComponent(date)}`)).checkIns;
+}
+
+/**
+ * Finish: saves an Inspection for today, checking the Driver in to its Truck.
+ * Sent again with the same id (a retry after a lost reply), it answers the one
+ * already saved and saves nothing.
+ */
+export async function addInspection(inspection: NewInspection): Promise<Inspection> {
+  return (await request<{ inspection: Inspection }>('api/inspections', json('POST', inspection))).inspection;
 }

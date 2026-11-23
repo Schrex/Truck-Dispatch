@@ -15,6 +15,7 @@ import {
   dayState,
   draftsOn,
   businessDateOf,
+  clockTime,
   sinceSent,
   stateWord,
   weekDates,
@@ -245,6 +246,19 @@ describe('the business date of a moment', () => {
     ['2026-07-04T04:00:00.000Z', '2026-07-04'],
   ])('reads %s as %s in US Eastern, daylight saving included', (moment, date) => {
     expect(businessDateOf(moment)).toBe(date);
+  });
+});
+
+describe('the time of day in US Eastern', () => {
+  it.each([
+    ['2026-11-19T11:42:00.000Z', '6:42'],
+    ['2026-11-19T14:00:00.000Z', '9:00'],
+    ['2026-11-19T18:05:00.000Z', '13:05'],
+    ['2026-11-20T04:59:00.000Z', '23:59'],
+    ['2026-11-20T05:00:00.000Z', '0:00'],
+    ['2026-07-01T10:30:00.000Z', '6:30'],
+  ])('shows %s as %s, on the 24-hour clock so the afternoon is never mistaken', (moment, time) => {
+    expect(clockTime(moment)).toBe(time);
   });
 });
 

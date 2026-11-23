@@ -1,6 +1,7 @@
 import type { Env } from './app';
 import { clock } from './clock';
 import { json, readJson, refuse, text } from './http';
+import { handleInspections } from './inspections';
 import { exists, handleList, isList, listOrder } from './lists';
 import { checkTyped, saveLinked, typedIn, type Typed } from './typedNames';
 import { addDays, dayState, draftsOn, holidayName, isCalendarDate, mondayOf, sinceSent, weekDates } from '../../shared/days';
@@ -62,6 +63,9 @@ export async function handleApi(request: Request, env: Env, route: string, query
     if (reading) return readWeek(env, decodeURIComponent(weekOf[1]));
     return json({ error: 'method_not_allowed' }, 405, { Allow: 'GET, HEAD' });
   }
+
+  const checkingIn = await handleInspections(request, env, route, query);
+  if (checkingIn) return checkingIn;
 
   const [list, entryId, ...rest] = route.split('/');
   if (isList(list) && rest.length === 0) return handleList(request, env, list, entryId, query);

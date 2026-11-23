@@ -272,6 +272,70 @@ export interface Week {
   days: WeekDay[];
 }
 
+/** How a Driver answers one Inspection item: OK, Needs repair or N/A. */
+export const INSPECTION_ANSWERS = ['ok', 'repair', 'na'] as const;
+export type InspectionAnswerKind = (typeof INSPECTION_ANSWERS)[number];
+
+/**
+ * A finished Inspection as the phone sends it (POST api/inspections). The
+ * phone makes the id (a UUID) when the Driver starts, so a retried Finish
+ * is recognised. The date is the Worker's today; `date`, when sent, must be it.
+ * The Driver comes from the body until Drivers sign in through the Hub (ADR 0006).
+ */
+export interface NewInspection {
+  id: string;
+  date?: string;
+  driverId: string;
+  truckId: string;
+  answers: { itemId: string; answer: InspectionAnswerKind; repairNote?: string | null }[];
+  otherNotes?: string | null;
+}
+
+/** One item of a saved Inspection, with the item's wording as it was then. */
+export interface InspectionAnswer {
+  /** Its place in the Inspection, from 0, in the checklist's order then. */
+  position: number;
+  itemId: string;
+  label: string;
+  answer: InspectionAnswerKind;
+  repairNote: string | null;
+}
+
+/**
+ * A saved Inspection: the official record of the Truck's condition, never
+ * changed or deleted (ADR 0006). It needs repair when any answer is Needs repair.
+ */
+export interface Inspection {
+  id: string;
+  date: string;
+  driverId: string;
+  driverName: string;
+  truckId: string;
+  truckNumber: string;
+  /** When the Driver finished it, by the Worker's clock: an ISO 8601 moment in UTC. */
+  doneAt: string;
+  otherNotes: string | null;
+  needsRepair: boolean;
+  answers: InspectionAnswer[];
+}
+
+/** A Driver's check-in on a day: his latest Inspection that day, its Truck and time. */
+export interface CheckIn {
+  driverId: string;
+  driverName: string;
+  truckId: string;
+  truckNumber: string;
+  inspectionId: string;
+  doneAt: string;
+  needsRepair: boolean;
+}
+
+/** Each Driver's check-in on a day (GET api/check-ins?date=), in the Drivers' order; one not checked in is left out. */
+export interface CheckIns {
+  date: string;
+  checkIns: CheckIn[];
+}
+
 /** A refusal: each field that is wrong, with a plain message. */
 export interface FieldErrorsBody {
   error: 'invalid';

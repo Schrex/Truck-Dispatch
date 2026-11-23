@@ -1,6 +1,6 @@
 # How it works today
 
-What the app does as built, page by page. Words in capitals are defined in [`GLOSSARY.md`](../GLOSSARY.md); the API behind each action is in [`api.md`](api.md). It is a standalone Cloudflare Worker backed by D1 with **synthetic** Drivers, Trucks, Jobs, Places, Materials and Foremen only, plus the Inspection checklist's starting items (reference data). Hub integration (at `/truck-dispatch/`), sign-in and production are later phases ([roadmap](specs/roadmap.md)).
+What the app does as built, page by page. Words in capitals are defined in [`GLOSSARY.md`](../GLOSSARY.md); the API behind each action is in [`api.md`](api.md). It is a standalone Cloudflare Worker backed by D1 with **synthetic** Drivers, Trucks, Jobs, Places, Materials and Foremen only, plus the Inspection checklist's starting items (reference data). Inspections made on it are kept (append-only). Hub integration (at `/truck-dispatch/`), sign-in and production are later phases ([roadmap](specs/roadmap.md)).
 
 ## Dispatch board (`/`)
 
@@ -57,6 +57,14 @@ What the app does as built, page by page. Words in capitals are defined in [`GLO
 - Marks: "Changed by Dave" with what each field was when it was Assigned ("was Cobblestone"), "Added by Dave" (Assigned on its own day, or handed over from another Driver), or struck through and "Cancelled by Dave". Given to another Driver after it was Assigned, it shows Cancelled to the first and Added to the second.
 - It reads today, the day shown and his next Assigned day again whenever the page regains the focus; Today moves on with the clock, a picked day stays.
 
+### Check-in (Today only)
+- On **Today**, until he has checked in, a **Check in** card sits at the top, above his Assignments (which still show below it). It is offered whether or not Dave has Assigned him anything, and never on Yesterday, Tomorrow or any other day.
+- **Truck**: every active Truck as a large button, his usual one pre-selected (none when he has none or it was removed). **Start Inspection** then shows the checklist in Dave's order.
+- Each item is answered with one tap: **OK**, **Needs repair** or **N/A** (an optional item says "(optional)"). Needs repair asks "What needs repair?" for a short note. An optional **Other notes** box follows.
+- **Finish** is allowed once every item that is not optional is answered and every Needs repair has its note. The Worker records the time (its clock) and today's date. A failed Finish says "Could not finish the check-in. Your answers are kept: try Finish again."; trying again sends the same Inspection id, so it is never saved twice.
+- Once checked in, the card becomes one line: "Truck 24 · checked in 6:42 · **Check in again**" (time in US Eastern, 24-hour clock). Check in again opens the card again (with **Cancel** back to the line) for another Truck or the same one after a repair; the latest check-in counts and the earlier Inspections stay.
+- An Inspection is never changed or deleted (ADR 0006). Until Drivers sign in through the Hub, whoever picked the name on the phone is trusted, so Inspections are tried on staging, not used as the real record.
+
 ## Settings (`/settings`)
 
 - Every list on one page: Drivers, Trucks, Places, Materials, Jobs, Foremen, and the Inspection checklist.
@@ -64,4 +72,4 @@ What the app does as built, page by page. Words in capitals are defined in [`GLO
 - Tapping one opens a panel that saves as you type; **+ Add** adds one.
 - **Remove** makes one inactive after asking (warning how many later days still hold a Driver's Assignments). Removed entries are listed apart and can be brought back; nothing is ever deleted.
 - **▲▼** by each Driver, Place, Material and Inspection item put them in Dave's own order, which the lanes and the composer's chips (and later the Inspection) follow; a new or brought-back entry goes last (also one typed in the composer).
-- **Inspection checklist**: the items a Driver answers in an Inspection, starting with the paper Daily Truck Log & Inspection's 12 in its order (Dump box clean … Suspension). Each item's panel has its wording and an **Optional** switch (saved at once; the chip then says "Optional"), meaning a Driver may finish without answering it. New wording is used from the next Inspection on. The starting items are reference data loaded in every environment (`seed/inspection-items.sql`); loading it again never undoes Dave's changes. Drivers do not answer the checklist yet (later in phase 2).
+- **Inspection checklist**: the items a Driver answers in an Inspection, starting with the paper Daily Truck Log & Inspection's 12 in its order (Dump box clean … Suspension). Each item's panel has its wording and an **Optional** switch (saved at once; the chip then says "Optional"), meaning a Driver may finish without answering it. New wording is used from the next Inspection on. The starting items are reference data loaded in every environment (`seed/inspection-items.sql`); loading it again never undoes Dave's changes. Drivers answer it when they check in (Driver view); each Inspection keeps the wording as it was.

@@ -132,7 +132,7 @@ export function isList(route: string): route is ListName {
 const isOrdered = (list: ListName) => (ORDERED_LISTS as readonly ListName[]).includes(list);
 
 /** Whether an entry with this id is in the list and still in use. */
-async function isActive(env: Env, list: ListName, id: string): Promise<boolean> {
+export async function isActive(env: Env, list: ListName, id: string): Promise<boolean> {
   return !!(await env.DB.prepare(`SELECT 1 FROM ${LISTS[list].table} WHERE id = ? AND active = 1`).bind(id).first());
 }
 

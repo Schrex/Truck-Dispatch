@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
-import type { BusinessDay, Driver, DriverDay } from '../../shared/types';
+import type { BusinessDay, CheckIn as CheckInRead, Driver, DriverDay } from '../../shared/types';
 import { addDays, shortDate, weekdayName } from '../../shared/days';
+import { CheckIn } from '@/components/CheckIn';
 import { DriverCard } from '@/components/DriverCard';
 import { PageHeader } from '@/components/PageHeader';
 import { ViewToggle } from '@/components/ViewToggle';
 import { Button } from '@/components/ui/button';
-import { fetchBusinessDay, fetchDriverDay, fetchList, fetchNextAssigned } from '@/lib/api';
+import { fetchBusinessDay, fetchCheckIns, fetchDriverDay, fetchList, fetchNextAssigned } from '@/lib/api';
 import { storedDriver, storeDriver } from '@/lib/deviceView';
 
 /** A day as the page holds it: loading (undefined), failed (null), or as the Worker read it. */
@@ -34,6 +35,8 @@ function tabFor(date: string, today: string): Tab | null {
  * opens on his day until another Driver is picked). Every time the page comes
  * back into view it reads today again and the day shown, so a phone left
  * overnight on Today moves on to the new day and Dave's latest changes show.
+ * On Today only, the Check in card (or, once he has checked in, its one line)
+ * sits above his Assignments (components/CheckIn.tsx).
  */
 export function DriverPage() {
   const [drivers, setDrivers] = useState<Driver[] | null>(null);
@@ -45,6 +48,9 @@ export function DriverPage() {
   const [businessDay, setBusinessDay] = useState<BusinessDay | null>(null);
   const [shown, setShown] = useState<Shown>(undefined);
   const [nextAssigned, setNextAssigned] = useState<string | null>(null);
+  /** His latest check-in today: loading (undefined), none (null), or as the Worker read it. */
+  const [checkIn, setCheckIn] = useState<CheckInRead | null | undefined>(undefined);
+  const [checkInFailed, setCheckInFailed] = useState(false);
   const [refreshes, setRefreshes] = useState(0);
 
   useEffect(() => {
@@ -79,6 +85,15 @@ export function DriverPage() {
           (answer) => !stale && setShown(answer),
           () => !stale && setShown(null),
         );
+        // Today's check-in, read whichever day is shown, so Today never waits for it.
+        fetchCheckIns(day.today).then(
+          (all) => {
+            if (stale) return;
+            setCheckIn(all.find((c) => c.driverId === driverId) ?? null);
+            setCheckInFailed(false);
+          },
+          () => !stale && setCheckInFailed(true),
+        );
         // Only a pointer: if it cannot be read, the line is simply not shown.
         fetchNextAssigned(driverId).then(
           (date) => !stale && setNextAssigned(date),
@@ -98,6 +113,7 @@ export function DriverPage() {
     setPicking(false);
     setPicked(null);
     setNextAssigned(null);
+    setCheckIn(undefined);
     setShown(undefined);
   };
   const today = businessDay?.today ?? null;
@@ -185,6 +201,14 @@ export function DriverPage() {
                 <ChevronRight className="h-5 w-5" />
               </Button>
             </div>
+            {driver && today && date === today && (
+              <>
+                {checkIn === undefined && checkInFailed && (
+                  <p className="text-destructive">Could not load your check-in. It tries again when you come back to the page.</p>
+                )}
+                {checkIn !== undefined && <CheckIn key={driver.id} driver={driver} today={today} checkIn={checkIn} onCheckedIn={setCheckIn} />}
+              </>
+            )}
             {nextAssigned && nextAssigned !== date && (
               <button type="button" className="text-lg font-medium underline underline-offset-4" onClick={() => show(nextAssigned)}>
                 Next from Dave: {shortDate(nextAssigned)} →
