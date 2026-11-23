@@ -14,6 +14,9 @@ const randy = () =>
   within(within(scheduler()).getByRole('article', { name: 'Randy' }))
     .getAllByRole('listitem')
     .map((block) => block.textContent);
+const driverView = () => screen.getByRole('region', { name: 'Driver view' });
+/** Randy's cards on his phone, in Dave's order. */
+const cards = () => within(driverView()).getAllByRole('article').map((card) => card.textContent);
 const setClock = (minutes: number) => fireEvent.change(screen.getByRole('slider', { name: 'Clock' }), { target: { value: String(minutes) } });
 const choose = (value: string) => fireEvent.change(screen.getByRole('combobox', { name: 'Scenario' }), { target: { value } });
 
@@ -21,7 +24,7 @@ const A1 = 'First · J25008 Los Flamboyanes → Villager · Fill · Truck 55 (hi
 const A2 = 'Then · Walworth Dolomite → J25008 Los Flamboyanes · 1&2 stone · Truck 55 (his own)';
 
 describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => {
-  it('shows nothing but the clock, the scenario picker and the Scheduler view', () => {
+  it('shows nothing but the clock, the scenario picker and the views', () => {
     render(<SimulatePage />);
     expect(screen.getAllByRole('slider').map((s) => s.getAttribute('aria-label'))).toEqual(['Clock']);
     expect(screen.getAllByRole('combobox').map((s) => s.getAttribute('aria-label'))).toEqual(['Scenario']);
@@ -33,7 +36,7 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
     ]);
     expect(screen.queryByRole('table')).toBeNull();
     expect(document.querySelector('input[type=file]')).toBeNull();
-    expect(screen.getAllByRole('region').map((r) => r.getAttribute('aria-label'))).toEqual(['Scheduler view']);
+    expect(screen.getAllByRole('region').map((r) => r.getAttribute('aria-label'))).toEqual(['Scheduler view', 'Driver view']);
   });
 
   it('opens at end of day: Randy’s lane with Truck 55, A1 4 Loads Done since 08:24, A2 2 Loads Done', () => {
@@ -68,6 +71,30 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
     expect(randy()[0]).toBe('First · Changed · J25008 Los Flamboyanes → J611 Bishop Kearney · Fill · Truck 55 (his own) · 5 Loads · Done · since 08:24');
     setClock(11 * 60);
     expect(randy()[0]).toBe(`${A1} · 3 Loads · Now · since 08:24`);
+  });
+
+  describe('Driver view: Randy’s Today on his phone', () => {
+    const CARD_A1 = 'FillPick upJ25008 Los FlamboyanesDrop offVillager';
+    const CARD_A2 = '1&2 stonePick upWalworth DolomiteDrop offJ25008 Los Flamboyanes';
+
+    it('at end of day shows A1 with 4 loads, last 11:25, and A2 with 2 loads, last 13:54', () => {
+      render(<SimulatePage />);
+      expect(within(driverView()).getAllByRole('article').map((c) => c.getAttribute('aria-label'))).toEqual(['Fill', '1&2 stone']);
+      expect(cards()).toEqual([`4 loads · last 11:25${CARD_A1}`, `2 loads · last 13:54${CARD_A2}`]);
+    });
+
+    it('at 10:02 shows A1 with 2 loads, marked Now, and nothing new on A2', () => {
+      render(<SimulatePage />);
+      setClock(10 * 60 + 2);
+      expect(cards()[0]).toBe(`Now2 loads · last 09:46${CARD_A1}`);
+      expect(cards()[1]).toBe(CARD_A2);
+    });
+
+    it('before the Truck leaves the shop, shows the cards as his phone does today', () => {
+      render(<SimulatePage />);
+      setClock(6 * 60);
+      expect(cards()).toEqual([CARD_A1, CARD_A2]);
+    });
   });
 
   it('plays the day in 10-minute steps, the rate the Worker pulls Fleet', () => {

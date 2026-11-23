@@ -55,6 +55,7 @@ What the app does as built, page by page. Words in capitals are defined in [`GLO
 - When Dave has Assigned him work beyond tomorrow (not cancelled), **Next from Dave: Mon, Nov 23 →** goes there.
 - He sees only his Assigned Assignments, never his Drafts; a day with none says "Nothing from Dave yet for Monday."
 - Otherwise his Assignments are large cards in Dave's order with the Material, Pick up, Drop off, the Foreman (when there is one) and the note, and "Take Truck 53 for this one" when a Truck is named.
+- A card can also show what the Truck did on it (phase 3): "4 loads · last 11:25" (its Loads and when the last one arrived), and **Now** on the Assignment he is on now. Only when the Assignment carries a Trip part (`trips`) with at least one Trip; the Worker does not send one yet, so his cards look as above. The Simulation (`/simulate`) shows it on Randy's real day.
 - Marks: "Changed by Dave" with what each field was when it was Assigned ("was Cobblestone"), "Added by Dave" (Assigned on its own day, or handed over from another Driver), or struck through and "Cancelled by Dave". Given to another Driver after it was Assigned, it shows Cancelled to the first and Added to the second.
 - It reads today, the day shown and his next Assigned day again whenever the page regains the focus; Today moves on with the clock, a picked day stays.
 
