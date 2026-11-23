@@ -228,16 +228,18 @@ describe('Dropping an xlsx Fleet export', () => {
     await openPage();
     drop(xlsx());
 
-    const pick = await screen.findByRole('button', { name: 'Truck 55 (MCK-55-17)' }, { timeout: 5000 });
-    expect(screen.getByText(/which truck/i)).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /Truck 12/ })).toBeNull();
+    // Asked on the drop's own card: the stored day below has its Truck chips too.
+    const imports = within(await screen.findByRole('region', { name: 'Imports' }));
+    const pick = await imports.findByRole('button', { name: 'Truck 55 (MCK-55-17)' }, { timeout: 5000 });
+    expect(imports.getByText(/which truck/i)).toBeTruthy();
+    expect(imports.queryByRole('button', { name: /Truck 12/ })).toBeNull();
     expect(sent).toEqual([]);
     // The Trucks are chips; none is picked yet.
     expect(pick.getAttribute('aria-pressed')).toBe('false');
 
     fireEvent.click(pick);
     // The picked chip stays pressed while the Worker imports it.
-    expect(screen.getByRole('button', { name: 'Truck 55 (MCK-55-17)' }).getAttribute('aria-pressed')).toBe('true');
+    expect(imports.getByRole('button', { name: 'Truck 55 (MCK-55-17)' }).getAttribute('aria-pressed')).toBe('true');
     expect(await screen.findByText('20 new · 0 closed · 0 already stored')).toBeTruthy();
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({ fileName: 'EntryExitReport.xlsx', format: 'xlsx' });
@@ -262,15 +264,26 @@ describe('A stored day on the Fleet imports page', () => {
       .slice(1)
       .map((row) => [...row.querySelectorAll('td')].map((td) => td.textContent));
 
-  const pickDay = (truck: string, date: string) => {
-    fireEvent.change(screen.getByRole('combobox', { name: 'Truck' }), { target: { value: truck } });
-    fireEvent.change(screen.getByLabelText('Day'), { target: { value: date } });
+  /** Taps the Truck's chip, then Yesterday: Mon 16 Nov, as today is Tue 17 Nov. */
+  const pickMonday = async (truck: string) => {
+    fireEvent.click(within(await screen.findByRole('group', { name: 'Truck' })).getByRole('button', { name: truck }));
+    const day = screen.getByRole('group', { name: 'Day' });
+    await waitFor(() => expect((within(day).getByRole('button', { name: 'Yesterday' }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(within(day).getByRole('button', { name: 'Yesterday' }));
   };
+  /** The quick pick pressed for the stored day, and the day it names. */
+  const dayShown = () => ({
+    pressed: within(screen.getByRole('group', { name: 'Day' }))
+      .getAllByRole('button')
+      .filter((b) => b.getAttribute('aria-pressed') === 'true')
+      .map((b) => b.textContent),
+    date: screen.getByRole('heading', { name: /^Stored day/ }).textContent,
+  });
 
   it('shows the real Trip log of Truck 55 on Mon 16 Nov, with the 16:20 cut stored', async () => {
     store('trk-55', '2026-11-16', readFleetJson(JSON.parse(CUT_1620)), AS_OF);
     await openPage();
-    pickDay('trk-55', '2026-11-16');
+    await pickMonday('Truck 55 (MCK-55-17)');
 
     await screen.findByText('As of the Import at 16:25');
     const rows = tripLog();
@@ -294,7 +307,7 @@ describe('A stored day on the Fleet imports page', () => {
   it('shows the Truck log of Mon 16 Nov: 06:24 to 16:03, miles blank for a meter reading, A1 and A2, the shop drives', async () => {
     store('trk-55', '2026-11-16', readFleetJson(JSON.parse(CUT_1620)), AS_OF);
     await openPage();
-    pickDay('trk-55', '2026-11-16');
+    await pickMonday('Truck 55 (MCK-55-17)');
 
     await screen.findByRole('region', { name: 'Truck log' });
     expect(header()).toMatchObject({
@@ -318,7 +331,7 @@ describe('A stored day on the Fleet imports page', () => {
   it('has no end time on a day still going on, with only the 13:05 cut stored', async () => {
     store('trk-55', '2026-11-16', readFleetJson(JSON.parse(CUT_1305)), '2026-11-16T18:10:00.000Z', { today: true });
     await openPage();
-    pickDay('trk-55', '2026-11-16');
+    await pickMonday('Truck 55 (MCK-55-17)');
 
     await screen.findByRole('region', { name: 'Truck log' });
     expect(header()).toMatchObject({ 'Start time': '06:24', 'End time': '', 'Total hours': '' });
@@ -327,7 +340,7 @@ describe('A stored day on the Fleet imports page', () => {
   it('lists "sunset" under codes with no Place, marked drive-through', async () => {
     store('trk-55', '2026-11-16', readFleetJson(JSON.parse(CUT_1620)), AS_OF);
     await openPage();
-    pickDay('trk-55', '2026-11-16');
+    await pickMonday('Truck 55 (MCK-55-17)');
     const day = await screen.findByRole('region', { name: 'Stored day' });
     const list = await within(day).findByRole('list', { name: 'Codes with no Place' });
     expect(Array.from(list.querySelectorAll('li')).map((li) => li.textContent)).toEqual(['sunset · drive-through']);
@@ -335,16 +348,29 @@ describe('A stored day on the Fleet imports page', () => {
 
   it('says "No Trips yet" on a day with no stored visits, and that no Import has covered it', async () => {
     await openPage();
-    pickDay('trk-55', '2026-11-16');
+    await pickMonday('Truck 55 (MCK-55-17)');
     expect(await screen.findByText(/No Trips yet/)).toBeTruthy();
     expect(screen.getByText('No Import has covered this day yet.')).toBeTruthy();
   });
 
   it('offers only Trucks with an HCSS code, and opens on today', async () => {
     await openPage();
-    const trucks = await screen.findByRole('combobox', { name: 'Truck' });
-    await waitFor(() => expect(within(trucks).getAllByRole('option').map((o) => o.textContent)).toEqual(['Truck 55 (MCK-55-17)']));
-    await waitFor(() => expect((screen.getByLabelText('Day') as HTMLInputElement).value).toBe(TUESDAY));
+    const trucks = await screen.findByRole('group', { name: 'Truck' });
+    await waitFor(() => expect(within(trucks).getAllByRole('button').map((o) => o.textContent)).toEqual(['Truck 55 (MCK-55-17)']));
+    expect(within(trucks).getByRole('button', { name: 'Truck 55 (MCK-55-17)' }).getAttribute('aria-pressed')).toBe('true');
+    await waitFor(() => expect(dayShown()).toEqual({ pressed: ['Today'], date: 'Stored day · Tue, Nov 17' }));
+  });
+
+  it('says when it tries again after a day could not be read, and does on the next pick', async () => {
+    storedDays['trk-55 2026-11-16'] = () => {
+      throw new TypeError('Failed to fetch');
+    };
+    await openPage();
+    await pickMonday('Truck 55 (MCK-55-17)');
+    expect(await screen.findByText('Could not load the day. It tries again when you pick a Truck, a day or a time.')).toBeTruthy();
+
+    fireEvent.click(within(screen.getByRole('group', { name: 'Day' })).getByRole('button', { name: 'Today' }));
+    expect(await screen.findByText('No Import has covered this day yet.')).toBeTruthy();
   });
 
   it('shows the Truck and day an Import just touched', async () => {
@@ -352,7 +378,7 @@ describe('A stored day on the Fleet imports page', () => {
     await openPage();
     drop(new File([EXPORT_1502], 'EntryExit-1502.json', { type: 'application/json' }));
     await screen.findByText('18 new · 0 closed · 0 already stored');
-    await waitFor(() => expect((screen.getByLabelText('Day') as HTMLInputElement).value).toBe('2026-11-16'));
+    await waitFor(() => expect(dayShown()).toEqual({ pressed: ['Yesterday'], date: 'Stored day · Mon, Nov 16' }));
     expect(await screen.findByText('As of the Import at 15:05')).toBeTruthy();
   });
 
@@ -375,14 +401,14 @@ describe('A stored day on the Fleet imports page', () => {
     const openMonday = async () => {
       store('trk-55', '2026-11-16', readFleetJson(JSON.parse(CUT_1620)), AS_OF);
       await openPage();
-      pickDay('trk-55', '2026-11-16');
+      await pickMonday('Truck 55 (MCK-55-17)');
       await within(await screen.findByRole('region', { name: 'Scheduler view' })).findByRole('article', { name: 'Randy' });
     };
 
     it("shows the Unplanned work in Randy's lane, after A2, when he checked in to Truck 55", async () => {
       store('trk-55', '2026-11-16', readFleetJson(JSON.parse(CUT_1620)), AS_OF, { randyCheckedIn: true });
       await openPage();
-      pickDay('trk-55', '2026-11-16');
+      await pickMonday('Truck 55 (MCK-55-17)');
       const lane = await within(await screen.findByRole('region', { name: 'Scheduler view' })).findByRole('article', { name: 'Randy' });
       expect(within(lane).getByRole('group', { name: '1 Unplanned work' }).textContent).toBe('1 Unplanned work' + 'J25008 Los Flamboyanes ⇄ J611 Bishop Kearney · 14:15–14:43');
       expect(within(scheduler()).queryByRole('article', { name: /^Driver not known/ })).toBeNull();

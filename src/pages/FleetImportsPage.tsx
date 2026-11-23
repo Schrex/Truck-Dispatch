@@ -5,6 +5,7 @@ import { PageHeader } from '@/components/PageHeader';
 import { chipClass } from '@/components/TypedName';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { CalendarDays } from '@/components/CalendarDays';
 import { EmptyBox, Loading } from '@/components/States';
 import { Refused, fetchBusinessDay, fetchList, fetchTruckLogDay, importFleetExport } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -15,7 +16,7 @@ import { DriverView } from '@/simulate/DriverView';
 import { ReplayClock } from '@/simulate/ReplayClock';
 import { TripLog } from '@/simulate/TripLog';
 import { clockTime } from '@/simulate/simulate';
-import { easternTime } from '../../shared/days';
+import { easternTime, shortDate } from '../../shared/days';
 import { EXPORT_ADVICE, countFleetXlsxVisits, readFleetJson, readFleetXlsx, type FleetExportRow, type FleetSheet } from '../../shared/fleetExport';
 import type { CodeWithNoPlace, Driver, FleetExportFormat, FleetImport, FleetImportDay, ImportCounts, Truck, TruckLogDay } from '../../shared/types';
 
@@ -152,6 +153,7 @@ function StoredDay({
   drivers,
   truckId,
   date,
+  today,
   clock,
   refresh,
   onTruck,
@@ -163,6 +165,8 @@ function StoredDay({
   drivers: Driver[] | null;
   truckId: string;
   date: string;
+  /** Today, US Eastern, for the quick picks; null until the Worker says. */
+  today: string | null;
   clock: number | null;
   refresh: number;
   onTruck: (id: string) => void;
@@ -191,36 +195,34 @@ function StoredDay({
 
   return (
     <section aria-label="Stored day" className="space-y-3">
-      <h2 className="font-display text-xl font-semibold uppercase tracking-wide">Stored day</h2>
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">Truck</span>
-          <select
-            aria-label="Truck"
-            value={truckId}
-            onChange={(e) => onTruck(e.target.value)}
-            className="h-11 rounded-md border border-input bg-background px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {trucks.map((truck) => (
-              <option key={truck.id} value={truck.id}>
-                Truck {truck.number} ({truck.hcssCode})
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">Day</span>
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => onDate(e.target.value)}
-            className="h-11 rounded-md border border-input bg-background px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          />
-        </label>
+      <h2 className="font-display text-xl font-semibold uppercase tracking-wide">Stored day{date && ` · ${shortDate(date)}`}</h2>
+      <div className="space-y-3">
+        {trucks.length > 0 && (
+          <div role="group" aria-label="Truck" className="flex flex-wrap gap-2">
+            {trucks.map((truck) => {
+              const pressed = truck.id === truckId;
+              return (
+                <Button
+                  key={truck.id}
+                  type="button"
+                  variant={pressed ? 'default' : 'outline'}
+                  aria-pressed={pressed}
+                  className={chipClass(pressed)}
+                  onClick={() => onTruck(truck.id)}
+                >
+                  Truck {truck.number} ({truck.hcssCode})
+                </Button>
+              );
+            })}
+          </div>
+        )}
+        <div className="max-w-xl">
+          <CalendarDays date={date || null} today={today} onShow={onDate} />
+        </div>
       </div>
       {trucks.length === 0 && <EmptyBox>No Truck has an HCSS code yet. Set one in Settings.</EmptyBox>}
       {shown.state === 'loading' && <Loading what="the day" />}
-      {shown.state === 'failed' && <p className="text-sm text-destructive">Could not load the day. Check the connection and pick it again.</p>}
+      {shown.state === 'failed' && <p className="text-sm text-destructive">Could not load the day. It tries again when you pick a Truck, a day or a time.</p>}
       {day && <StoredDayViews day={day} trucks={trucks} allTrucks={allTrucks} drivers={drivers} clock={onScreen} onClock={setClock} />}
     </section>
   );
@@ -314,6 +316,7 @@ export function FleetImportsPage() {
   const [trucks, setTrucks] = useState<CodedTruck[]>([]);
   const [truckId, setTruckId] = useState('');
   const [date, setDate] = useState('');
+  const [today, setToday] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
   /** The replay clock's minute; null opens the day as the Worker does. A new Truck, day or Import opens it so again. */
   const [clock, setClock] = useState<number | null>(null);
@@ -341,7 +344,10 @@ export function FleetImportsPage() {
       () => setTrucks([]),
     );
     fetchBusinessDay().then(
-      ({ today }) => setDate((picked) => picked || today),
+      ({ today }) => {
+        setToday(today);
+        setDate((picked) => picked || today);
+      },
       () => undefined,
     );
   }, []);
@@ -525,6 +531,7 @@ export function FleetImportsPage() {
           drivers={drivers}
           truckId={truckId}
           date={date}
+          today={today}
           clock={clock}
           refresh={refresh}
           onTruck={pickTruck}
