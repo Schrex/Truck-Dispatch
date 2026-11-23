@@ -22,7 +22,10 @@ export type TripPlaceKind = 'plant' | 'job_site' | 'shop' | 'yard' | null;
 /** A Place as the Trip builder needs it: its kind, and its geofence code on the truck map. */
 export interface TripPlace {
   id: string;
+  /** Short name, as the board shows a Place. */
   name: string;
+  /** Long name, e.g. Fleet's geofence description. */
+  fullName?: string | null;
   kind: TripPlaceKind;
   geofenceCode: string | null;
 }

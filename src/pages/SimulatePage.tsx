@@ -1,28 +1,39 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Pause, Play, Plus, RotateCcw, X } from 'lucide-react';
+import { Pause, Play, Plus, RotateCcw, Upload, X } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { buildTripDay, easternTime, type AssignmentTrips, type FleetVisit, type Trip, type TripAssignment, type TripPlace } from '../../shared/trips';
-import { FIXTURE_DATE, FIXTURE_METER, FIXTURE_PLACES, FIXTURE_SCENARIOS, FIXTURE_VISITS } from '../../shared/trips.fixture';
+import { parseFleetEntryExit } from '../../shared/fleetImport';
+import { DATASETS, uploadedDay, type Dataset } from '@/simulate/datasets';
 
 /**
- * The simulation: one Truck, one day, fake data, end to end. Change what HCSS
- * Fleet sent or what Dave planned, move the clock, and see what the Worker
- * would know, which Trips it would write, how each is matched, and what the
- * board and the Driver's card would show. It runs the real Trip builder
- * (shared/trips.ts) in the page; nothing is saved and the Worker is not asked.
+ * The simulation: one Truck, one day, end to end. It opens on a real HCSS
+ * Fleet day (MCK-55-17, 16 Nov); a made-up day and any uploaded entry/exit
+ * export can be run too. Change what Fleet sent or what Dave planned, move
+ * the clock, and see what the Worker would know, which Trips it would write,
+ * how each is matched, and what the board and the Driver's card would show.
+ * It runs the real Trip builder (shared/trips.ts) in the page; nothing is
+ * saved and the Worker is not asked.
  */
 
-/** The fake day is in November, so US Eastern is UTC-5 all day. */
-const OFFSET = '-05:00';
 const DAY_END = 23 * 60 + 59;
 /** Play moves the clock in the steps the Worker pulls Fleet (every 10 minutes). */
 const PULL_MINUTES = 10;
 
-const toIso = (time: string) => `${FIXTURE_DATE}T${time.length === 5 ? `${time}:00` : time}${OFFSET}`;
+/** US Eastern's offset on a date, "-05:00" or "-04:00". */
+function easternOffset(date: string): string {
+  const name = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', timeZoneName: 'shortOffset' })
+    .formatToParts(new Date(`${date}T12:00:00Z`))
+    .find((p) => p.type === 'timeZoneName')?.value;
+  const hours = Number(name?.replace('GMT', '') || -5);
+  return `-${String(Math.abs(hours)).padStart(2, '0')}:00`;
+}
+
+/** A time typed on the page ("08:24" or "08:24:26", US Eastern) on the day's date, as ISO 8601. */
+const toIso = (date: string, time: string) => `${date}T${time.length === 5 ? `${time}:00` : time}${easternOffset(date)}`;
 const seconds = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
 const toTime = (iso: string) => seconds.format(new Date(iso));
 const clockTime = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
@@ -52,6 +63,16 @@ interface AssignmentRow {
 
 let nextKey = 1;
 
+/** A chosen file's text (FileReader, which every browser the Drivers and Dave use has). */
+function readText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error('the file could not be read'));
+    reader.readAsText(file);
+  });
+}
+
 const visitRows = (visits: FleetVisit[]): VisitRow[] =>
   visits.map((v) => ({
     key: nextKey++,
@@ -78,34 +99,37 @@ const assignmentRows = (assignments: TripAssignment[]): AssignmentRow[] =>
     };
   });
 
-const toVisits = (rows: VisitRow[]): FleetVisit[] =>
+const toVisits = (rows: VisitRow[], date: string): FleetVisit[] =>
   rows
     .filter((r) => r.code && r.enter)
     .map((r) => ({
       geofenceCode: r.code,
-      enteredAt: toIso(r.enter),
-      exitedAt: r.exit ? toIso(r.exit) : null,
+      enteredAt: toIso(date, r.enter),
+      exitedAt: r.exit ? toIso(date, r.exit) : null,
       entryOdometer: Number(r.entryOdometer) || 0,
       exitOdometer: r.exit && r.exitOdometer !== '' ? Number(r.exitOdometer) : null,
     }));
 
-const toAssignments = (rows: AssignmentRow[]): TripAssignment[] =>
+const toAssignments = (rows: AssignmentRow[], date: string): TripAssignment[] =>
   rows.map((r) => ({
     id: r.id,
     label: r.label,
     fromPlaceId: r.from || null,
     toPlaceId: r.to || null,
-    cancelledAt: r.cancelledAt ? toIso(r.cancelledAt) : null,
-    changes: r.changedAt ? [{ changedAt: toIso(r.changedAt), before: { fromPlaceId: r.beforeFrom || null, toPlaceId: r.beforeTo || null } }] : [],
+    cancelledAt: r.cancelledAt ? toIso(date, r.cancelledAt) : null,
+    changes: r.changedAt ? [{ changedAt: toIso(date, r.changedAt), before: { fromPlaceId: r.beforeFrom || null, toPlaceId: r.beforeTo || null } }] : [],
   }));
 
 export function SimulatePage() {
-  const [scenarioId, setScenarioId] = useState(FIXTURE_SCENARIOS[0].id);
-  const [places, setPlaces] = useState<TripPlace[]>(FIXTURE_PLACES);
-  const [visits, setVisits] = useState<VisitRow[]>(() => visitRows(FIXTURE_VISITS));
-  const [assignments, setAssignments] = useState<AssignmentRow[]>(() => assignmentRows(FIXTURE_SCENARIOS[0].assignments));
+  const [datasets, setDatasets] = useState<Dataset[]>(DATASETS);
+  const [dataset, setDataset] = useState<Dataset>(DATASETS[0]);
+  const [scenarioId, setScenarioId] = useState(DATASETS[0].scenarios[0].id);
+  const [places, setPlaces] = useState<TripPlace[]>(DATASETS[0].places);
+  const [visits, setVisits] = useState<VisitRow[]>(() => visitRows(DATASETS[0].visits));
+  const [assignments, setAssignments] = useState<AssignmentRow[]>(() => assignmentRows(DATASETS[0].scenarios[0].assignments));
   const [clock, setClock] = useState(DAY_END);
   const [playing, setPlaying] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!playing) return;
@@ -119,35 +143,50 @@ export function SimulatePage() {
     return () => window.clearInterval(timer);
   }, [playing]);
 
-  const scenario = FIXTURE_SCENARIOS.find((s) => s.id === scenarioId)!;
+  const scenario = dataset.scenarios.find((s) => s.id === scenarioId) ?? dataset.scenarios[0];
   const dayOver = clock === DAY_END;
+  const date = dataset.date;
   const day = useMemo(
     () =>
       buildTripDay({
         places,
-        visits: toVisits(visits),
-        assignments: toAssignments(assignments),
-        now: toIso(`${clockTime(clock)}:59`),
+        visits: toVisits(visits, date),
+        assignments: toAssignments(assignments, date),
+        now: toIso(date, `${clockTime(clock)}:59`),
         // The 4 AM meter reading after the day exists only once the day is over.
-        meter: dayOver ? FIXTURE_METER : null,
+        meter: dayOver ? dataset.meter : null,
       }),
-    [places, visits, assignments, clock, dayOver],
+    [places, visits, assignments, clock, dayOver, date, dataset.meter],
   );
 
   const placeName = (id: string | null, code?: string) => places.find((p) => p.id === id)?.name ?? (code ? `${code} (no Place)` : '–');
   const labelOf = (id: string | null) => assignments.find((a) => a.id === id)?.label ?? '–';
 
+  /** Start a day afresh: its Places, raw visits and first set of Assignments, the clock at end of day. */
+  const load = (next: Dataset, nextScenarioId = next.scenarios[0].id) => {
+    setDataset(next);
+    setScenarioId(nextScenarioId);
+    setPlaces(next.places);
+    setVisits(visitRows(next.visits));
+    setAssignments(assignmentRows((next.scenarios.find((s) => s.id === nextScenarioId) ?? next.scenarios[0]).assignments));
+    setClock(DAY_END);
+    setPlaying(false);
+  };
   const chooseScenario = (id: string) => {
-    const next = FIXTURE_SCENARIOS.find((s) => s.id === id)!;
+    const next = dataset.scenarios.find((s) => s.id === id)!;
     setScenarioId(id);
     setAssignments(assignmentRows(next.assignments));
   };
-  const reset = () => {
-    setPlaces(FIXTURE_PLACES);
-    setVisits(visitRows(FIXTURE_VISITS));
-    setAssignments(assignmentRows(scenario.assignments));
-    setClock(DAY_END);
-    setPlaying(false);
+  const reset = () => load(dataset, scenarioId);
+  const upload = async (file: File) => {
+    setUploadError(null);
+    try {
+      const next = uploadedDay(parseFleetEntryExit(JSON.parse(await readText(file))), file.name);
+      setDatasets((list) => [...list.filter((d) => d.id !== next.id), next]);
+      load(next);
+    } catch (error) {
+      setUploadError(`Could not read ${file.name}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   };
   const updateVisit = (key: number, change: Partial<VisitRow>) => setVisits((rows) => rows.map((r) => (r.key === key ? { ...r, ...change } : r)));
   const updateAssignment = (key: number, change: Partial<AssignmentRow>) =>
@@ -159,21 +198,52 @@ export function SimulatePage() {
 
   return (
     <div className="min-h-screen bg-surface">
-      <PageHeader title="Simulation" subtitle={`One Truck, one day · fake data · Mon ${FIXTURE_DATE}`}>
+      <PageHeader title="Simulation" subtitle={`One Truck, one day · ${dataset.truck} · ${date}`}>
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-muted-foreground">Day</span>
+          <NativeSelect aria-label="Day" value={dataset.id} onChange={(id) => load(datasets.find((d) => d.id === id)!)}>
+            {datasets.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </NativeSelect>
+        </label>
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-muted-foreground">Dave’s Assignments</span>
           <NativeSelect aria-label="Scenario" value={scenarioId} onChange={chooseScenario}>
-            {FIXTURE_SCENARIOS.map((s) => (
+            {dataset.scenarios.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
               </option>
             ))}
           </NativeSelect>
         </label>
+        <Button variant="outline" asChild>
+          <label className="cursor-pointer">
+            <Upload className="mr-2 h-4 w-4" /> Upload Fleet JSON
+            <input
+              type="file"
+              accept=".json,application/json"
+              aria-label="Upload an HCSS Fleet entry/exit JSON"
+              className="sr-only"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void upload(file);
+                e.target.value = '';
+              }}
+            />
+          </label>
+        </Button>
         <Button variant="outline" onClick={reset}>
           <RotateCcw className="mr-2 h-4 w-4" /> Reset
         </Button>
       </PageHeader>
+      {uploadError && (
+        <p role="alert" className="container pt-3 text-sm text-destructive">
+          {uploadError}
+        </p>
+      )}
 
       <div className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur">
         <div className="container space-y-3 py-3">
@@ -217,8 +287,24 @@ export function SimulatePage() {
       <main className="container grid gap-6 py-6 xl:grid-cols-2">
         <section aria-labelledby="inputs" className="space-y-6">
           <h2 id="inputs" className="font-display text-xl font-semibold uppercase tracking-wide">
-            Inputs (fake data, change anything)
+            Inputs (change anything)
           </h2>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Where this day comes from</CardTitle>
+              <CardDescription>{dataset.source}</CardDescription>
+            </CardHeader>
+            {dataset.facts.length > 0 && (
+              <CardContent>
+                <ul className="list-disc space-y-1 pl-5 text-sm">
+                  {dataset.facts.map((fact) => (
+                    <li key={fact}>{fact}</li>
+                  ))}
+                </ul>
+              </CardContent>
+            )}
+          </Card>
 
           <Card>
             <CardHeader>
@@ -344,18 +430,23 @@ export function SimulatePage() {
                     type="checkbox"
                     checked={p.geofenceCode !== null}
                     onChange={(e) => {
-                      const code = FIXTURE_PLACES.find((f) => f.id === p.id)?.geofenceCode ?? null;
+                      const code = dataset.places.find((f) => f.id === p.id)?.geofenceCode ?? null;
                       setPlaces((list) => list.map((x) => (x.id === p.id ? { ...x, geofenceCode: e.target.checked ? code : null } : x)));
                     }}
                     aria-label={`${p.name} on the truck map`}
                   />
-                  <span className="w-40 font-medium">{p.name}</span>
+                  <span className="w-48 font-medium">
+                    {p.name}
+                    {p.fullName && <span className="block text-xs font-normal text-muted-foreground">{p.fullName}</span>}
+                  </span>
                   <span className="w-20 text-muted-foreground">{p.kind?.replace('_', ' ')}</span>
                   <span className="text-muted-foreground">{p.geofenceCode ?? 'Not on the truck map'}</span>
                 </label>
               ))}
               <p className="pt-2 text-muted-foreground">
-                Meter readings (4 AM, meter_readings): {FIXTURE_METER.startOdometer} → {FIXTURE_METER.endOdometer}, known once the day is over.
+                {dataset.meter
+                  ? `Meter readings (meter_readings): ${dataset.meter.startOdometer} → ${dataset.meter.endOdometer}, known once the day is over. ${dataset.meter.source}.`
+                  : 'No meter readings for this day: the miles check is skipped.'}
               </p>
             </CardContent>
           </Card>
