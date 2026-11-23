@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { apiOn } from './testing/api';
+import { apiOn, inspection } from './testing/api';
 import { fleetRows, fleetXlsxRows, setUpTruck55 } from './testing/fleet';
 import { localD1 } from './testing/localD1';
 import { easternTime } from '../../shared/days';
@@ -349,6 +349,111 @@ describe("Trip parts on the Driver's day read", () => {
     await importCut('2026-11-16-cut-1620.json');
 
     expect(await readTuesday()).toBe(before);
+  });
+});
+
+/** Monday 16 Nov at HH:MM US Eastern, as the Worker's clock. */
+const mondayAt = (hhmm: string) => `2026-11-16T${String(Number(hhmm.slice(0, 2)) + 5).padStart(2, '0')}:${hhmm.slice(3)}:00.000Z`;
+
+/** The Driver checks in to the Truck through the check-in route, the Worker's clock at `NOW`. */
+async function checkIn(driverId: string, truckId: string, NOW: string) {
+  expect((await send('POST', '/api/inspections', inspection({ driverId, truckId }), { NOW })).status).toBe(201);
+}
+
+describe('The Driver of a stored day, from check-ins', () => {
+  it('names Randy when he checked in to Truck 55 at 06:00, and A1 and A2 get their Loads', async () => {
+    const { truckId, randy, a1, a2 } = await planMonday();
+    await checkIn(randy, truckId, mondayAt('06:00'));
+    await importCut('2026-11-16-cut-1620.json');
+
+    const log = await readLog(truckId);
+    expect(log.tripDay.truckDay.driver?.name).toBe('Randy');
+    const loads = (id: string) => log.truckLog.columns.find((c) => c.id === id)?.loads;
+    expect([loads(a1.id), loads(a2.id)]).toEqual([4, 2]);
+  });
+
+  it("names Sample Driver A when he checked in instead, and matches the Trips against his Assignments, not Randy's", async () => {
+    const { truckId, a1, a2, placeId } = await planMonday();
+    const hisA1 = await assigned({ driverId: 'drv-a', truckId, fromPlaceId: placeId('J25008 Los Flamboyanes'), toPlaceId: placeId('Villager') });
+    const hisA2 = await assigned({ driverId: 'drv-a', truckId, fromPlaceId: placeId('Walworth Dolomite'), toPlaceId: placeId('J25008 Los Flamboyanes') });
+    await checkIn('drv-a', truckId, mondayAt('06:00'));
+    await importCut('2026-11-16-cut-1620.json');
+
+    const log = await readLog(truckId);
+    expect(log.tripDay.truckDay.driver?.name).toBe('Sample Driver A');
+    const loads = (id: string) => log.truckLog.columns.find((c) => c.id === id)?.loads;
+    expect([loads(hisA1.id), loads(hisA2.id)]).toEqual([4, 2]);
+    expect([loads(a1.id), loads(a2.id)]).toEqual([0, 0]);
+  });
+
+  it('hands over at the second check-in: A before 12:00, B from 12:00, each Trip matching the Driver at its time', async () => {
+    const { truckId, placeId } = await setUpDay();
+    // A's Assignment is A1's route (Loads 08:24–11:14); B's is A2's (Loads 12:08, 13:29).
+    const hisA1 = await assigned({ driverId: 'drv-a', truckId, fromPlaceId: placeId('J25008 Los Flamboyanes'), toPlaceId: placeId('Villager') });
+    const hisA2 = await assigned({ driverId: 'drv-b', truckId, fromPlaceId: placeId('Walworth Dolomite'), toPlaceId: placeId('J25008 Los Flamboyanes') });
+    // And the other way round, so a Trip matching the wrong Driver would show.
+    const wrongA1 = await assigned({ driverId: 'drv-b', truckId, fromPlaceId: placeId('J25008 Los Flamboyanes'), toPlaceId: placeId('Villager') });
+    const wrongA2 = await assigned({ driverId: 'drv-a', truckId, fromPlaceId: placeId('Walworth Dolomite'), toPlaceId: placeId('J25008 Los Flamboyanes') });
+    await checkIn('drv-a', truckId, mondayAt('06:00'));
+    await checkIn('drv-b', truckId, mondayAt('12:00'));
+    await importCut('2026-11-16-cut-1620.json');
+
+    expect((await readLog(truckId, { at: '11:59' })).tripDay.truckDay.driver?.name).toBe('Sample Driver A');
+    expect((await readLog(truckId, { at: '12:00' })).tripDay.truckDay.driver?.name).toBe('Sample Driver B');
+    const log = await readLog(truckId);
+    expect(log.tripDay.truckDay.driver?.name).toBe('Sample Driver B');
+    const loads = (id: string) => log.truckLog.columns.find((c) => c.id === id)?.loads;
+    expect([loads(hisA1.id), loads(hisA2.id), loads(wrongA1.id), loads(wrongA2.id)]).toEqual([4, 2, 0, 0]);
+  });
+
+  it("matches a checked-in Driver's Assignment that names another Truck, and shows it on this Truck's log", async () => {
+    const { truckId, placeId } = await setUpDay();
+    const onTruck21 = await assigned({ driverId: 'drv-a', truckId: 'trk-21', fromPlaceId: placeId('J25008 Los Flamboyanes'), toPlaceId: placeId('Villager') });
+    await checkIn('drv-a', truckId, mondayAt('06:00'));
+    await importCut('2026-11-16-cut-1620.json');
+
+    const log = await readLog(truckId);
+    expect(log.truckLog.columns.find((c) => c.id === onTruck21.id)?.loads).toBe(4);
+    expect(log.assignments.map((a) => a.id)).toEqual([onTruck21.id]);
+  });
+
+  it('asks "Who was driving?" with no check-in, and A1 and A2 still get their Loads through Randy\'s usual Truck', async () => {
+    const { truckId, a1, a2 } = await planMonday();
+    await importCut('2026-11-16-cut-1620.json');
+
+    const log = await readLog(truckId);
+    expect(log.tripDay.truckDay.driver).toBeNull();
+    expect(log.tripDay.truckDay.driverCandidates.map((d) => d.name)).toEqual(['Randy']);
+    const loads = (id: string) => log.truckLog.columns.find((c) => c.id === id)?.loads;
+    expect([loads(a1.id), loads(a2.id)]).toEqual([4, 2]);
+  });
+
+  it('never counts a check-in from an earlier day', async () => {
+    const { truckId, a1 } = await planMonday();
+    await checkIn('drv-a', truckId, SUNDAY_EVENING);
+    await importCut('2026-11-16-cut-1620.json');
+
+    const log = await readLog(truckId);
+    expect(log.tripDay.truckDay.driver).toBeNull();
+    expect(log.truckLog.columns.find((c) => c.id === a1.id)?.loads).toBe(4);
+  });
+
+  it('gives the board and the Driver page the same Trip parts as the Truck log', async () => {
+    const { truckId, randy, a1, a2, placeId } = await planMonday();
+    const hisA1 = await assigned({ driverId: 'drv-a', truckId: 'trk-21', fromPlaceId: placeId('J25008 Los Flamboyanes'), toPlaceId: placeId('Villager') });
+    await checkIn('drv-a', truckId, mondayAt('06:00'));
+    await checkIn(randy, truckId, mondayAt('11:20'));
+    await importCut('2026-11-16-cut-1620.json');
+
+    const log = await readLog(truckId);
+    const fromLog = (id: string) => log.assignments.find((a) => a.id === id)?.trips;
+    expect([fromLog(hisA1.id)?.loads, fromLog(a1.id)?.loads, fromLog(a2.id)?.loads]).toEqual([4, 0, 2]);
+    const board = await readBoard();
+    const cards = [...(await readDriver('drv-a')), ...(await readDriver(randy))];
+    for (const id of [hisA1.id, a1.id, a2.id]) {
+      expect(board.find((a) => a.id === id)?.trips).toEqual(fromLog(id));
+      expect(cards.find((a) => a.id === id)?.trips).toEqual(fromLog(id));
+    }
   });
 });
 

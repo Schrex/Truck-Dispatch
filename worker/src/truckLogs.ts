@@ -4,7 +4,7 @@ import { clock } from './clock';
 import { codesWithNoPlaceIn } from './fleetImports';
 import { json, refuse } from './http';
 import { addDays, easternMoment, easternTime, isCalendarDate } from '../../shared/days';
-import { buildTripDay, routeAt, type FleetVisit, type TripAssignment, type TripJob, type TripPlace } from '../../shared/trips';
+import { buildTripDay, routeAt, type FleetVisit, type TripAssignment, type TripJob, type TripPlace, type TruckCheckIn } from '../../shared/trips';
 import { truckLog } from '../../shared/truckLog';
 import type { Assignment, AssignmentTripPart, TruckLogDay } from '../../shared/types';
 
@@ -72,9 +72,11 @@ async function storedTruckDay(env: Env, truck: StoredTruck, date: string, at: st
   // A visit is filed under the US Eastern day it was entered on.
   const from = easternMoment(date, 0, 0);
   const to = easternMoment(addDays(date, 1), 0, 0);
-  // Assigned ones naming the Truck (none named: the Driver's usual one), cancelled and discarded ones included.
-  const NAMES_TRUCK = 'a.date = ?1 AND a.assigned_at IS NOT NULL AND COALESCE(a.truck_id, d.default_truck_id) = ?2';
-  const [latest, visits, rows, discarded, changes, places, jobs, drivers] = await DB.batch<Record<string, unknown>>([
+  // Assigned ones naming the Truck (none named: the Driver's usual one), and every one that day of a Driver
+  // who checked in to it, whatever Truck they name; cancelled and discarded ones included.
+  const READ = `a.date = ?1 AND a.assigned_at IS NOT NULL
+    AND (COALESCE(a.truck_id, d.default_truck_id) = ?2 OR a.driver_id IN (SELECT driver_id FROM inspections WHERE date = ?1 AND truck_id = ?2))`;
+  const [latest, visits, rows, discarded, changes, places, jobs, drivers, checkIns] = await DB.batch<Record<string, unknown>>([
     DB.prepare(
       `SELECT MAX(i.imported_at) AS importedAt FROM fleet_import_days d JOIN fleet_imports i ON i.id = d.import_id WHERE d.truck_id = ? AND d.date = ?`,
     ).bind(truck.id, date),
@@ -82,18 +84,20 @@ async function storedTruckDay(env: Env, truck: StoredTruck, date: string, at: st
       `SELECT geofence_code AS geofenceCode, entered_at AS enteredAt, exited_at AS exitedAt, entry_odometer AS entryOdometer, exit_odometer AS exitOdometer
          FROM fleet_visits WHERE truck_id = ? AND entered_at >= ? AND entered_at < ? ORDER BY entered_at`,
     ).bind(truck.id, from, to),
-    DB.prepare(`${SELECT_ASSIGNMENT} WHERE ${NAMES_TRUCK} ${DAY_ORDER}`).bind(date, truck.id),
-    DB.prepare(`SELECT a.id FROM assignments a LEFT JOIN drivers d ON d.id = a.driver_id WHERE ${NAMES_TRUCK} AND a.discarded_at IS NOT NULL`).bind(date, truck.id),
+    DB.prepare(`${SELECT_ASSIGNMENT} WHERE ${READ} ${DAY_ORDER}`).bind(date, truck.id),
+    DB.prepare(`SELECT a.id FROM assignments a LEFT JOIN drivers d ON d.id = a.driver_id WHERE ${READ} AND a.discarded_at IS NOT NULL`).bind(date, truck.id),
     DB.prepare(
       `SELECT c.assignment_id AS id, c.changed_at AS changedAt, c.before FROM assignment_changes c
          JOIN assignments a ON a.id = c.assignment_id LEFT JOIN drivers d ON d.id = a.driver_id
-        WHERE ${NAMES_TRUCK} ORDER BY c.changed_at`,
+        WHERE ${READ} ORDER BY c.changed_at`,
     ).bind(date, truck.id),
     DB.prepare(
       `SELECT id, short_name AS name, full_name AS fullName, kind, CASE WHEN active = 1 THEN geofence_code END AS geofenceCode, job_id AS jobId FROM places`,
     ),
     DB.prepare('SELECT id, name, job_number AS jobNumber FROM jobs'),
     DB.prepare('SELECT id, name, default_truck_id AS defaultTruckId FROM drivers'),
+    // Check-ins to the Truck that day: an Inspection is filed under its own day, so one from an earlier day never counts.
+    DB.prepare('SELECT driver_id AS driverId, done_at AS at FROM inspections WHERE date = ? AND truck_id = ? ORDER BY done_at').bind(date, truck.id),
   ]);
 
   const asOf = (latest.results[0]?.importedAt as string | null) ?? null;
@@ -122,7 +126,10 @@ async function storedTruckDay(env: Env, truck: StoredTruck, date: string, at: st
     toPlaceId: a.toPlaceId,
     cancelledAt: a.cancelledAt,
     changes: changesOf(a.id),
+    driverId: a.driverId,
+    truckId: a.truckId,
   }));
+  const driverRows = drivers.results as unknown as { id: string; name: string; defaultTruckId: string | null }[];
 
   const tripDay = buildTripDay({
     places: tripPlaces,
@@ -134,15 +141,19 @@ async function storedTruckDay(env: Env, truck: StoredTruck, date: string, at: st
     dayOver,
     truck: {
       id: truck.id,
-      drivers: drivers.results as unknown as { id: string; name: string; defaultTruckId: string | null }[],
+      drivers: driverRows,
       assignments: assignmentRows.map((a) => ({ driverId: a.driverId, truckId: a.truckId })),
+      checkIns: checkIns.results as unknown as TruckCheckIn[],
     },
   });
 
-  // Shown as the board shows them: discarded ones are hidden, though their Trips stay theirs.
+  // Shown as the board shows them: discarded ones are hidden, though their Trips stay theirs. A checked-in
+  // Driver's Assignment that names another Truck is shown only once a Trip on this one is its.
   const placeName = (id: string | null) => tripPlaces.find((p) => p.id === id)?.name ?? null;
+  const namesTruck = (a: AssignmentRow) => (a.truckId ?? driverRows.find((d) => d.id === a.driverId)?.defaultTruckId) === truck.id;
+  const hasTrips = (a: AssignmentRow) => tripDay.assignments.some((t) => t.assignmentId === a.id && t.status !== 'none');
   const shown = assignmentRows
-    .filter((a) => !discardedIds.has(a.id))
+    .filter((a) => !discardedIds.has(a.id) && (namesTruck(a) || hasTrips(a)))
     .map((row): Assignment => {
       const route = routeAt(tripAssignments.find((t) => t.id === row.id)!, moment);
       return { ...marked(row), fromPlaceId: route.fromPlaceId, fromPlaceName: placeName(route.fromPlaceId), toPlaceId: route.toPlaceId, toPlaceName: placeName(route.toPlaceId) };
