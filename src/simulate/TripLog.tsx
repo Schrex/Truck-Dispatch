@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 const KIND: Record<string, { label: string; style: string }> = {
   load: { label: 'load', style: 'bg-primary text-primary-foreground' },
   empty: { label: 'empty', style: 'bg-muted text-muted-foreground' },
+  not_a_haul: { label: 'not a haul', style: 'bg-muted text-muted-foreground italic' },
   null: { label: 'for Dave', style: 'bg-warning/25 text-foreground' },
   waiting: { label: 'waiting', style: 'border text-muted-foreground' },
 };

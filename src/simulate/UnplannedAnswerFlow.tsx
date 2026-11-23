@@ -1,6 +1,7 @@
 import { useEffect, useId, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { chipClass, OrTypeIt, TypedBox } from '@/components/TypedName';
 import type { UnplannedAnswer } from './answers';
 
@@ -16,6 +17,14 @@ export interface AnswerableWork {
   splits?: { at: string; label: string }[];
 }
 
+/** One of the Driver's Assignments that day, as a link offers it: "A2 · Walworth Dolomite → J25008 Los Flamboyanes". */
+export interface LinkableAssignment {
+  id: string;
+  label: string;
+  /** Whose it is: with "Who was driving?" answered, a link offers only that Driver's. */
+  driverId?: string;
+}
+
 /** What every way of answering gets: the piece, the lists, and where to say whether its answer is complete. */
 export interface WayProps {
   work: AnswerableWork;
@@ -23,10 +32,12 @@ export interface WayProps {
   /**
    * Who was driving: the Driver Dave picked when the Truck log asks "Who was
    * driving?", else the Truck's Driver; null when nobody fits. A way that
-   * offers Assignments (Link) offers only this Driver's; Make an Assignment
+   * offers Assignments (Link) offers only this Driver's (see `assignments`); Make an Assignment
    * makes it this Driver's.
    */
   driverId: string | null;
+  /** The day's Assignments that a link can name: only the picked Driver's (`driverId`). */
+  assignments: LinkableAssignment[];
   /** The answer once every question is answered; null while one is still open. */
   onReady: (answer: UnplannedAnswer | null) => void;
 }
@@ -125,28 +136,59 @@ function SplitRow({ splits, onSplit }: { splits: { at: string; label: string }[]
   );
 }
 
-/**
- * The ways Dave can answer Unplanned work, in the order offered. #76 adds
- * "Link to an Assignment" and "Not a haul"; each is a chip and its questions.
- */
+/** "Link to an Assignment": which of the Driver's Assignments that day, and where he loaded, as in Make an Assignment. Both are required. */
+function LinkQuestions({ work, assignments, driverId, onReady }: WayProps) {
+  // Only the Driver who was driving: his Assignments are the ones the Truck did that day.
+  const offered = driverId ? assignments.filter((a) => !a.driverId || a.driverId === driverId) : assignments;
+  const [assignmentId, setAssignmentId] = useState<string | null>(null);
+  const [loadedAt, setLoadedAt] = useState<string | null>(null);
+  useEffect(() => {
+    onReady(assignmentId && loadedAt ? { kind: 'link', unplannedId: work.id, assignmentId, loadedAt, ...(driverId && { driverId }) } : null);
+  }, [onReady, work.id, assignmentId, loadedAt, driverId]);
+  return (
+    <>
+      <ChipRow label="Which Assignment?" chips={offered} picked={assignmentId} onPick={setAssignmentId} />
+      <ChipRow label="Where did he load?" chips={work.places.map((p) => ({ id: p.id, label: p.name }))} picked={loadedAt} onPick={setLoadedAt} />
+    </>
+  );
+}
+
+/** "Not a haul": nothing to answer but an optional note (fuel, repair, personal), so it can be saved straight away. */
+function NotAHaulQuestions({ work, onReady }: WayProps) {
+  const [note, setNote] = useState('');
+  useEffect(() => {
+    onReady({ kind: 'not-a-haul', unplannedId: work.id, note: note.trim() || null });
+  }, [onReady, work.id, note]);
+  return (
+    <label className="block space-y-2">
+      <span className="text-sm font-medium">Note</span>
+      <Input aria-label="Note" maxLength={100} className="h-11 text-base" placeholder="fuel, repair, personal (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
+    </label>
+  );
+}
+
+/** The ways Dave can answer Unplanned work, in the order offered; each is a chip and its questions. */
 const WAYS: { kind: UnplannedAnswer['kind']; label: string; Questions: (props: WayProps) => JSX.Element }[] = [
   { kind: 'make', label: 'Make an Assignment', Questions: MakeAnAssignmentQuestions },
+  { kind: 'link', label: 'Link to an Assignment', Questions: LinkQuestions },
+  { kind: 'not-a-haul', label: 'Not a haul', Questions: NotAHaulQuestions },
 ];
 
 /**
  * Answering one piece of Unplanned work: when the Truck log asks "Who was
  * driving?" (`drivers`, more than one), Dave first picks the Driver; then he
- * picks how (Make an Assignment, and later the other ways), answers that
- * way's questions, and Saves. Save stays off until every question is
- * answered. A run that held two hauls he splits instead, at a Trip (onSplit).
- * Opened from the lane or the Truck log; nothing is saved but the answer
- * handed to onSave.
+ * picks how (Make an Assignment, Link to an Assignment, Not a haul), answers
+ * that way's questions, and Saves. Save stays off until every question is
+ * answered. Link offers only the picked Driver's Assignments. A run that held
+ * two hauls he splits instead, at a Trip (onSplit). Opened from the lane or
+ * the Truck log; nothing is saved but the answer handed to onSave.
  */
 export function UnplannedAnswerFlow({
   work,
   materials,
   drivers,
   driverId: truckDriverId = null,
+  assignments = [],
   onSave,
   onSplit,
   onClose,
@@ -157,6 +199,8 @@ export function UnplannedAnswerFlow({
   drivers?: { id: string; name: string }[];
   /** The Truck's Driver when one fits; Dave is not asked. */
   driverId?: string | null;
+  /** The day's Assignments, each with its Driver, for "Link to an Assignment": it offers only the picked Driver's. */
+  assignments?: LinkableAssignment[];
   onSave: (answer: UnplannedAnswer) => void;
   /** Dave splits the piece at a Trip (its leftAt): a new piece starts there. */
   onSplit?: (at: string) => void;
@@ -186,7 +230,7 @@ export function UnplannedAnswerFlow({
                 setAnswer(null);
               }}
             />
-            {chosen && <chosen.Questions key={chosen.kind} work={work} materials={materials} driverId={askDriver ? driverId : truckDriverId} onReady={setAnswer} />}
+            {chosen && <chosen.Questions key={`${chosen.kind}:${driverId}`} work={work} materials={materials} driverId={askDriver ? driverId : truckDriverId} assignments={assignments} onReady={setAnswer} />}
           </>
         )}
         {onSplit && work.splits && work.splits.length > 0 && <SplitRow splits={work.splits} onSplit={onSplit} />}

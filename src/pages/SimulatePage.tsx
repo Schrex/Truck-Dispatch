@@ -178,6 +178,10 @@ export function SimulatePage() {
               setAnswers((all) => all.filter((a) => a.unplannedId !== work.id));
               setAnswering(null);
             }}
+            // A link names one of that day's Assignments, never the one made from this same piece; the flow offers only the picked Driver's.
+            assignments={day.assignments
+              .filter((a) => a.date === REAL_DAY.date && a.id !== `made-${work.id}`)
+              .map((a) => ({ id: a.id, label: `${day.labels[a.id]} · ${a.fromPlaceName ?? '–'} → ${a.toPlaceName ?? '–'}`, driverId: a.driverId ?? undefined }))}
             onSave={(next) => {
               setAnswers((all) => [...all.filter((a) => a.unplannedId !== next.unplannedId), next]);
               setAnswering(null);
