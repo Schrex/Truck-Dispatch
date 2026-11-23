@@ -16,6 +16,9 @@ function paperDate(date: string): string {
 /** Odometer as the paper has it: one decimal, "258,050.6". */
 const miles = (n: number | null) => (n === null ? '' : n.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }));
 
+/** A miles box with no reading on a day that has none: blank, saying what will fill it. */
+const METER_READING = <span className="text-xs italic text-muted-foreground">meter reading</span>;
+
 /** No Driver chosen because more than one fits: a question for Dave, not an answer. */
 const askWhoDrove = (day: TruckDay) => day.driver === null && day.driverCandidates.length > 1;
 
@@ -29,16 +32,31 @@ function driverText(day: TruckDay): string {
  * from the Trip builder's Truck day. This is its header (Truck, date, start
  * and end time, start and end miles, Driver, Total hours); a box stays blank
  * until what goes in it is known. The Assignment columns and the Trips no
- * Assignment explains go in `children`, below the header.
+ * Assignment explains go in `children`, below the header. A real day has no
+ * meter readings yet (`noMeterReadings`): its miles boxes stay blank, marked
+ * "meter reading", so no one takes a number that was not measured.
  */
-export function TruckLog({ truck, date, truckDay, children }: { truck: Truck; date: string; truckDay: TruckDay; children?: ReactNode }) {
-  const boxes: [label: string, value: string, question?: boolean][] = [
+export function TruckLog({
+  truck,
+  date,
+  truckDay,
+  noMeterReadings = false,
+  children,
+}: {
+  truck: Pick<Truck, 'number' | 'hcssCode'>;
+  date: string;
+  truckDay: TruckDay;
+  noMeterReadings?: boolean;
+  children?: ReactNode;
+}) {
+  const milesBox = (n: number | null): ReactNode => (n === null && noMeterReadings ? METER_READING : miles(n));
+  const boxes: [label: string, value: ReactNode, question?: boolean][] = [
     ['Truck', truck.hcssCode ? `${truck.number} (${truck.hcssCode})` : truck.number],
     ['Date', paperDate(date)],
     ['Start time', truckDay.startAt ? easternTime(truckDay.startAt) : ''],
     ['End time', truckDay.endAt ? easternTime(truckDay.endAt) : ''],
-    ['Start miles', miles(truckDay.startMiles)],
-    ['End miles', miles(truckDay.endMiles)],
+    ['Start miles', milesBox(truckDay.startMiles)],
+    ['End miles', milesBox(truckDay.endMiles)],
     ['Driver', driverText(truckDay), askWhoDrove(truckDay)],
     ['Total hours', truckDay.totalHours === null ? '' : truckDay.totalHours.toFixed(2)],
   ];

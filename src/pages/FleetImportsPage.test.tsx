@@ -9,10 +9,11 @@ import { REAL_DAY } from '@/simulate/realDay';
 import { readFleetJson, type FleetExportRow } from '../../shared/fleetExport';
 import { buildTripDay, type TripAssignment } from '../../shared/trips';
 import { truckLog } from '../../shared/truckLog';
-import type { FleetImport, NewFleetImport, Truck, TruckLogDay } from '../../shared/types';
+import type { Assignment, FleetImport, NewFleetImport, Truck, TruckLogDay } from '../../shared/types';
 // The 16 Nov export pulled at 15:02, as Dave downloads it from HCSS Fleet.
 import EXPORT_1502 from '../../shared/fixtures/fleet/2026-11-16-1502.json?raw';
-// The whole 16 Nov day cut at 16:20, as Fleet would have exported it then.
+// The whole 16 Nov day cut at 13:05 and at 16:20, as Fleet would have exported it then.
+import CUT_1305 from '../../shared/fixtures/fleet/2026-11-16-cut-1305.json?raw';
 import CUT_1620 from '../../shared/fixtures/fleet/2026-11-16-cut-1620.json?raw';
 // The 16 Nov xlsx, the whole day, as a data URL.
 import XLSX from '../../shared/fixtures/fleet/2026-11-16-EntryExitReport.xlsx?inline';
@@ -55,15 +56,29 @@ const PLANNED: TripAssignment[] = [
   { id: 'a2', label: 'A2', fromPlaceId: WALWORTH, toPlaceId: J25008, cancelledAt: null, changes: [] },
 ];
 
-/** A Truck's stored day as the Worker answers it: the Fleet rows stored, through the Trip builder and the shared Truck log function. */
-function storedDay(truckId: string, date: string, rows: FleetExportRow[], asOf: string | null): TruckLogDay {
-  const visits = rows.map((r) => ({ geofenceCode: r.geofenceCode, enteredAt: r.enteredAt, exitedAt: r.exitedAt, entryOdometer: r.entryOdometer ?? 0, exitOdometer: r.exitOdometer }));
+/** A1 and A2 as the Worker reads them, Assigned to Randy. */
+const shown = (id: string, fromPlaceName: string, toPlaceName: string, materialName: string): Assignment => ({
+  id, date: '2026-11-16', driverId: 'drv-randy', driverName: 'Randy', truckId: null, truckNumber: null,
+  fromPlaceId: null, fromPlaceName, toPlaceId: null, toPlaceName, materialId: null, materialName, foremanId: null, foremanName: null, note: null,
+  position: 0, createdAt: '2026-11-15T22:00:00.000Z', updatedAt: '2026-11-15T22:00:00.000Z', changedAt: null, cancelledAt: null,
+  assignedAt: '2026-11-15T22:00:00.000Z', handedFromId: null, sinceSent: null,
+});
+const SHOWN = [shown('a1', 'J25008 Los Flamboyanes', 'Villager', 'Fill'), shown('a2', 'Walworth Dolomite', 'J25008 Los Flamboyanes', '1&2 stone')];
+
+/**
+ * A Truck's stored day as the Worker answers it: the Fleet rows stored, through
+ * the Trip builder and the shared Truck log function. A past day by default;
+ * `today` builds it as the Worker does on the day itself, at the latest Import.
+ */
+function storedDay(truckId: string, date: string, rows: FleetExportRow[], asOf: string | null, { today = false } = {}): TruckLogDay {
+  const visits = rows.map((r) => ({ geofenceCode: r.geofenceCode, enteredAt: r.enteredAt, exitedAt: r.exitedAt, entryOdometer: r.entryOdometer, exitOdometer: r.exitOdometer }));
   const at = asOf ?? `${date}T23:59:59.000Z`;
-  const tripDay = buildTripDay({ places: REAL_DAY.places, jobs: REAL_DAY.jobs, visits, assignments: rows.length ? PLANNED : [], now: at, dayOver: true });
+  const dayOver = !today;
+  const tripDay = buildTripDay({ places: REAL_DAY.places, jobs: REAL_DAY.jobs, visits, assignments: rows.length ? PLANNED : [], now: at, dayOver });
   const labels = { a1: 'A1', a2: 'A2' };
-  const { assignments, ...truckLogBody } = truckLog({ tripDay, places: REAL_DAY.places, assignments: [], labels });
+  const { assignments, ...truckLogBody } = truckLog({ tripDay, places: REAL_DAY.places, assignments: rows.length ? SHOWN : [], labels });
   return {
-    truckId, truckNumber: '55', date, asOf, clock: '23:59', at, dayOver: true, places: REAL_DAY.places, tripDay, labels, assignments,
+    truckId, truckNumber: '55', date, asOf, clock: today ? '13:10' : '23:59', at, dayOver, places: REAL_DAY.places, tripDay, labels, assignments,
     truckLog: truckLogBody, codesWithNoPlace: rows.some((r) => r.geofenceCode === 'sunset') ? [{ code: 'sunset', driveThrough: true }] : [],
   };
 }
@@ -228,6 +243,50 @@ describe('A stored day on the Fleet imports page', () => {
     expect(rows.at(-1)!.slice(0, 2)).toEqual(['15:41', 'J25008 Los Flamboyanes → Shop']);
     const loadsOn = (label: string) => rows.filter((r) => r[3] === 'load' && r[4] === label).length;
     expect([loadsOn('A1'), loadsOn('A2')]).toEqual([4, 2]);
+  });
+
+  /** The Truck log header, as the paper's boxes: label → what is written in it. */
+  const header = () => {
+    const group = within(screen.getByRole('region', { name: 'Truck log' })).getByRole('group', { name: 'Truck log header' });
+    return Object.fromEntries([...group.querySelectorAll('dt')].map((dt) => [dt.textContent, dt.nextElementSibling?.textContent]));
+  };
+  /** The Truck log's Assignment columns, in Dave's order: each as label → what is written in it. */
+  const columns = () =>
+    within(screen.getByRole('region', { name: 'Truck log' }))
+      .getAllByRole('group', { name: /^Assignment \d/ })
+      .map((col) => Object.fromEntries([...col.querySelectorAll('dt')].map((dt) => [dt.textContent, dt.nextElementSibling?.textContent])));
+
+  it('shows the Truck log of Mon 16 Nov: 06:24 to 16:03, miles blank for a meter reading, A1 and A2, the shop drives', async () => {
+    storedDays[`trk-55 2026-11-16`] = storedDay('trk-55', '2026-11-16', readFleetJson(JSON.parse(CUT_1620)), AS_OF);
+    await openPage();
+    pickDay('trk-55', '2026-11-16');
+
+    await screen.findByRole('region', { name: 'Truck log' });
+    expect(header()).toMatchObject({
+      Truck: '55 (MCK-55-17)',
+      Date: 'Mon 16 Nov 2026',
+      'Start time': '06:24',
+      'End time': '16:03',
+      'Start miles': 'meter reading',
+      'End miles': 'meter reading',
+      'Total hours': '9.64',
+    });
+    expect(columns().map((c) => [c['Pick up'], c['# of loads'], c['Trucking hours']])).toEqual([
+      ['J25008 Los Flamboyanes', '4', '3.02'],
+      ['Walworth Dolomite', '2', expect.any(String)],
+    ]);
+    const shop = within(screen.getByRole('group', { name: 'To and from the shop' })).getAllByRole('listitem').map((li) => li.textContent);
+    expect(shop.map((line) => line.slice(0, 11))).toEqual(['06:24–07:02', '15:41–16:03']);
+    expect(screen.getByText('As of the Import at 16:25')).toBeTruthy();
+  });
+
+  it('has no end time on a day still going on, with only the 13:05 cut stored', async () => {
+    storedDays[`trk-55 2026-11-16`] = storedDay('trk-55', '2026-11-16', readFleetJson(JSON.parse(CUT_1305)), '2026-11-16T18:10:00.000Z', { today: true });
+    await openPage();
+    pickDay('trk-55', '2026-11-16');
+
+    await screen.findByRole('region', { name: 'Truck log' });
+    expect(header()).toMatchObject({ 'Start time': '06:24', 'End time': '', 'Total hours': '' });
   });
 
   it('lists "sunset" under codes with no Place, marked drive-through', async () => {
