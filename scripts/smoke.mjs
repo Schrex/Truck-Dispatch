@@ -175,7 +175,7 @@ for (const prefix of ['', '/truck-dispatch']) {
     const { days } = /** @type {{ days: { date: string; state: string }[] }} */ (await week.json());
     if (!Array.isArray(days) || days.length !== 7) fail(`weeks/${monday}: expected seven days`);
     if (days[0].date !== monday) fail(`weeks/${monday}: starts on ${days[0].date}`);
-    if (!days.every((d) => ['none', 'draft', 'sent', 'changed'].includes(d.state))) fail(`weeks/${monday}: unknown state`);
+    if (!days.every((d) => ['none', 'draft', 'assigned', 'changed'].includes(d.state))) fail(`weeks/${monday}: unknown state`);
   });
   await step(`${where}: a Driver's today in the Driver view`, async () => {
     const page = await get(`${prefix}/driver`);
@@ -190,10 +190,10 @@ for (const prefix of ['', '/truck-dispatch']) {
     const path = `drivers/${encodeURIComponent(driver.id)}/days/${date}`;
     const day = await get(`${prefix}/api/${path}`);
     if (!day.ok) fail(`${path}: ${day.status}`);
-    const body = /** @type {{ date: string; state: string; assignments?: unknown }} */ (await day.json());
+    const body = /** @type {{ date: string; assignments?: unknown }} */ (await day.json());
     if (body.date !== date) fail(`${path}: answered ${body.date}`);
-    if (body.state === 'draft') return;
-    if (body.state !== 'sent' || !Array.isArray(body.assignments)) fail(`${path}: neither a Draft nor a Sent day with a list`);
+    // Only his Assigned Assignments; an empty list is "Nothing from Dave yet" (ADR 0005).
+    if (!Array.isArray(body.assignments)) fail(`${path}: no list of Assigned Assignments`);
   });
 }
 
