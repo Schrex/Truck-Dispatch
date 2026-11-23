@@ -173,14 +173,6 @@ export function SettingsPage() {
     return entry ? displayName(list, entry as never) : null;
   };
 
-  async function bringBack(spec: SectionSpec<ListName>, entry: Row) {
-    try {
-      put(spec.list, (await changeEntry(spec.list, entry.id, { active: true } as never)) as unknown as Row);
-    } catch {
-      toast.error(`Could not bring back ${String(entry[spec.name.key])}`);
-    }
-  }
-
   const openSpec = open && SECTIONS.find((s) => s.list === open.list);
   return (
     <div className="min-h-screen bg-surface">
@@ -201,7 +193,6 @@ export function SettingsPage() {
             nameOf={nameOf}
             onOpen={(entry) => setOpen({ list: spec.list, entry })}
             onAdd={() => setOpen({ list: spec.list, entry: null })}
-            onBringBack={(entry) => bringBack(spec, entry)}
             chipControls={moveButtons(spec)}
           />
           {/* Under Trucks: what Drivers reported wrong with them, for Dave to mark fixed. */}

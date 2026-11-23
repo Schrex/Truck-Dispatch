@@ -104,6 +104,7 @@ function inLane(assignments: Assignment[], openId: string | null | undefined): I
  * composingFor (a Driver's id, or null for Unassigned) shows under its
  * Driver. With onAssign each Draft with an active Driver has Assign on its block,
  * and an Unassigned lane holding Drafts says to pick a Driver to Assign one.
+ * With onDiscard each cancelled block has Discard, on any day.
  * Without them the lanes are read-only.
  * On a phone a lane's blocks stack under the Driver; from an iPad in portrait
  * up, the Driver sits on the left and the blocks run beside him.
@@ -117,6 +118,7 @@ export function Lanes({
   problems,
   onEdit,
   onAssign,
+  onDiscard,
   openId,
   editor,
   onAdd,
@@ -135,6 +137,8 @@ export function Lanes({
   onEdit?: (assignment: Assignment) => void;
   /** Assigns a Draft that has a Driver; settles once the Worker has answered. */
   onAssign?: (assignment: Assignment) => Promise<void>;
+  /** Discards a cancelled Assignment from the Board; settles once the Worker has answered. */
+  onDiscard?: (assignment: Assignment) => Promise<void>;
   /** The Assignment shown open; null or undefined when none is. */
   openId?: string | null;
   /** The open Assignment's editor, shown in its lane. */
@@ -205,6 +209,7 @@ export function Lanes({
                       jobSites={jobSites}
                       onEdit={onEdit}
                       onAssign={lane.removed ? undefined : onAssign}
+                      onDiscard={onDiscard}
                       open={i === openAt}
                     />
                   ))}

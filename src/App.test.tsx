@@ -171,6 +171,14 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     if (back.cancelledAt) Object.assign(back, { cancelledAt: null, updatedAt: '2026-11-19T22:30:00.000Z', changedAt: '2026-11-19T22:30:00.000Z' });
     return answer({ assignment: marked(back) });
   }
+  const discarding = /\/api\/assignments\/([^/]+)\/discard$/.exec(url.pathname);
+  if (discarding && init?.method === 'POST') {
+    sent.push({ discard: discarding[1] });
+    if (failSaves) return answer({ error: 'oops' }, 500);
+    // Off the Board from now on, as the Worker reads the day.
+    assignments = assignments.filter((a) => a.id !== discarding[1]);
+    return new Response(null, { status: 204 });
+  }
   const assigning = /\/api\/assignments\/([^/]+)\/assign$/.exec(url.pathname);
   if (assigning && init?.method === 'POST') {
     sent.push({ assign: assigning[1] });
@@ -1108,7 +1116,7 @@ describe('opening an Assignment', () => {
       const opened = screen.getByRole('region', { name: 'Open Assignment' });
       expect(within(opened).queryByRole('button', { name: /^(Driver|Material|From|To|Truck|Foreman):/ })).toBeNull();
       expect(within(opened).queryByRole('textbox', { name: 'Note' })).toBeNull();
-      expect(within(opened).getAllByRole('button').map((b) => b.textContent?.trim())).toEqual(['Put back', 'Close']);
+      expect(within(opened).getAllByRole('button').map((b) => b.textContent?.trim())).toEqual(['Discard', 'Put back', 'Close']);
       expect(within(opened).getByText(/cancelled/i)).toBeTruthy();
 
       fireEvent.click(within(opened).getByRole('button', { name: 'Put back' }));
@@ -1137,6 +1145,44 @@ describe('opening an Assignment', () => {
       fireEvent.click(within(opened).getByRole('button', { name: 'Delete' }));
       expect(await within(opened).findByText('Could not delete the Assignment. Try again.')).toBeTruthy();
       expect(blocks('Sample Driver A')).toEqual(['First · Draft · Haul stone · Truck 21 (his own)']);
+    });
+
+    it('discards a cancelled one with one tap on its block: it leaves the Board', async () => {
+      assignments = [
+        planned({ cancelledAt: '2026-11-19T22:00:00.000Z', changedAt: '2026-11-19T22:00:00.000Z', ...ASSIGNED }),
+        planned({ id: 'a2', note: 'Topsoil haul', position: 1, ...ASSIGNED }),
+      ];
+      open('/?date=2026-11-20');
+      fireEvent.click(await screen.findByRole('button', { name: 'Discard Haul stone' }));
+      await waitFor(() => expect(blocks('Sample Driver A')).toEqual(['First · Topsoil haul · Truck 21 (his own)']));
+      expect(sent).toEqual([{ discard: 'a1' }]);
+      // Only a cancelled block offers it.
+      expect(screen.queryByRole('button', { name: /^Discard/ })).toBeNull();
+    });
+
+    it('discards a cancelled one from the open Assignment too, closing it', async () => {
+      assignments = [planned({ cancelledAt: '2026-11-19T22:00:00.000Z', changedAt: '2026-11-19T22:00:00.000Z', ...ASSIGNED })];
+      open('/?date=2026-11-20');
+      fireEvent.click(await screen.findByRole('button', { name: 'Edit Haul stone · Cancelled' }));
+      fireEvent.click(within(screen.getByRole('region', { name: 'Open Assignment' })).getByRole('button', { name: 'Discard' }));
+      await waitFor(() => expect(within(lane('Sample Driver A')).getByText('Nothing planned yet')).toBeTruthy());
+      expect(screen.queryByRole('region', { name: 'Open Assignment' })).toBeNull();
+    });
+
+    it('offers Discard on a cancelled block on a day before today, which is otherwise read-only', async () => {
+      assignments = [planned({ date: '2026-11-18', cancelledAt: '2026-11-17T22:00:00.000Z', changedAt: '2026-11-17T22:00:00.000Z', ...ASSIGNED })];
+      open('/?date=2026-11-18');
+      fireEvent.click(await screen.findByRole('button', { name: 'Discard Haul stone' }));
+      await waitFor(() => expect(sent).toEqual([{ discard: 'a1' }]));
+    });
+
+    it('says so when Discard fails, and keeps it on the Board', async () => {
+      assignments = [planned({ cancelledAt: '2026-11-19T22:00:00.000Z', changedAt: '2026-11-19T22:00:00.000Z', ...ASSIGNED })];
+      open('/?date=2026-11-20');
+      failSaves = true;
+      fireEvent.click(await screen.findByRole('button', { name: 'Discard Haul stone' }));
+      expect(await screen.findByText('Could not discard it. Try again.')).toBeTruthy();
+      expect(blocks('Sample Driver A')).toEqual(['Cancelled · Haul stone · Truck 21 (his own)']);
     });
 
     it('says so when Put back fails, and keeps it cancelled', async () => {

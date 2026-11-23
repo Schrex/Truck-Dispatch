@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
-import type { BusinessDay, CheckIn as CheckInRead, Driver, DriverDay } from '../../shared/types';
+import type { BusinessDay, CheckIn as CheckInRead, Driver, DriverAssignment, DriverDay } from '../../shared/types';
 import { addDays, shortDate, weekdayName } from '../../shared/days';
 import { CheckIn } from '@/components/CheckIn';
 import { DriverCard } from '@/components/DriverCard';
 import { PageHeader } from '@/components/PageHeader';
 import { ViewToggle } from '@/components/ViewToggle';
 import { Button } from '@/components/ui/button';
-import { fetchBusinessDay, fetchCheckIns, fetchDriverDay, fetchList, fetchNextAssigned } from '@/lib/api';
+import { toast } from '@/components/ui/sonner';
+import { dismissAssignment, fetchBusinessDay, fetchCheckIns, fetchDriverDay, fetchList, fetchNextAssigned, Refused } from '@/lib/api';
 import { storedDriver, storeDriver } from '@/lib/deviceView';
 
 /** A day as the page holds it: loading (undefined), failed (null), or as the Worker read it. */
@@ -227,7 +228,19 @@ export function DriverPage() {
                 Next from Dave: {shortDate(nextAssigned)} →
               </button>
             )}
-            <DaySection today={today} date={date} shown={shown} />
+            <DaySection
+              today={today}
+              date={date}
+              shown={shown}
+              onDismiss={async (assignment) => {
+                try {
+                  await dismissAssignment(assignment.id);
+                  setShown((day) => day && { ...day, assignments: day.assignments.filter((a) => a.id !== assignment.id) });
+                } catch (error) {
+                  toast.error(error instanceof Refused ? error.message : 'Could not dismiss it. Try again.');
+                }
+              }}
+            />
           </>
         )}
       </main>
@@ -247,8 +260,19 @@ function Loading({ what }: { what: string }) {
  * The day shown, titled "Today, Sun, Nov 22" (Yesterday and Tomorrow too) or
  * just "Mon, Nov 23" for any other day: his Assigned Assignments as cards, or
  * "Nothing from Dave yet for Monday." while Dave has Assigned him nothing.
+ * A cancelled card has Dismiss, which clears it off his day.
  */
-function DaySection({ today, date, shown }: { today: string | null; date: string | null; shown: Shown }) {
+function DaySection({
+  today,
+  date,
+  shown,
+  onDismiss,
+}: {
+  today: string | null;
+  date: string | null;
+  shown: Shown;
+  onDismiss: (assignment: DriverAssignment) => Promise<void>;
+}) {
   // The day as last read, until a refresh that moved on to a new day answers.
   const day = shown?.date ?? date;
   const tab = day && today ? tabFor(day, today) : null;
@@ -263,7 +287,7 @@ function DaySection({ today, date, shown }: { today: string | null; date: string
       {shown && shown.assignments.length === 0 && (
         <p className="text-lg text-muted-foreground">Nothing from Dave yet for {weekdayName(shown.date)}.</p>
       )}
-      {shown?.assignments.map((assignment) => <DriverCard key={assignment.id} assignment={assignment} />)}
+      {shown?.assignments.map((assignment) => <DriverCard key={assignment.id} assignment={assignment} onDismiss={onDismiss} />)}
     </section>
   );
 }

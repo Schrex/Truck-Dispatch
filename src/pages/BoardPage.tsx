@@ -15,7 +15,7 @@ import { ViewToggle } from '@/components/ViewToggle';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/sonner';
 import { useReadOnFocus } from '@/lib/useReadOnFocus';
-import { assignAssignment, fetchBusinessDay, fetchCheckIns, fetchDay, fetchList, fetchTruckProblems, Refused } from '@/lib/api';
+import { assignAssignment, discardAssignment, fetchBusinessDay, fetchCheckIns, fetchDay, fetchList, fetchTruckProblems, Refused } from '@/lib/api';
 
 /** Every open Truck problem, for the marks. */
 const readOpenProblems = () => fetchTruckProblems({ open: true });
@@ -140,7 +140,7 @@ export function BoardPage() {
       const added = answered.filter((a) => !day.some((d) => d.id === a.id));
       return [...day.map((a) => byId.get(a.id) ?? a), ...added].sort((x, y) => x.position - y.position);
     });
-  /** A Draft ✕ deleted leaves the day, and its editor closes. */
+  /** A Draft ✕ deleted, or a cancelled one discarded, leaves the day, and its editor closes. */
   const deleted = (id: string) => {
     setOpenId(null);
     setAssignments((day) => day && day.filter((a) => a.id !== id));
@@ -151,6 +151,15 @@ export function BoardPage() {
       changed([await assignAssignment(assignment.id)]);
     } catch (error) {
       toast.error(error instanceof Refused ? error.message : 'Could not Assign it. Try again.');
+    }
+  };
+  /** Discard on a cancelled block: it leaves the Board, or the Worker's message when it refused. */
+  const discard = async (assignment: Assignment) => {
+    try {
+      await discardAssignment(assignment.id);
+      deleted(assignment.id);
+    } catch (error) {
+      toast.error(error instanceof Refused ? error.message : 'Could not discard it. Try again.');
     }
   };
   // The day on screen as last read: each time it changes (an add, an Assign, any change), the week strip reads its states again.
@@ -221,6 +230,7 @@ export function BoardPage() {
             problems={onToday ? problems : undefined}
             onEdit={editable ? (assignment) => setOpenId((current) => (current === assignment.id ? null : assignment.id)) : undefined}
             onAssign={editable ? assign : undefined}
+            onDiscard={discard}
             openId={editable ? openId : null}
             editor={(assignment, { first, last }) => (
               <AssignmentEditor

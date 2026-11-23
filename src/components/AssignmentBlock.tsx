@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { Loader2, UserCheck } from 'lucide-react';
+import { Loader2, Trash2, UserCheck } from 'lucide-react';
 import type { Assignment, AssignmentTripPart, SinceSent } from '../../shared/types';
 import { easternTime } from '../../shared/days';
 import { Button } from '@/components/ui/button';
@@ -105,7 +105,9 @@ const DRAFT = { word: 'Draft', className: 'border border-dashed border-muted-for
  * Driver also has Assign on the block: one tap, no confirm (ADR 0005). With a
  * Trip part (phase 3) that has Trips, a last line says its Loads so far, Now or
  * Done, and since when ("2 Loads · Now · since 08:24"); without one the block
- * is exactly as before.
+ * is exactly as before. With onDiscard a cancelled one has Discard in its
+ * corner, on any day: one tap clears it off the Board (its Driver still sees
+ * it until he dismisses it).
  */
 export function AssignmentBlock({
   assignment,
@@ -114,6 +116,7 @@ export function AssignmentBlock({
   jobSites,
   onEdit,
   onAssign,
+  onDiscard,
   open = false,
 }: {
   assignment: Assignment;
@@ -125,6 +128,8 @@ export function AssignmentBlock({
   onEdit?: (assignment: Assignment) => void;
   /** Assigns it; settles once the Worker has answered. Offered only on a Draft with a Driver. */
   onAssign?: (assignment: Assignment) => Promise<void>;
+  /** Discards it from the Board; settles once the Worker has answered. Offered only on a cancelled one. */
+  onDiscard?: (assignment: Assignment) => Promise<void>;
   /** Whether it is open in its lane; tapping it again closes it. */
   open?: boolean;
 }) {
@@ -154,6 +159,7 @@ export function AssignmentBlock({
   const draft = assignment.assignedAt === null && !assignment.cancelledAt;
   const mark = assignment.cancelledAt ? CANCELLED : draft ? DRAFT : assignment.sinceSent ? MARKS[assignment.sinceSent] : null;
   const assignable = Boolean(onAssign && draft && assignment.driverId);
+  const discardable = Boolean(onDiscard && assignment.cancelledAt);
 
   const body = (
     <>
@@ -190,10 +196,21 @@ export function AssignmentBlock({
   const frame = cn(
     'block w-full rounded-md border bg-background px-3 py-2 text-left text-sm shadow-sm',
     draft && 'border-dashed border-muted-foreground/50',
-    assignable && 'pb-12',
+    (assignable || discardable) && 'pb-12',
     assignment.cancelledAt && [cancelledText, 'opacity-60'],
   );
-  if (!onEdit) return <li className={frame}>{body}</li>;
+  const discard = discardable && onDiscard && (
+    <CornerButton label={`Discard ${words}`} variant="outline" icon={Trash2} word="Discard" onTap={() => onDiscard(assignment)} />
+  );
+  if (!onEdit)
+    return discard ? (
+      <li className="relative">
+        <div className={frame}>{body}</div>
+        {discard}
+      </li>
+    ) : (
+      <li className={frame}>{body}</li>
+    );
   return (
     <li className="relative">
       <button
@@ -205,25 +222,38 @@ export function AssignmentBlock({
       >
         {body}
       </button>
-      {assignable && onAssign && <AssignButton words={words} onAssign={() => onAssign(assignment)} />}
+      {assignable && onAssign && <CornerButton label={`Assign ${words}`} icon={UserCheck} word="Assign" onTap={() => onAssign(assignment)} />}
+      {discard}
     </li>
   );
 }
 
-/** Assign on a Draft's block, in its corner: busy until the Worker answers. */
-function AssignButton({ words, onAssign }: { words: string; onAssign: () => Promise<void> }) {
+/** Assign on a Draft's block, or Discard on a cancelled one, in its corner: busy until the Worker answers. */
+function CornerButton({
+  label,
+  word,
+  icon: Icon,
+  variant = 'default',
+  onTap,
+}: {
+  label: string;
+  word: string;
+  icon: typeof UserCheck;
+  variant?: 'default' | 'outline';
+  onTap: () => Promise<void>;
+}) {
   const [busy, setBusy] = useState(false);
   async function tap() {
     setBusy(true);
     try {
-      await onAssign();
+      await onTap();
     } finally {
       setBusy(false);
     }
   }
   return (
-    <Button type="button" size="sm" aria-label={`Assign ${words}`} className="absolute bottom-2 right-2" disabled={busy} onClick={tap}>
-      {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCheck className="h-4 w-4" />} Assign
+    <Button type="button" size="sm" variant={variant} aria-label={label} className="absolute bottom-2 right-2" disabled={busy} onClick={tap}>
+      {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Icon className="h-4 w-4" />} {word}
     </Button>
   );
 }
