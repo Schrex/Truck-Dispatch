@@ -104,7 +104,7 @@ const assignment = (
   fromPlaceId: string | null,
   toPlaceId: string | null,
   materialName: string,
-  extra: Partial<TripAssignment> = {},
+  extra: Partial<Omit<TripAssignment, 'driverId' | 'truckId'>> = {},
   whose: Pick<PlannedAssignment, 'driverId' | 'truckId'> = {},
 ): PlannedAssignment => ({ id, label, fromPlaceId, toPlaceId, materialName, cancelledAt: null, changes: [], ...extra, ...whose });
 
