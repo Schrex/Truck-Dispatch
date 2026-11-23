@@ -72,7 +72,9 @@ function inLane(assignments: Assignment[], openId: string | null | undefined): I
  * `editor` gives for it under the lane's blocks. With onAdd each lane but a removed
  * Driver's has a + that asks for the composer, which the lane named by
  * composingFor (a Driver's id, or null for Unassigned) shows under its
- * Driver. Without them the lanes are read-only.
+ * Driver. With onAssign each Draft with a Driver has Assign on its block,
+ * and an Unassigned lane holding Drafts says to pick a Driver to Assign one.
+ * Without them the lanes are read-only.
  * On a phone a lane's blocks stack under the Driver; from an iPad in portrait
  * up, the Driver sits on the left and the blocks run beside him.
  */
@@ -82,6 +84,7 @@ export function Lanes({
   trucks,
   places = null,
   onEdit,
+  onAssign,
   openId,
   editor,
   onAdd,
@@ -94,6 +97,8 @@ export function Lanes({
   /** The Places, so each block names its Foreman beside the job site; null while they load. */
   places?: Place[] | null;
   onEdit?: (assignment: Assignment) => void;
+  /** Assigns a Draft that has a Driver; settles once the Worker has answered. */
+  onAssign?: (assignment: Assignment) => Promise<void>;
   /** The Assignment shown open; null or undefined when none is. */
   openId?: string | null;
   /** The open Assignment's editor, shown in its lane. */
@@ -112,6 +117,7 @@ export function Lanes({
         const openAt = lane.assignments.findIndex((assignment) => assignment.id === openId);
         // First is the first that is not cancelled, as the moves count them; a cancelled one is off the day.
         const firstAt = lane.assignments.findIndex((assignment) => assignment.cancelledAt === null);
+        const waiting = onAssign && !lane.driverId && lane.assignments.some((assignment) => assignment.assignedAt === null && !assignment.cancelledAt);
         return (
           <Card key={lane.key} role="article" aria-labelledby={`lane-${lane.key}`} className="space-y-3 p-4">
             <div className="flex flex-col gap-3 md:flex-row md:items-start">
@@ -126,6 +132,7 @@ export function Lanes({
                       {about}
                     </p>
                   )}
+                  {waiting && <p className="text-sm text-muted-foreground">Pick a Driver to Assign</p>}
                 </div>
                 {onAdd && !lane.removed && (
                   <Button
@@ -152,6 +159,7 @@ export function Lanes({
                       usualTruck={lane.usualTruck}
                       jobSites={jobSites}
                       onEdit={onEdit}
+                      onAssign={onAssign}
                       open={i === openAt}
                     />
                   ))}

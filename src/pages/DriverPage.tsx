@@ -6,7 +6,7 @@ import { DriverCard } from '@/components/DriverCard';
 import { PageHeader } from '@/components/PageHeader';
 import { ViewToggle } from '@/components/ViewToggle';
 import { Button } from '@/components/ui/button';
-import { fetchBusinessDay, fetchDriverDay, fetchList, fetchNextSent } from '@/lib/api';
+import { fetchBusinessDay, fetchDriverDay, fetchList, fetchNextAssigned } from '@/lib/api';
 import { storedDriver, storeDriver } from '@/lib/deviceView';
 
 /** A day as the page holds it: loading (undefined), failed (null), or as the Worker read it. */
@@ -25,7 +25,7 @@ function tabFor(date: string, today: string): Tab | null {
 /**
  * The Driver view: one of the Driver's days at a time, read from the Worker.
  * It opens on Today; Yesterday, Today and Tomorrow are one tap (calendar days,
- * so a Sent Saturday shows on Friday), and ‹ › step one calendar day at a time,
+ * so on a Friday Tomorrow is Saturday), and ‹ › step one calendar day at a time,
  * weekends included, as far as he likes, since Dave can plan any day. When
  * Dave has Assigned him work beyond tomorrow, "Next from Dave: Mon, Nov 23 →"
  * takes him there, so a weekend never hides Monday. The first time, it asks
@@ -44,7 +44,7 @@ export function DriverPage() {
   const [picked, setPicked] = useState<string | null>(null);
   const [businessDay, setBusinessDay] = useState<BusinessDay | null>(null);
   const [shown, setShown] = useState<Shown>(undefined);
-  const [nextSent, setNextSent] = useState<string | null>(null);
+  const [nextAssigned, setNextAssigned] = useState<string | null>(null);
   const [refreshes, setRefreshes] = useState(0);
 
   useEffect(() => {
@@ -80,9 +80,9 @@ export function DriverPage() {
           () => !stale && setShown(null),
         );
         // Only a pointer: if it cannot be read, the line is simply not shown.
-        fetchNextSent(driverId).then(
-          (date) => !stale && setNextSent(date),
-          () => !stale && setNextSent(null),
+        fetchNextAssigned(driverId).then(
+          (date) => !stale && setNextAssigned(date),
+          () => !stale && setNextAssigned(null),
         );
       },
       () => !stale && setShown((current) => current ?? null),
@@ -97,7 +97,7 @@ export function DriverPage() {
     setDriverId(id);
     setPicking(false);
     setPicked(null);
-    setNextSent(null);
+    setNextAssigned(null);
     setShown(undefined);
   };
   const today = businessDay?.today ?? null;
@@ -185,9 +185,9 @@ export function DriverPage() {
                 <ChevronRight className="h-5 w-5" />
               </Button>
             </div>
-            {nextSent && nextSent !== date && (
-              <button type="button" className="text-lg font-medium underline underline-offset-4" onClick={() => show(nextSent)}>
-                Next from Dave: {shortDate(nextSent)} →
+            {nextAssigned && nextAssigned !== date && (
+              <button type="button" className="text-lg font-medium underline underline-offset-4" onClick={() => show(nextAssigned)}>
+                Next from Dave: {shortDate(nextAssigned)} →
               </button>
             )}
             <DaySection today={today} date={date} shown={shown} />

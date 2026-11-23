@@ -106,7 +106,7 @@ export function AssignmentEditor({
   first: boolean;
   /** Whether it is last in its lane, so it cannot be done any later. */
   last: boolean;
-  /** The Worker's answer to a change: the Assignment, or on a Sent day's new Driver, its copy and the first one cancelled. */
+  /** The Worker's answer to a change: the Assignment, or, for an Assigned one given a new Driver, its copy and the first one cancelled. */
   onSaved: (changed: ChangedAssignment) => void;
   /** Its lane in its new order after a move. */
   onMoved: (lane: Assignment[]) => void;

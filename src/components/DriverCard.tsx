@@ -4,7 +4,7 @@ import { cancelledText, cn } from '@/lib/utils';
 /** Whose changes the Driver is told about: the dispatcher, by name, as he knows him. */
 const DISPATCHER = 'Dave';
 
-/** The mark on a card Dave changed or added after Sending, in the board's colours for Changed and Added. */
+/** The mark on a card Dave changed or added after Assigning it, in the board's colours for Changed and Added. */
 const MARKS: Record<Exclude<SinceSent, null>, { word: string; className: string }> = {
   changed: { word: `Changed by ${DISPATCHER}`, className: 'bg-warning text-warning-foreground' },
   added: { word: `Added by ${DISPATCHER}`, className: 'bg-success text-success-foreground' },
@@ -13,7 +13,7 @@ const MARKS: Record<Exclude<SinceSent, null>, { word: string; className: string 
 /** A cancelled card's mark, which says more to the Driver than Changed: he is not to go. */
 const CANCELLED = { word: `Cancelled by ${DISPATCHER}`, className: 'bg-destructive text-destructive-foreground' };
 
-/** "was Cobblestone" under a field Dave changed after Sending; "was empty" when it had nothing then. */
+/** "was Cobblestone" under a field Dave changed after Assigning it; "was empty" when it had nothing then. */
 function Was({ value }: { value: string | null | undefined }) {
   if (value === undefined) return null;
   return <span className="block text-sm font-normal text-muted-foreground">was {value ?? 'empty'}</span>;
@@ -21,7 +21,7 @@ function Was({ value }: { value: string | null | undefined }) {
 
 /**
  * Which Truck to take, only when it is not the usual: "Take Truck 53 for this
- * one" when Dave named one; and when he changed it after Sending, what it was
+ * one" when Dave named one; and when he changed it after Assigning it, what it was
  * (a Truck, or the Driver's own).
  */
 function truckLine({ truckNumber, was }: DriverAssignment): string | null {
@@ -34,7 +34,7 @@ function truckLine({ truckNumber, was }: DriverAssignment): string | null {
 /**
  * One of a Driver's Assignments, large enough to read from the cab: the
  * Material, Pick up and Drop off, the Foreman (when there is one), the note, which Truck when it is not his
- * own, and Dave's changes since Sending it: Changed (with what it was), Added,
+ * own, and Dave's changes since Assigning it: Changed (with what it was), Added,
  * or cancelled (struck through).
  */
 export function DriverCard({ assignment }: { assignment: DriverAssignment }) {

@@ -8,7 +8,7 @@ import type { DriverAssignment, DriverDay } from '../../shared/types';
 /**
  * The API as a Driver's phone sees it: today in US Eastern is Thursday
  * 2026-11-19 (a test can move it on), two active Drivers and a removed one,
- * and each Driver's day as the Worker reads it, a Draft unless a test Sends it.
+ * and each Driver's day as the Worker reads it, a Draft unless a test Assigns it.
  */
 const THURSDAY = { today: '2026-11-19', tomorrow: '2026-11-20', nextWorkingDay: '2026-11-20' };
 let businessDay = THURSDAY;
@@ -174,7 +174,7 @@ describe('a Driver\'s yesterday, today and tomorrow', () => {
     expect(screen.queryByRole('region', { name: /^Tomorrow/ })).toBeNull();
   });
 
-  it('shows yesterday\'s Sent Assignments, read from the Worker', async () => {
+  it('shows yesterday\'s Assigned Assignments, read from the Worker', async () => {
     sentDays['drv-a 2026-11-18'] = [card({ date: '2026-11-18', note: 'Wednesday haul' })];
     open('/');
     await day('Today, Thu, Nov 19');
@@ -207,7 +207,7 @@ describe('a Driver\'s yesterday, today and tomorrow', () => {
     expect(within(second).queryByText(/Take Truck/)).toBeNull();
   });
 
-  it('marks one changed after the Send "Changed by Dave", with what it was', async () => {
+  it('marks one changed after it was Assigned "Changed by Dave", with what it was', async () => {
     sentDays['drv-a 2026-11-19'] = [
       card({ materialName: 'Sample Stone', sinceSent: 'changed', changedAt: '2026-11-19T12:00:00.000Z', truckNumber: null, was: { materialName: 'Cobblestone', truckNumber: '24' } }),
     ];
@@ -218,7 +218,7 @@ describe('a Driver\'s yesterday, today and tomorrow', () => {
     expect(within(changed).getByText('Take your own Truck (was Truck 24)')).toBeTruthy();
   });
 
-  it('shows the Foreman, and what he was when Dave changed him after the Send', async () => {
+  it('shows the Foreman, and what he was when Dave changed him after Assigning it', async () => {
     sentDays['drv-a 2026-11-19'] = [
       card({ note: 'Haul stone', foremanId: 'frm-b', foremanName: 'Brody', sinceSent: 'changed', changedAt: '2026-11-19T12:00:00.000Z', was: { foremanName: 'Sample Foreman A' } }),
       card({ note: 'No foreman', position: 1 }),
@@ -230,7 +230,7 @@ describe('a Driver\'s yesterday, today and tomorrow', () => {
     expect(within(without).queryByText('Foreman')).toBeNull();
   });
 
-  it('marks one added after the Send "Added by Dave"', async () => {
+  it('marks one Added (Assigned on its own day) "Added by Dave"', async () => {
     sentDays['drv-a 2026-11-20'] = [card({ date: '2026-11-20', note: 'Fill the shop', sinceSent: 'added' })];
     open('/');
     await pick('Tomorrow');
@@ -287,7 +287,7 @@ describe('a Driver\'s yesterday, today and tomorrow', () => {
     expect(await day('Today, Thu, Nov 19')).toBeTruthy();
   });
 
-  it('points to Dave\'s next Sent day beyond tomorrow, and takes him there', async () => {
+  it('points to Dave\'s next Assigned day beyond tomorrow, and takes him there', async () => {
     sentDays['drv-a 2026-11-23'] = [card({ date: '2026-11-23', note: 'Monday haul' })];
     open('/');
     fireEvent.click(await screen.findByRole('button', { name: 'Next from Dave: Mon, Nov 23 →' }));
@@ -295,7 +295,7 @@ describe('a Driver\'s yesterday, today and tomorrow', () => {
     expect(screen.queryByRole('button', { name: /^Next from Dave/ })).toBeNull();
   });
 
-  it('does not point anywhere when nothing beyond tomorrow is Sent for him', async () => {
+  it('does not point anywhere when nothing beyond tomorrow is Assigned to him', async () => {
     sentDays['drv-a 2026-11-20'] = [card({ date: '2026-11-20', note: 'Friday haul' })];
     sentDays['drv-b 2026-11-23'] = [card({ date: '2026-11-23', driverId: 'drv-b' })];
     open('/');

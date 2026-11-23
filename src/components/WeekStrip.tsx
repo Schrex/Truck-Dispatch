@@ -26,7 +26,7 @@ export function tileParts(date: string, today: string | null, day: WeekDay | und
  * day's state, the day on screen filled and today outlined; tapping a tile
  * shows that day. The pager above moves a week at a time, keeping the
  * weekday. The states are read again whenever `refresh` changes (the Board
- * passes its day, so a Send, an add or any other change shows at once) and
+ * passes its day, so an Assign, an add or any other change shows at once) and
  * when the page regains the focus, for changes made elsewhere. A week that
  * cannot be read says so under the tiles, which still show their days. On a
  * phone the tiles scroll sideways.

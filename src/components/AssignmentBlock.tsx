@@ -1,5 +1,7 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import { Loader2, UserCheck } from 'lucide-react';
 import type { Assignment, SinceSent } from '../../shared/types';
+import { Button } from '@/components/ui/button';
 import { foremanSite } from '@/lib/lists';
 import { cancelledText, cn } from '@/lib/utils';
 
@@ -37,7 +39,7 @@ function truckOf(named: string | null, usual: string | null): Detail | null {
   };
 }
 
-/** The mark on a block Changed or Added since its day was Sent: the word, and its colour from the Hub's tokens. */
+/** The mark on a block Changed or Added since it was Assigned: the word, and its colour from the Hub's tokens. */
 const MARKS: Record<Exclude<SinceSent, null>, { word: string; className: string }> = {
   changed: { word: 'Changed', className: 'bg-warning text-warning-foreground' },
   added: { word: 'Added', className: 'bg-success text-success-foreground' },
@@ -45,6 +47,9 @@ const MARKS: Record<Exclude<SinceSent, null>, { word: string; className: string 
 
 /** The mark on a cancelled block, in place of Changed: greyed like the block itself. */
 const CANCELLED = { word: 'Cancelled', className: 'bg-muted text-muted-foreground' };
+
+/** The mark on a Draft, which its Driver sees nothing of yet: outlined dashed, like the block's frame. */
+const DRAFT = { word: 'Draft', className: 'border border-dashed border-muted-foreground/60 text-muted-foreground' };
 
 /**
  * One Assignment as a block in its lane, marked First (the first in the lane that is not cancelled)
@@ -55,11 +60,15 @@ const CANCELLED = { word: 'Cancelled', className: 'bg-muted text-muted-foregroun
  * pick-up), and under the title only when neither Place is a job site. A
  * Truck the Assignment names (the work needs a certain one) shows plainly;
  * with none named the Driver takes his own, so his usual Truck shows in grey, read aloud as "(his own)", or
- * nothing when he has none. Once its day is Sent, a block Changed or Added
- * since is marked so beside First or Then, so Dave sees what the Drivers
- * have had changed. A cancelled one stays in its place, struck through and
- * greyed, marked Cancelled (rather than Changed), as the Driver sees it. With onEdit (today and later days) tapping the block
- * opens or closes the Assignment in its lane; without it (past days) it is plain.
+ * nothing when he has none. A Draft (not Assigned yet, so its Driver sees
+ * nothing of it) has a dashed outline and is marked Draft beside First or
+ * Then; an Assigned one looks plain, marked only once it is Changed or Added
+ * since it was Assigned, so Dave sees what the Drivers have had changed. A
+ * cancelled one stays in its place, struck through and greyed, marked
+ * Cancelled (rather than Changed), as the Driver sees it. With onEdit (today
+ * and later days) tapping the block opens or closes the Assignment in its
+ * lane; without it (past days) it is plain. With onAssign a Draft that has a
+ * Driver also has Assign on the block: one tap, no confirm (ADR 0005).
  */
 export function AssignmentBlock({
   assignment,
@@ -67,6 +76,7 @@ export function AssignmentBlock({
   usualTruck = null,
   jobSites,
   onEdit,
+  onAssign,
   open = false,
 }: {
   assignment: Assignment;
@@ -76,6 +86,8 @@ export function AssignmentBlock({
   /** The number of the Driver's usual Truck, shown when the Assignment names no Truck. */
   usualTruck?: string | null;
   onEdit?: (assignment: Assignment) => void;
+  /** Assigns it; settles once the Worker has answered. Offered only on a Draft with a Driver. */
+  onAssign?: (assignment: Assignment) => Promise<void>;
   /** Whether it is open in its lane; tapping it again closes it. */
   open?: boolean;
 }) {
@@ -102,7 +114,9 @@ export function AssignmentBlock({
       .filter((part) => part && !part.hisOwn)
       .map((part) => part?.words)
       .join(' · ') || 'No details yet';
-  const mark = assignment.cancelledAt ? CANCELLED : assignment.sinceSent ? MARKS[assignment.sinceSent] : null;
+  const draft = assignment.assignedAt === null && !assignment.cancelledAt;
+  const mark = assignment.cancelledAt ? CANCELLED : draft ? DRAFT : assignment.sinceSent ? MARKS[assignment.sinceSent] : null;
+  const assignable = Boolean(onAssign && draft && assignment.driverId);
 
   const body = (
     <>
@@ -135,10 +149,15 @@ export function AssignmentBlock({
       )}
     </>
   );
-  const frame = cn('block w-full rounded-md border bg-background px-3 py-2 text-left text-sm shadow-sm', assignment.cancelledAt && [cancelledText, 'opacity-60']);
+  const frame = cn(
+    'block w-full rounded-md border bg-background px-3 py-2 text-left text-sm shadow-sm',
+    draft && 'border-dashed border-muted-foreground/50',
+    assignable && 'pb-12',
+    assignment.cancelledAt && [cancelledText, 'opacity-60'],
+  );
   if (!onEdit) return <li className={frame}>{body}</li>;
   return (
-    <li>
+    <li className="relative">
       <button
         type="button"
         aria-label={`Edit ${words}${mark ? ` · ${mark.word}` : ''}`}
@@ -148,6 +167,25 @@ export function AssignmentBlock({
       >
         {body}
       </button>
+      {assignable && onAssign && <AssignButton words={words} onAssign={() => onAssign(assignment)} />}
     </li>
+  );
+}
+
+/** Assign on a Draft's block, in its corner: busy until the Worker answers. */
+function AssignButton({ words, onAssign }: { words: string; onAssign: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  async function tap() {
+    setBusy(true);
+    try {
+      await onAssign();
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Button type="button" size="sm" aria-label={`Assign ${words}`} className="absolute bottom-2 right-2" disabled={busy} onClick={tap}>
+      {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCheck className="h-4 w-4" />} Assign
+    </Button>
   );
 }
