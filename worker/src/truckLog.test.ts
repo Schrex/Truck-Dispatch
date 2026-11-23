@@ -247,6 +247,17 @@ describe('The clock of a stored day', () => {
     expect(log.tripDay.truckDay.endAt).toBeNull();
   });
 
+  it("gives A1 its Trip part at 10:02: 2 Loads, Now, 1.59 h, and A2 none yet", async () => {
+    const { truckId, a1, a2 } = await planMonday();
+    await importCut('2026-11-16-cut-1620.json');
+    const log = await readLog(truckId, { at: '10:02' });
+    const part = (id: string) => log.assignments.find((a) => a.id === id)?.trips;
+    expect(part(a1.id)).toMatchObject({ loads: 2, status: 'now', truckingHours: 1.59 });
+    expect(easternTime(part(a1.id)!.since!)).toBe('08:24');
+    expect(part(a2.id)?.status ?? 'none').toBe('none');
+    expect(log.truckLog.columns.find((c) => c.id === a1.id)).toMatchObject({ loads: 2, truckingHours: 1.59 });
+  });
+
   it('never builds the day later than its latest Import, even when a later clock is asked for', async () => {
     const { truckId } = await planMonday();
     await importCut('2026-11-16-cut-1305.json', '2026-11-16T18:10:00.000Z');
