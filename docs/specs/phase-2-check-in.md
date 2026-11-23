@@ -1,6 +1,6 @@
 # Phase 2 spec: Check-in (user stories)
 
-Status: **agreed**, 23 Nov 2026, in a design grilling; not built yet. Words in capitals are the ones in [`GLOSSARY.md`](../../GLOSSARY.md) (new in this phase: **Check-in**). The build order is in [`roadmap.md`](roadmap.md), phase 2. The reasons behind the design are in [`../design/dispatch-board-decisions.md`](../design/dispatch-board-decisions.md), "Check-in (phase 2)".
+Status: **built** (roadmap phase 2, [PR #62](https://github.com/Schrex/Truck-Dispatch/pull/62)). Agreed in a design grilling on 23 Nov 2026. Words in capitals are the ones in [`GLOSSARY.md`](../../GLOSSARY.md) (new in this phase: **Check-in**). The build order is in [`roadmap.md`](roadmap.md), phase 2. The reasons behind the design are in [`../design/dispatch-board-decisions.md`](../design/dispatch-board-decisions.md), "Check-in (phase 2)".
 
 ## Problem
 

@@ -7,7 +7,7 @@ This is the detailed design for phase 3 of `docs/design/dispatch-board-decisions
 - where Trips appear in the screens that already exist;
 - the few places where the data says an agreed decision has to change. These are listed as proposals at the end.
 
-Words are from `GLOSSARY.md`: Assignment, Driver, Truck, Place, Trip, Load, Ticket, Inspection, Send, Truck log. "Visit" below is a raw HCSS row, not a glossary word.
+Words are from `GLOSSARY.md`: Assignment, Driver, Truck, Place, Trip, Load, Ticket, Inspection, Assign, Truck log. "Visit" below is a raw HCSS row, not a glossary word.
 
 ## Agreed (from `main`), and used here as is
 
@@ -15,7 +15,7 @@ Words are from `GLOSSARY.md`: Assignment, Driver, Truck, Place, Trip, Load, Tick
 - A Trip from an Assignment's From to its To is a Load; the way back is empty. `trips.kind` is `load`, `empty`, `not_a_haul` or NULL (not answered yet).
 - The Driver of a Trip is whoever last inspected that Truck before it (phase 2). Without an Inspection, Dave answers "Who was driving?".
 - At sign-off the Driver puts each Ticket on its Load and confirms his Trips. Dave answers the rest next morning: Trips with no Assignment (make one, link one, not a haul), "Who was driving?", and Assignments with no Trips.
-- Trips made before a reroute are matched against the Assignment as it was. `assignment_changes` already keeps every earlier version from the Send on.
+- Trips made before a reroute are matched against the Assignment as it was. `assignment_changes` already keeps every earlier version from when it was Assigned on.
 - An Assignment's Now, Done and "since" are worked out from its Trips, not stored.
 - Miles and engine hours are the Fleet meter readings around the day (`meter_readings`): the last one before the day and the first one after it. On 16 Nov those were read 15 Nov 21:41 and 16 Nov 22:12 Eastern, so the end miles exist from that evening.
 
