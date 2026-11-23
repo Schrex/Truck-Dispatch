@@ -1,10 +1,10 @@
 import { useState, type ReactNode } from 'react';
 import { Loader2, UserCheck } from 'lucide-react';
 import type { Assignment, AssignmentTripPart, SinceSent } from '../../shared/types';
-import { easternTime } from '../../shared/trips';
+import { easternTime } from '../../shared/days';
 import { Button } from '@/components/ui/button';
 import { foremanSite } from '@/lib/lists';
-import { cancelledText, cn } from '@/lib/utils';
+import { cancelledText, cn, loadsText, shownTripPart } from '@/lib/utils';
 
 /**
  * Read aloud and in tests the parts of a block run together as one line
@@ -60,16 +60,15 @@ const TRIP_STATUS: Record<Exclude<AssignmentTripPart['status'], 'none'>, { word:
  * Trip for it; nothing at all before, or when the Worker sends no Trip part,
  * so the block looks as it always has.
  */
-function TripLine({ trips }: { trips: AssignmentTripPart | undefined }) {
-  if (!trips || trips.status === 'none') return null;
+function TripLine({ part }: { part: AssignmentTripPart | undefined }) {
+  const trips = shownTripPart(part);
+  if (!trips) return null;
   const status = TRIP_STATUS[trips.status];
   return (
     <>
       {SEPARATOR}
       <span className="mt-1 flex flex-wrap items-center gap-x-1 text-muted-foreground">
-        <span className="font-medium text-foreground">
-          {trips.loads} {trips.loads === 1 ? 'Load' : 'Loads'}
-        </span>
+        <span className="font-medium text-foreground">{loadsText(trips.loads)}</span>
         {' · '}
         <span className={cn('rounded px-1.5 py-0.5 text-xs font-medium', status.className)}>{status.word}</span>
         {trips.since && (
@@ -185,7 +184,7 @@ export function AssignmentBlock({
           </span>
         </>
       )}
-      <TripLine trips={assignment.trips} />
+      <TripLine part={assignment.trips} />
     </>
   );
   const frame = cn(

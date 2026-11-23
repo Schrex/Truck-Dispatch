@@ -338,14 +338,14 @@ describe('the Trip part on a Driver card', () => {
 
   it('shows its Loads and the time of the last one, and nothing of Now once he has moved on', async () => {
     const { text } = await shown({ trips: part({ loads: 4, status: 'done', since: '2026-11-16T13:24:26Z', lastLoadAt: '2026-11-16T16:25:10Z' }) });
-    expect(text).toContain('4 loads · last 11:25');
+    expect(text).toContain('4 Loads · last 11:25');
     expect(text).not.toMatch(/Now|Done/);
   });
 
-  it('marks the one he is on now, and says 1 load for one', async () => {
+  it('marks the one he is on now, and says 1 Load for one', async () => {
     const { text } = await shown({ trips: part({ loads: 1, status: 'now', since: '2026-11-16T13:24:26Z', lastLoadAt: '2026-11-16T13:40:00Z' }) });
     expect(text).toContain('Now');
-    expect(text).toContain('1 load · last 08:40');
+    expect(text).toContain('1 Load · last 08:40');
   });
 
   it('looks exactly as it does without a Trip part while it has no Trips yet', async () => {

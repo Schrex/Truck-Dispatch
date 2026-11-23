@@ -3,7 +3,7 @@
  * times, odometers and order are a real HCSS Fleet day (Mon 16 Nov 2026); the
  * names are made up, like seed/fixture.sql: never real Jobs, Places or people.
  */
-import type { FleetVisit, TripAssignment, TripPlace } from './trips';
+import type { FleetVisit, IgnitionEvent, TripAssignment, TripPlace } from './trips';
 
 export const FIXTURE_DATE = '2026-11-16';
 
@@ -50,8 +50,21 @@ export const FIXTURE_VISITS: FleetVisit[] = [
   v('SHOP', '2026-11-16T21:03:25Z', null, 258211.79, null),
 ];
 
-/** The 4 AM meter readings around the day. */
+/** The meter readings around the day. */
 export const FIXTURE_METER = { startOdometer: 258050.59, endOdometer: 258212.2 };
+
+/**
+ * The same day, but the Truck never goes back to the shop: it is parked at
+ * North from 14:43 ET (its last visit stays open), and the ignition goes off
+ * there at 14:50.
+ */
+export const FIXTURE_PARKED_AT_JOB: { visits: FleetVisit[]; ignition: IgnitionEvent[] } = {
+  visits: [...FIXTURE_VISITS.slice(0, -2), { ...FIXTURE_VISITS.at(-2)!, exitedAt: null, exitOdometer: null }],
+  ignition: [
+    { at: '2026-11-16T11:20:00Z', on: true },
+    { at: '2026-11-16T19:50:10Z', on: false },
+  ],
+};
 
 const assignment = (id: string, label: string, fromPlaceId: string | null, toPlaceId: string | null, extra: Partial<TripAssignment> = {}): TripAssignment => ({
   id,

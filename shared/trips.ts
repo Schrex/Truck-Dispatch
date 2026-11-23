@@ -137,7 +137,11 @@ export interface TruckDay {
   driverCandidates: TruckDayDriver[];
   /** When the Truck first started: first ignition on, or its first exit from the shop. */
   startAt: string | null;
-  /** When it last stopped, once it is back at the shop or yard: its arrival there, or ignition off after it. */
+  /**
+   * When it last stopped. While the day goes on, only once it is back at the
+   * shop or yard: its arrival there, or ignition off after it. Once the day is
+   * over, wherever it stopped: the later of its last arrival and last ignition off.
+   */
   endAt: string | null;
   /** Meter reading before the day. */
   startMiles: number | null;
@@ -145,6 +149,31 @@ export interface TruckDay {
   endMiles: number | null;
   /** Start time to end time, in hours, 2 decimals; null without an end time. */
   totalHours: number | null;
+}
+
+/** One Assignment as a column of the Truck log (the paper's "Order"), ready to write in. */
+export interface TruckLogColumn {
+  /** The Assignment's id. */
+  id: string;
+  /** "J25008 Los Flamboyanes"; null when neither Place belongs to a Job. */
+  job: string | null;
+  pickUp: string | null;
+  dropOff: string | null;
+  material: string | null;
+  loads: number;
+  /** From the Loads' Tickets (phase 4); null until they are read. */
+  tons: number | null;
+  /** Null until it has a Trip. */
+  truckingHours: number | null;
+}
+
+/** A Trip no Assignment explains, as Dave reads it under the Truck log's columns. */
+export interface UnexplainedTrip {
+  leftAt: string;
+  arrivedAt: string;
+  /** Where from and to: the Place's short name, else Fleet's geofence code. */
+  from: string;
+  to: string;
 }
 
 /** One ignition change from the ping history. */
@@ -202,10 +231,18 @@ export interface TripDayInput {
   truck?: TruckDayInput | null;
   /** The Truck's ignition changes that day, from the ping history. */
   ignition?: IgnitionEvent[];
+  /** The day is over (end of day, or its data is all in): the Truck stopped wherever it last stopped. */
+  dayOver?: boolean;
 }
 
 const ms = (iso: string) => new Date(iso).getTime();
 const round = (n: number) => Math.round(n * 100) / 100;
+const later = (a: string, b: string) => (ms(a) >= ms(b) ? a : b);
+
+/** A Place's kind, or null for no Place. */
+const kindOf = (places: TripPlace[], id: string | null): TripPlaceKind => places.find((p) => p.id === id)?.kind ?? null;
+/** The shop or a yard: where a Truck's day starts and ends. */
+const isShopOrYard = (kind: TripPlaceKind) => kind === 'shop' || kind === 'yard';
 
 const localClock = new Intl.DateTimeFormat('en-US', {
   timeZone: BUSINESS_TIME_ZONE,
@@ -214,11 +251,6 @@ const localClock = new Intl.DateTimeFormat('en-US', {
   second: '2-digit',
   hourCycle: 'h23',
 });
-
-/** "08:24" in US Eastern, as screens show times. */
-export function easternTime(iso: string): string {
-  return localClock.format(new Date(iso)).slice(0, 5);
-}
 
 function isLocalMidnight(iso: string): boolean {
   return localClock.format(new Date(iso)) === '00:00:00';
@@ -296,7 +328,6 @@ export function matchTrip(
   assignments: TripAssignment[],
   places: TripPlace[],
 ): Match {
-  const kindOf = (id: string | null) => places.find((p) => p.id === id)?.kind ?? null;
   const live = assignments.filter((a) => a.cancelledAt === null || ms(a.cancelledAt) > ms(trip.leftAt));
   const routes = live.map((a) => ({ a, r: routeAt(a, trip.leftAt) }));
   const { fromPlaceId: from, toPlaceId: to } = trip;
@@ -313,13 +344,12 @@ export function matchTrip(
     const m = at(rule);
     if (m) return m;
   }
-  const shopish = (k: TripPlaceKind) => k === 'shop' || k === 'yard';
-  if (shopish(kindOf(from)) || shopish(kindOf(to))) return { kind: 'empty', assignmentId: null, rule: 3, reason: 'To or from the shop or a yard' };
+  if (isShopOrYard(kindOf(places, from)) || isShopOrYard(kindOf(places, to))) return { kind: 'empty', assignmentId: null, rule: 3, reason: 'To or from the shop or a yard' };
   for (const rule of RULES.slice(2)) {
     const m = at(rule);
     if (m) return m;
   }
-  if (to && kindOf(from) === 'plant') {
+  if (to && kindOf(places, from) === 'plant') {
     const m = at({ rule: 6, kind: 'load', fits: (r, _a, b) => r.toPlaceId === b && r.fromPlaceId === null, reason: 'From a plant to the Assignment’s drop; its From is empty' });
     if (m) return m;
   }
@@ -362,8 +392,7 @@ function summarize(input: TripDayInput, trips: Trip[]): AssignmentTrips[] {
   const { assignments, places, now } = input;
   const written = trips.filter((t) => t.written);
   const latest = written.at(-1);
-  const kindOf = (id: string | null) => places.find((p) => p.id === id)?.kind ?? null;
-  const atShop = latest ? ['shop', 'yard'].includes(kindOf(latest.toPlaceId) ?? '') : false;
+  const atShop = latest ? isShopOrYard(kindOf(places, latest.toPlaceId)) : false;
   return assignments.map((a) => {
     const own = written.filter((t) => t.match.assignmentId === a.id);
     const loads = own.filter((t) => t.match.kind === 'load');
@@ -402,8 +431,7 @@ function truckDrivers(truck: TruckDayInput | null | undefined): TruckDayDriver[]
 /** The Truck log's header at `now`. */
 function truckDayOf(input: TripDayInput, visits: CleanVisit[], trips: Trip[]): TruckDay {
   const at = ms(input.now);
-  const kindOf = (id: string | null) => input.places.find((p) => p.id === id)?.kind ?? null;
-  const shopish = (id: string | null) => ['shop', 'yard'].includes(kindOf(id) ?? '');
+  const shopish = (id: string | null) => isShopOrYard(kindOf(input.places, id));
   const ignition = (input.ignition ?? []).filter((e) => ms(e.at) <= at).sort((a, b) => ms(a.at) - ms(b.at));
 
   const firstOn = ignition.find((e) => e.on)?.at ?? null;
@@ -411,11 +439,18 @@ function truckDayOf(input: TripDayInput, visits: CleanVisit[], trips: Trip[]): T
   const starts = [firstOn, firstShopExit].filter((s): s is string => s !== null).sort((a, b) => ms(a) - ms(b));
   const startAt = starts[0] ?? null;
 
-  // Stopped for the day: the last Trip ended at the shop or yard and the Truck is still there.
   const lastTrip = trips.at(-1);
-  const back = lastTrip && shopish(lastTrip.toPlaceId) && visits.at(-1)?.exitedAt === null ? lastTrip.arrivedAt : null;
-  const lastOff = ignition.at(-1);
-  const endAt = back && lastOff && !lastOff.on && ms(lastOff.at) > ms(back) ? lastOff.at : back;
+  let endAt: string | null;
+  if (input.dayOver) {
+    // The day is over: it stopped wherever it last stopped, at its last arrival or the ignition off after it.
+    const stops = [lastTrip?.arrivedAt, [...ignition].reverse().find((e) => !e.on)?.at].filter((s): s is string => !!s);
+    endAt = stops.length > 0 ? stops.reduce(later) : null;
+  } else {
+    // Stopped for the day: the last Trip ended at the shop or yard and the Truck is still there.
+    const back = lastTrip && shopish(lastTrip.toPlaceId) && visits.at(-1)?.exitedAt === null ? lastTrip.arrivedAt : null;
+    const lastOff = ignition.at(-1);
+    endAt = back && lastOff && !lastOff.on && ms(lastOff.at) > ms(back) ? lastOff.at : back;
+  }
 
   const candidates = truckDrivers(input.truck);
   return {

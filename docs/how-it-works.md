@@ -55,9 +55,22 @@ What the app does as built, page by page. Words in capitals are defined in [`GLO
 - When Dave has Assigned him work beyond tomorrow (not cancelled), **Next from Dave: Mon, Nov 23 →** goes there.
 - He sees only his Assigned Assignments, never his Drafts; a day with none says "Nothing from Dave yet for Monday."
 - Otherwise his Assignments are large cards in Dave's order with the Material, Pick up, Drop off, the Foreman (when there is one) and the note, and "Take Truck 53 for this one" when a Truck is named.
-- A card can also show what the Truck did on it (phase 3): "4 loads · last 11:25" (its Loads and when the last one arrived), and **Now** on the Assignment he is on now. Only when the Assignment carries a Trip part (`trips`) with at least one Trip; the Worker does not send one yet, so his cards look as above. The Simulation (`/simulate`) shows it on Randy's real day.
+- A card can also show what the Truck did on it (phase 3): "4 Loads · last 11:25" (its Loads and when the last one arrived), and **Now** on the Assignment he is on now. Only when the Assignment carries a Trip part (`trips`) with at least one Trip; the Worker does not send one yet, so his cards look as above. The Simulation (`/simulate`) shows it on Randy's real day.
 - Marks: "Changed by Dave" with what each field was when it was Assigned ("was Cobblestone"), "Added by Dave" (Assigned on its own day, or handed over from another Driver), or struck through and "Cancelled by Dave". Given to another Driver after it was Assigned, it shows Cancelled to the first and Added to the second.
 - It reads today, the day shown and his next Assigned day again whenever the page regains the focus; Today moves on with the clock, a picked day stays.
+
+## Simulation (`/simulate`)
+
+Phase 3 run on one real day: Truck 55 (MCK-55-17), driven by Randy on Mon 16 Nov 2026, on the real HCSS Fleet data. The Trip builder (`shared/trips.ts`) works out everything below from what the Worker would know at the clock's time. Nothing is saved and the Worker is not asked.
+
+- **Clock**: a slider over the day, opening at "end of day"; **Play** runs it in the 10-minute steps the Worker pulls Fleet (from 04:00 when at end of day), **Pause** stops it.
+- **Scenario** picker for Dave's Assignments: As planned (A1 J25008 Los Flamboyanes → Villager, then A2 Walworth Dolomite → J25008), The other way round (A1 reversed), Reroute at 11:20 (A1's drop-off changed to J611 Bishop Kearney; Trips before 11:20 match A1 as it was).
+- **Scheduler view**: Randy's lane on the real board blocks, each with its Trip part (Loads, Now or Done, since when), Changed once the reroute has happened.
+- **Driver view**: his Today ("Today, Mon, Nov 16") on the real Driver cards, each with "4 Loads · last 11:25" and Now.
+- **Truck log**, the paper Daily Truck Log filled in:
+  - Header: Truck, date, start time (first ignition on or first exit from the shop, whichever is earlier), end time (while the day goes on, once the Truck is back at the shop or yard: its arrival, or a later ignition off; at end of day wherever it stopped: the later of its last arrival and last ignition off), start and end miles (the meter readings around the day; the end one from 22:12, when it was read), Driver (the one whose Assignments name the Truck, else whose usual Truck it is), or "Who was driving?" in red when more than one fits, and Total hours. A box is blank until what goes in it is known.
+  - One column per Assignment in Dave's order, headed "Assignment 1", "Assignment 2"…: Job (the drop-off's, else the pick-up's), Pick up, Drop off, Material, # of loads, # of tons (from the Loads' Tickets; blank, marked "from Tickets", until they are read) and Trucking hours.
+  - **Trips with no Assignment**: the written Trips no Assignment explains, as "14:15–14:23 · J25008 Los Flamboyanes → J611 Bishop Kearney", for Dave to answer next morning (shown, not answerable yet), or "None".
 
 ## Settings (`/settings`)
 

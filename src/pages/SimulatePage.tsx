@@ -3,7 +3,7 @@ import { Pause, Play } from 'lucide-react';
 import { Lanes } from '@/components/Lanes';
 import { PageHeader } from '@/components/PageHeader';
 import { TruckLog } from '@/components/TruckLog';
-import { TruckLogOrders } from '@/components/TruckLogOrders';
+import { TruckLogAssignments } from '@/components/TruckLogAssignments';
 import { Button } from '@/components/ui/button';
 import { DriverView } from '@/simulate/DriverView';
 import { REAL_DAY } from '@/simulate/realDay';
@@ -98,9 +98,9 @@ export function SimulatePage() {
           <h2 className="font-display text-xl font-semibold uppercase tracking-wide">Scheduler view</h2>
           <Lanes assignments={day.assignments} drivers={[REAL_DAY.driver]} trucks={[REAL_DAY.truck]} />
         </section>
-        <DriverView driverName={REAL_DAY.driver.name} assignments={day.assignments} />
+        <DriverView driverName={REAL_DAY.driver.name} date={REAL_DAY.date} assignments={day.assignments} />
         <TruckLog truck={REAL_DAY.truck} date={REAL_DAY.date} truckDay={day.tripDay.truckDay}>
-          <TruckLogOrders orders={day.truckLog.orders} tripsForDave={day.truckLog.tripsForDave} />
+          <TruckLogAssignments columns={day.truckLog.columns} unexplained={day.truckLog.unexplained} />
         </TruckLog>
       </main>
     </div>

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { buildTripDay, easternTime, matchTrip, routeAt, type TripAssignment } from './trips';
-import { FIXTURE_METER, FIXTURE_PLACES, FIXTURE_SCENARIOS, FIXTURE_VISITS } from './trips.fixture';
+import { easternTime } from './days';
+import { buildTripDay, matchTrip, routeAt, type TripAssignment } from './trips';
+import { FIXTURE_METER, FIXTURE_PARKED_AT_JOB, FIXTURE_PLACES, FIXTURE_SCENARIOS, FIXTURE_VISITS } from './trips.fixture';
 
 const END_OF_DAY = '2026-11-17T04:59:00Z';
 const scenario = (id: string) => FIXTURE_SCENARIOS.find((s) => s.id === id)!.assignments;
@@ -150,6 +151,25 @@ describe('The day as the Worker knows it during the day', () => {
     const d = day('two', '2026-11-16T04:00:00Z');
     expect(d.known).toEqual([]);
     expect(d.trips).toEqual([]);
+  });
+});
+
+describe('The Truck’s end time when it stops away from the shop', () => {
+  const parked = (dayOver: boolean, ignition = FIXTURE_PARKED_AT_JOB.ignition) => {
+    const d = buildTripDay({ places: FIXTURE_PLACES, visits: FIXTURE_PARKED_AT_JOB.visits, assignments: [], now: END_OF_DAY, ignition, dayOver }).truckDay;
+    return { start: d.startAt && easternTime(d.startAt), end: d.endAt && easternTime(d.endAt), totalHours: d.totalHours };
+  };
+
+  it('has no end time while the day is still going: it might drive on', () => {
+    expect(parked(false)).toEqual({ start: '06:20', end: null, totalHours: null });
+  });
+
+  it('once the day is over, ends at the ignition off after its last arrival, at the job', () => {
+    expect(parked(true)).toEqual({ start: '06:20', end: '14:50', totalHours: 8.5 });
+  });
+
+  it('once the day is over with no ignition off, ends at its last arrival', () => {
+    expect(parked(true, [])).toEqual({ start: '06:24', end: '14:43', totalHours: 8.31 });
   });
 });
 

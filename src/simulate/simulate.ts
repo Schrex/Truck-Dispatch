@@ -1,15 +1,14 @@
 /**
  * The real day at one moment: the Trip builder's output, and Dave's
  * Assignments as the production API would send them, each with its Trip part.
- * The page feeds these to the real board lanes (and, later, the Driver cards
- * and the Truck log). Pure; nothing is saved and the Worker is not asked.
+ * The page feeds these to the real board lanes, the Driver cards and the
+ * Truck log. Pure; nothing is saved and the Worker is not asked.
  */
 import type { Assignment } from '../../shared/types';
-import { buildTripDay, routeAt, type AssignmentTrips, type TripDay } from '../../shared/trips';
-import type { TripForDave, TruckLogOrder } from '../components/TruckLogOrders';
+import { buildTripDay, routeAt, type AssignmentTrips, type TripDay, type TruckLogColumn, type UnexplainedTrip } from '../../shared/trips';
 import { REAL_DAY, easternIso, type PlannedAssignment, type Scenario } from './realDay';
 
-/** The last minute of the day: the clock's end, when the next morning's meter reading exists. */
+/** The last minute of the day: the clock's end, when the day is over. */
 export const DAY_END = 23 * 60 + 59;
 
 /** "10:02" for minutes since midnight. */
@@ -24,7 +23,7 @@ export interface SimulatedDay {
   /** Randy's Assignments in Dave's order, as GET api/assignments would send them, with their Trip parts. */
   assignments: Assignment[];
   /** The Truck log's body: one column per Assignment, then the Trips no Assignment explains. */
-  truckLog: { orders: TruckLogOrder[]; tripsForDave: TripForDave[] };
+  truckLog: { columns: TruckLogColumn[]; unexplained: UnexplainedTrip[] };
 }
 
 const placeName = (id: string | null) => REAL_DAY.places.find((p) => p.id === id)?.name ?? null;
@@ -78,8 +77,13 @@ export function simulateAt(scenario: Scenario, minutes: number): SimulatedDay {
     visits: REAL_DAY.visits,
     assignments: scenario.assignments,
     now,
-    // The reading before the day exists all day; the one after it only once the day is over.
-    meter: { startOdometer: REAL_DAY.meter.startOdometer, endOdometer: minutes === DAY_END ? REAL_DAY.meter.endOdometer : null },
+    // The reading before the day exists all day; the one after it only once it was taken (22:12 that evening).
+    meter: {
+      startOdometer: REAL_DAY.meter.startOdometer,
+      endOdometer: Date.parse(REAL_DAY.meter.endReadAt) <= Date.parse(now) ? REAL_DAY.meter.endOdometer : null,
+    },
+    // At the clock's end the day is over: the Truck stopped wherever it last stopped.
+    dayOver: minutes === DAY_END,
     jobs: REAL_DAY.jobs,
     ignition: REAL_DAY.ignition,
     // Randy is the only Driver; his Assignments name no Truck, so his own, Truck 55.
@@ -92,7 +96,7 @@ export function simulateAt(scenario: Scenario, minutes: number): SimulatedDay {
   const assignments = scenario.assignments.map((planned, i) =>
     asAssignment(planned, i, now, tripDay.assignments.find((t) => t.assignmentId === planned.id)),
   );
-  const orders = assignments.map((a): TruckLogOrder => {
+  const columns = assignments.map((a): TruckLogColumn => {
     const trips = tripDay.assignments.find((t) => t.assignmentId === a.id);
     return {
       id: a.id,
@@ -101,14 +105,17 @@ export function simulateAt(scenario: Scenario, minutes: number): SimulatedDay {
       dropOff: a.toPlaceName,
       material: a.materialName,
       loads: trips?.loads ?? 0,
+      tons: trips?.tons ?? null,
       truckingHours: trips?.truckingHours ?? null,
     };
   });
-  const tripsForDave = tripDay.unexplained.map((t) => ({
-    leftAt: t.leftAt,
-    arrivedAt: t.arrivedAt,
-    from: placeName(t.fromPlaceId) ?? t.fromCode,
-    to: placeName(t.toPlaceId) ?? t.toCode,
-  }));
-  return { tripDay, assignments, truckLog: { orders, tripsForDave } };
+  const unexplained = tripDay.unexplained.map(
+    (t): UnexplainedTrip => ({
+      leftAt: t.leftAt,
+      arrivedAt: t.arrivedAt,
+      from: placeName(t.fromPlaceId) ?? t.fromCode,
+      to: placeName(t.toPlaceId) ?? t.toCode,
+    }),
+  );
+  return { tripDay, assignments, truckLog: { columns, unexplained } };
 }

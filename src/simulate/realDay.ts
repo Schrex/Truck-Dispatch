@@ -111,7 +111,7 @@ export const REAL_DAY = {
   ] satisfies TripJob[] as TripJob[],
   visits: VISITS,
   /** The meter readings around the day: 258,050.59 read 15 Nov 21:41 ET, 258,212.20 read 16 Nov 22:12 ET. */
-  meter: { startOdometer: 258050.59, endOdometer: 258212.2 },
+  meter: { startOdometer: 258050.59, endOdometer: 258212.2, endReadAt: '2026-11-17T03:12:00Z' },
   /** From the ping history: Ignition On 06:19:40, Ignition Off 16:12:45 US Eastern. */
   ignition: [
     { at: '2026-11-16T11:19:40Z', on: true },

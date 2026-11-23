@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { buildTripDay, easternTime } from '../../shared/trips';
+import { easternTime } from '../../shared/days';
+import { buildTripDay } from '../../shared/trips';
 import { REAL_DAY, easternIso } from './realDay';
 
 const scenario = (id: string) => REAL_DAY.scenarios.find((s) => s.id === id)!;
 const at = (id: string, time = '23:59:59') =>
   buildTripDay({ places: REAL_DAY.places, jobs: REAL_DAY.jobs, visits: REAL_DAY.visits, assignments: scenario(id).assignments, now: easternIso(REAL_DAY.date, time) });
-/** Randy's day for Truck 55 at a clock time: his Assignments name no Truck (his own), and the next morning's meter reading exists only at end of day. */
+/** Randy's day for Truck 55 at a clock time: his Assignments name no Truck (his own), and the evening's end meter reading is passed only when asked (at end of day here). */
 const truckDayAt = (time: string, endOfDay = false) =>
   buildTripDay({
     places: REAL_DAY.places,

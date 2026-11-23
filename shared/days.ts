@@ -191,6 +191,18 @@ export function businessDateOf(moment: string | Date): string {
   return businessDate.format(typeof moment === 'string' ? new Date(moment) : moment);
 }
 
+const businessClock = new Intl.DateTimeFormat('en-US', {
+  timeZone: BUSINESS_TIME_ZONE,
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
+
+/** "08:24": the time of a moment (ISO 8601) in US Eastern, as screens show times. */
+export function easternTime(iso: string): string {
+  return businessClock.format(new Date(iso));
+}
+
 /**
  * What the Changed and Added rule reads of an Assignment. Every time here is
  * an ISO 8601 moment in UTC, as the Worker writes them, so comparing the text
