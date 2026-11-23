@@ -67,6 +67,10 @@ export interface TripAssignment extends Route {
   cancelledAt: string | null;
   /** Earlier versions: the From and To it had before each change (assignment_changes). */
   changes: { changedAt: string; before: Route }[];
+  /** Whose it is: with check-ins (TruckDayInput.checkIns), a Trip matches only its Driver's Assignments. */
+  driverId?: string | null;
+  /** The Truck it names; null names its Driver's usual one. Read only when nobody checked in before a Trip. */
+  truckId?: string | null;
 }
 
 /** Dave's "Not a haul" (fuel, a repair, personal): the one spelling for a Trip's kind and for his answer. */
@@ -273,6 +277,24 @@ export interface TruckDayInput {
    * Truck's Unplanned work: the Driver, when more than one fits. Ignored otherwise.
    */
   drivenBy?: string | null;
+  /**
+   * The check-ins to the Truck that day (an Inspection naming it, by its
+   * Driver, at its time); never one from an earlier day. With them, the
+   * Driver at a Trip's time is the Driver of the latest check-in at or before
+   * it, and the Trip matches only that Driver's Assignments, whatever Truck
+   * they name. With no check-in before a Trip nobody is guessed: the Truck
+   * log asks "Who was driving?" and the Trip matches the Assignments that
+   * name the Truck. Left out (a made-up day with no check-ins to give), the
+   * Driver comes from the Assignments as before and every Assignment is matched.
+   */
+  checkIns?: TruckCheckIn[];
+}
+
+/** A Driver's check-in to the Truck: from `at` on, until another Driver checks in to it, he is driving it. */
+export interface TruckCheckIn {
+  driverId: string;
+  /** ISO 8601. */
+  at: string;
 }
 
 export interface TripDay {
@@ -593,6 +615,34 @@ function truckDrivers(truck: TruckDayInput | null | undefined): TruckDayDriver[]
   return (named.length > 0 ? named : truck.drivers.filter(usual)).map(({ id, name }) => ({ id, name }));
 }
 
+/**
+ * The Driver at a moment, from the check-ins: the Driver of the latest
+ * check-in to the Truck at or before `at`. Null when nobody checked in by
+ * then, or the Truck's check-ins are not given.
+ */
+export function driverAt(truck: TruckDayInput | null | undefined, at: string): TruckDayDriver | null {
+  const latest = (truck?.checkIns ?? [])
+    .filter((c) => ms(c.at) <= ms(at))
+    .reduce<TruckCheckIn | null>((last, c) => (last === null || ms(c.at) >= ms(last.at) ? c : last), null);
+  const driver = latest && truck!.drivers.find((d) => d.id === latest.driverId);
+  return driver ? { id: driver.id, name: driver.name } : null;
+}
+
+/**
+ * The Assignments a Trip leaving at `at` is matched against. With check-ins:
+ * the Driver at that time's, whatever Truck they name; with no check-in
+ * before it, the ones that name the Truck (a null Truck names the Driver's
+ * usual one). Without check-ins given: all of them.
+ */
+function assignmentsAt(input: TripDayInput, at: string): TripAssignment[] {
+  const truck = input.truck;
+  if (!truck?.checkIns) return input.assignments;
+  const driver = driverAt(truck, at);
+  if (driver) return input.assignments.filter((a) => a.driverId === driver.id);
+  const usualTruck = (driverId: string | null | undefined) => truck.drivers.find((d) => d.id === driverId)?.defaultTruckId ?? null;
+  return input.assignments.filter((a) => (a.truckId ?? usualTruck(a.driverId)) === truck.id);
+}
+
 /** The Truck log's header at `now`. */
 function truckDayOf(input: TripDayInput, visits: CleanVisit[], trips: Trip[]): TruckDay {
   const at = ms(input.now);
@@ -617,10 +667,13 @@ function truckDayOf(input: TripDayInput, visits: CleanVisit[], trips: Trip[]): T
     endAt = back && lastOff && !lastOff.on && ms(lastOff.at) > ms(back) ? lastOff.at : back;
   }
 
-  const candidates = truckDrivers(input.truck);
+  const checkedIn = driverAt(input.truck, input.now);
+  const candidates = checkedIn ? [checkedIn] : truckDrivers(input.truck);
   const picked = candidates.find((c) => c.id === input.truck?.drivenBy) ?? null;
+  // With check-ins, nobody is guessed: only a check-in or Dave's pick names the Driver.
+  const guessed = !input.truck?.checkIns && candidates.length === 1 ? candidates[0] : null;
   return {
-    driver: candidates.length === 1 ? candidates[0] : picked,
+    driver: checkedIn ?? guessed ?? picked,
     driverCandidates: candidates,
     startAt,
     endAt,
@@ -787,7 +840,7 @@ function piecesOf(trips: Trip[], runs: number[][]): UnplannedWork[] {
 export function buildTripDay(input: TripDayInput): TripDay {
   const known = knownAt(input.visits, input.now);
   const { visits, dropped, merged } = clean(known, input.places);
-  const matched = pair(visits, input.now).map((t) => ({ ...t, match: matchTrip(t, input.assignments, input.places) }));
+  const matched = pair(visits, input.now).map((t) => ({ ...t, match: matchTrip(t, assignmentsAt(input, t.leftAt), input.places) }));
   const grouped = unplannedRuns(matched);
   const answers = input.answers ?? {};
   const runs = splitRuns(grouped.trips, grouped.runs, answers.splits ?? []);
