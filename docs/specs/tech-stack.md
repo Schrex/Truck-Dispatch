@@ -7,9 +7,9 @@ Status: draft, 23 Nov 2026. This describes what is in the repo today, plus the c
 | Part | Choice | Why |
 |---|---|---|
 | Server | One **Cloudflare Worker** (`worker/src/`) that serves both the API and the built page | Same shape as the Hub's other apps. ADR 0001: its own Worker, not the Hub's Dispatch. |
-| Database | **Cloudflare D1** (SQLite). Migrations in `migrations/` change the schema only and are add-only within a PR. | Its own database. Phases 2 to 4 are already designed: see "Target schema" in [`../design/dispatch-board-decisions.md`](../design/dispatch-board-decisions.md). |
+| Database | **Cloudflare D1** (SQLite). Migrations in `migrations/` change the schema only and are add-only within a PR. Synthetic test data is in `seed/fixture.sql` (never production); reference data every environment needs, such as the Inspection checklist, gets its own seed file that production loads too. | Its own database. Phases 2 to 4 are already designed: see "Target schema" in [`../design/dispatch-board-decisions.md`](../design/dispatch-board-decisions.md). |
 | Files (phase 4) | **Cloudflare R2** for Ticket photos | Decided, not built yet |
-| Time | The Worker decides "today" in **US Eastern**. `NOW` fixes the clock in tests. | ADR 0004 |
+| Time | The Worker decides "today" in **US Eastern**. Moments are stored as exact UTC times and shown in Eastern. `NOW` fixes the clock in tests. | ADR 0004 |
 | Truck data (phase 3) | **HCSS Fleet** place enter/leave events, pulled by the Worker every 10 minutes from 4 AM to 8 PM Eastern. Miles and engine hours come from the 4 AM readings. | Decided. API access to the Fleet report is still open: it refused our login (403). |
 
 ## Page
@@ -36,7 +36,7 @@ A good test says what Dave or a Driver would see, or what the API answers, for a
 - **The Worker's API, called as a request** against a real local D1, migrated from `migrations/` and reseeded for each test (`worker/src/app.test.ts`).
 - **The page in jsdom with a fake API** (`src/App.test.tsx`, `src/pages/*.test.tsx`, `src/components/*.test.tsx`).
 - **The day rules as pure functions** (`shared/days.test.ts`): Working days and Holidays across years, words and arrow targets, day states, Changed and Added.
-- **Browser end-to-end** (Playwright, from phase 2): a few whole journeys through the real built app with a local D1, on a phone-sized screen. Rules stay in the two seams above; these only prove the pieces work together.
+- **Browser end-to-end** (Playwright, from phase 2): a few whole journeys through the real built app with its own local D1 (separate from the developer's), the clock fixed with `NOW`, the Driver view at phone size and the Board at desktop size. Rules stay in the two seams above; these only prove the pieces work together. CI installs Chromium for it, and its job must be added to the required checks of the "Protect main" ruleset (a repo admin's step in [`../deployment.md`](../deployment.md)).
 
 `scripts/smoke.mjs` adds read-only checks against staging, run by CI after each deploy.
 

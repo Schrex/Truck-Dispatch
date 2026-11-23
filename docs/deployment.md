@@ -39,7 +39,7 @@ Already done; kept here to rebuild it or to set up production later. Make sure t
    - Smoke test says **302 / redirected to sign-in**: the secrets are missing or empty.
    - **401**: Access does not know the token (wrong ID or secret).
    - **403**: the token is valid, but no policy on this application lets it in.
-6. **Protect `main`** (Settings → Rules → Rulesets → "Protect main"): pull request with 1 approval, checks `typecheck`, `test`, `build`, no force push or deletion; Repository admin may bypass.
+6. **Protect `main`** (Settings → Rules → Rulesets → "Protect main"): pull request with 1 approval, checks `typecheck`, `test`, `build` (and the browser end-to-end job once phase 2 adds it), no force push or deletion; Repository admin may bypass.
 
 ## Reviewing a preview
 

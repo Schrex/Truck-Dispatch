@@ -4,7 +4,7 @@ Status: draft, last updated 23 Nov 2026. This is the order of work in very small
 
 Legend: ✅ done · 🟡 in review · ⬜ to do · ⛔ blocked
 
-**Now:** phase 1 is built and on staging. Phase 2 is specified; building starts with step 2.1. Steps 1.8 and 1.9 are still open.
+**Now:** phase 1 is built and on staging. Phase 2 is specified and ticketed (#48–#54); building starts with steps 2.1 and 2.2. Steps 1.8 and 1.9 are still open.
 
 ## Phase 1: Plan (Dave plans, Drivers see it)
 
@@ -20,15 +20,16 @@ Legend: ✅ done · 🟡 in review · ⬜ to do · ⛔ blocked
 
 ## Phase 2: Check in (which Truck, Inspection, Truck problems)
 
-Spec: [`phase-2-check-in.md`](phase-2-check-in.md). Tried on staging; Inspections become the real record only once Drivers sign in through the Hub.
+Spec: [`phase-2-check-in.md`](phase-2-check-in.md), issue [#47](https://github.com/Schrex/Truck-Dispatch/issues/47). Tried on staging; Inspections become the real record only once Drivers sign in through the Hub. Steps 2.1 and 2.2 can be built in parallel; 2.4 and 2.5 can follow 2.3 in parallel.
 
 0. ✅ Planning round and spec (23 Nov)
-1. ⬜ Inspection checklist in Settings, starting with the paper form's 12 items (stories 1–5)
-2. ⬜ Driver checks in on Today: pick the Truck, answer each item, notes, Finish. Needs repair opens a Truck problem. Write the ADR for the Inspection as the official, append-only record. (stories 6–19, 30–32)
-3. ⬜ Board shows each Driver's check-in for today, or "Not checked in" (stories 26–28)
-4. ⬜ Report a problem at any time that day (story 20)
-5. ⬜ Truck problems list in Settings, with Mark fixed and history (stories 21–25)
-6. ⬜ Open problems: red mark on the lane and the composer's Truck chip, and shown at the start of an Inspection (stories 11, 29)
+1. ⬜ Inspection checklist in Settings, starting with the paper form's 12 items ([#48](https://github.com/Schrex/Truck-Dispatch/issues/48), stories 1–5)
+2. ⬜ Browser end-to-end test setup, proved on a phase 1 journey ([#49](https://github.com/Schrex/Truck-Dispatch/issues/49))
+3. ⬜ Driver checks in on Today: pick the Truck, answer each item, notes, Finish; the ADR for the Inspection record ([#50](https://github.com/Schrex/Truck-Dispatch/issues/50), stories 6–10, 12–18, 31–32). Needs 2.1 and 2.2.
+4. ⬜ Board shows each Driver's check-in for today, with "needs repair" ([#51](https://github.com/Schrex/Truck-Dispatch/issues/51), stories 26–28, 30). Needs 2.3.
+5. ⬜ Truck problems from Inspections, with Mark fixed and history in Settings ([#52](https://github.com/Schrex/Truck-Dispatch/issues/52), stories 19, 21–25). Needs 2.3.
+6. ⬜ Report a problem at any time that day ([#53](https://github.com/Schrex/Truck-Dispatch/issues/53), story 20). Needs 2.5.
+7. ⬜ Open problems shown on the lane, the composer's Truck chip and the start of an Inspection ([#54](https://github.com/Schrex/Truck-Dispatch/issues/54), stories 11, 29). Needs 2.4 and 2.5.
 
 ## Phase 3: Trips (from the Truck)
 

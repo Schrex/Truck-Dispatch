@@ -46,7 +46,7 @@ A Driver's walk-around check of a Truck before taking it out that day, item by i
 _Avoid_: truck check, pre-trip, DVIR (in the app)
 
 **Inspection item**:
-One line of the Inspection checklist ("Lights", "Air leaks / brake pressure"), answered OK, Needs repair or N/A. The checklist is kept in Settings; an Inspection keeps each item's wording as it was that day.
+One line of the Inspection checklist ("Lights", "Air leaks / brake pressure"), answered OK, Needs repair or N/A. The checklist is kept in Settings; an Inspection keeps each item's wording as it was that day. An Inspection with any item answered Needs repair is itself said to need repair.
 
 **Ticket**:
 The paper a plant or supplier gives the Driver for one Load. The Driver photographs it; nobody types its numbers.

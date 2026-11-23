@@ -57,7 +57,7 @@ Sources: the "Trucking page · 5 design mocks" export, page **Final · scheduler
 - **Any active Truck**, with the usual one pre-selected. Two Drivers on one Truck are shown, not refused: blocking a Driver at 6 AM is worse than Dave seeing the overlap.
 - **The checklist is the paper form's**, item for item and in its order, so Drivers see what they know. "Keys in lockbox" is an end-of-day check and moves to the phase 4 sign-off.
 - **OK, Needs repair or N/A per item**, rather than the paper's single tick, because a tick cannot say what is wrong. Needs repair requires a note: the paper's "Repairs needed", per item. Every item that is not optional must be answered.
-- **No certification statement or signature in the app.** An Inspection is finished when its items are answered; one with any Needs repair has defects.
+- **No certification statement or signature in the app.** An Inspection is finished when its items are answered; one with any Needs repair item is shown as "needs repair".
 - **Nobody types the start time or miles.** The start time is when the Inspection is finished; miles come from the Truck in phase 3.
 - **The Inspection is the official record**: append-only, item by item, keeping each item's wording, with Driver, Truck and time. Inspecting again (after a repair, or another Truck) adds a new one; the latest counts.
 - **Not the real record until sign-in.** The Driver view trusts whichever name was picked on the phone, so Inspections are tried on staging and used for real only once Drivers sign in through the Hub.
