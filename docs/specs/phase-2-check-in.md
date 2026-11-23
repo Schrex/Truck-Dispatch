@@ -27,7 +27,7 @@ Until Drivers sign in through the Hub, the Driver view trusts whichever name was
 6. As a Driver, I want a **Check in** card at the top of Today until I have checked in, so that I know it is the first thing to do.
 7. As a Driver, I want to still see my Assignments before I check in, so that I can read my day before walking to the Truck.
 8. As a Driver, I want my usual Truck pre-selected (none when I have no usual Truck or it is removed), and any active Truck offered instead, so that a swap is one tap.
-9. As a Driver, I want to check in on Today whether or not Dave has Sent me anything, so that a day with no plan (a yard move) still has an Inspection.
+9. As a Driver, I want to check in on Today whether or not Dave has Assigned me anything, so that a day with no plan (a yard move) still has an Inspection.
 10. As a Driver, I want no Check in on Yesterday, Tomorrow or any other day, so that an Inspection is always about this morning.
 11. As a Driver, I want the Truck's open Truck problems shown at the top of the Inspection ("Mud flap torn · reported Fri by Nate"), so that I know them before driving and do not report them twice.
 12. As a Driver, I want each item answered **OK**, **Needs repair** or **N/A** with one tap, so that the walk-around is as quick as the paper.
@@ -77,7 +77,7 @@ truck_problems     id, truck_id, reported_by_driver_id, reported_at, text,
 
 - "Needs repair" for a whole Inspection (any item answered Needs repair) is worked out from the answers, not stored.
 - `id` of an Inspection is made by the phone (a UUID), so a retried Finish is recognised: a repeat with the same id answers the stored Inspection and creates nothing.
-- `done_at` is the Worker's clock as an exact UTC moment (shown in US Eastern, as Send's time is); `date` is the Worker's US Eastern today. **Latest** means the newest `done_at`, ties broken by insertion order. Indexes on `inspections (truck_id, done_at)` for phase 3's "whoever last inspected that Truck" and `(driver_id, date)` for check-ins.
+- `done_at` is the Worker's clock as an exact UTC moment (shown in US Eastern, as other moments are); `date` is the Worker's US Eastern today. **Latest** means the newest `done_at`, ties broken by insertion order. Indexes on `inspections (truck_id, done_at)` for phase 3's "whoever last inspected that Truck" and `(driver_id, date)` for check-ins.
 - `truck_problems.reported_by_driver_id` is nullable in the schema, with the Worker requiring a Driver for now, so "Dave adds a problem" later needs no table rebuild (an add-only migration cannot relax NOT NULL).
 - The 12 starting items are not synthetic test data, so they live in their own seed file (`INSERT OR IGNORE`, fixed ids, sort order 1–12) that every environment loads, production included, not in the synthetic fixture.
 - The Driver's checked-in Truck for a day is his latest Inspection that day.
