@@ -4,7 +4,7 @@ import { json, readJson, refuse, text } from './http';
 import { handleInspections } from './inspections';
 import { handleTruckProblems } from './truckProblems';
 import { handleFleetImports } from './fleetImports';
-import { handleTruckLogs } from './truckLogs';
+import { handleTruckLogs, storedTripParts } from './truckLogs';
 import { exists, handleList, isActive, isList } from './lists';
 import { checkTyped, saveLinked, typedIn, type Typed } from './typedNames';
 import { DAY_ORDER, SELECT_ASSIGNMENT, marked, type AssignmentRow } from './assignmentQueries';
@@ -162,11 +162,19 @@ async function laterDays(env: Env, driverId: string): Promise<Response> {
  */
 const LAST_IN_LANE = '(SELECT COALESCE(MAX(position) + 1, 0) FROM assignments WHERE date = ? AND driver_id IS ? AND id IS NOT ?)';
 
-/** A day's Assignments, Drafts and Assigned ones (cancelled ones Dave discarded left out), each marked Changed or Added since it was Assigned. */
+/**
+ * A day's Assignments, Drafts and Assigned ones (cancelled ones Dave discarded
+ * left out), each marked Changed or Added since it was Assigned, and each one a
+ * stored Trip matched with its Trip part (see storedTripParts).
+ */
 async function readDay(env: Env, date: string | null): Promise<Response> {
   if (!isCalendarDate(date)) return refuse({ date: PICK_DATE });
-  const { results } = await env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.date = ? AND a.discarded_at IS NULL ${DAY_ORDER}`).bind(date).all<AssignmentRow>();
-  return json({ assignments: results.map(marked) } satisfies Day);
+  const [{ results }, parts] = await Promise.all([
+    env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.date = ? AND a.discarded_at IS NULL ${DAY_ORDER}`).bind(date).all<AssignmentRow>(),
+    storedTripParts(env, date),
+  ]);
+  const withTrips = (a: Assignment): Assignment => (parts.has(a.id) ? { ...a, trips: parts.get(a.id) } : a);
+  return json({ assignments: results.map(marked).map(withTrips) } satisfies Day);
 }
 
 /**

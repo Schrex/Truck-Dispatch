@@ -6,7 +6,7 @@ import { json, refuse } from './http';
 import { addDays, easternMoment, easternTime, isCalendarDate } from '../../shared/days';
 import { buildTripDay, routeAt, type FleetVisit, type TripAssignment, type TripJob, type TripPlace } from '../../shared/trips';
 import { truckLog } from '../../shared/truckLog';
-import type { Assignment, TruckLogDay } from '../../shared/types';
+import type { Assignment, AssignmentTripPart, TruckLogDay } from '../../shared/types';
 
 /**
  * A Truck's stored day: its stored Fleet visits and the day's Assignments that
@@ -40,9 +40,35 @@ async function readTruckDay(env: Env, truckId: string, date: string, at: string 
   if (!isCalendarDate(date)) return refuse({ date: 'Pick a date.' });
   if (at !== null && !CLOCK.test(at)) return refuse({ at: 'Give a time as HH:MM.' });
   const DB = env.DB;
-  const truck = await DB.prepare('SELECT id, number FROM trucks WHERE id = ?').bind(truckId).first<{ id: string; number: string }>();
+  const truck = await DB.prepare('SELECT id, number FROM trucks WHERE id = ?').bind(truckId).first<StoredTruck>();
   if (!truck) return json({ error: 'not_found' }, 404);
+  return json(await storedTruckDay(env, truck, date, at));
+}
 
+type StoredTruck = { id: string; number: string };
+
+/**
+ * Each Trip part the stored visits give the Assignments on a date, by
+ * Assignment id: every Truck with visits that day is built whole, as of its
+ * latest Import, as the Truck log route opens it. The board's day read
+ * attaches them; an Assignment no stored Trip matched has none.
+ */
+export async function storedTripParts(env: Env, date: string): Promise<Map<string, AssignmentTripPart>> {
+  const { results: trucks } = await env.DB.prepare(
+    `SELECT DISTINCT t.id, t.number FROM fleet_visits v JOIN trucks t ON t.id = v.truck_id WHERE v.entered_at >= ? AND v.entered_at < ?`,
+  )
+    .bind(easternMoment(date, 0, 0), easternMoment(addDays(date, 1), 0, 0))
+    .all<StoredTruck>();
+  const parts = new Map<string, AssignmentTripPart>();
+  for (const truck of trucks) {
+    for (const a of (await storedTruckDay(env, truck, date, null)).assignments) if (a.trips) parts.set(a.id, a.trips);
+  }
+  return parts;
+}
+
+/** A Truck's stored day, built at the clock minute `at` (null: the default clock). `date` and `at` are already checked. */
+async function storedTruckDay(env: Env, truck: StoredTruck, date: string, at: string | null): Promise<TruckLogDay> {
+  const DB = env.DB;
   // A visit is filed under the US Eastern day it was entered on.
   const from = easternMoment(date, 0, 0);
   const to = easternMoment(addDays(date, 1), 0, 0);
@@ -123,7 +149,7 @@ async function readTruckDay(env: Env, truckId: string, date: string, at: string 
     });
   const { assignments, ...log } = truckLog({ tripDay, places: tripPlaces, assignments: shown, labels });
 
-  return json({
+  return {
     truckId: truck.id,
     truckNumber: truck.number,
     date,
@@ -137,5 +163,5 @@ async function readTruckDay(env: Env, truckId: string, date: string, at: string 
     assignments,
     truckLog: log,
     codesWithNoPlace: await codesWithNoPlaceIn(DB, stored),
-  } satisfies TruckLogDay);
+  };
 }

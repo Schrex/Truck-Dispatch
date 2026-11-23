@@ -180,6 +180,25 @@ describe('The clock of a stored day', () => {
   });
 });
 
+const readBoard = async ({ date = MONDAY, NOW = TUESDAY }: { date?: string; NOW?: string } = {}) => {
+  const response = await send('GET', `/api/assignments?date=${date}`, undefined, { NOW });
+  expect(response.status).toBe(200);
+  return ((await response.json()) as { assignments: Assignment[] }).assignments;
+};
+
+describe('Trip parts on the day read', () => {
+  it("gives Randy's blocks their Loads, Done and since once the 16:20 cut is imported", async () => {
+    const { a1, a2 } = await planMonday();
+    await importCut('2026-11-16-cut-1620.json');
+
+    const board = await readBoard();
+    const part = (id: string) => board.find((a) => a.id === id)?.trips;
+    expect(part(a1.id)).toMatchObject({ loads: 4, status: 'done' });
+    expect(part(a2.id)).toMatchObject({ loads: 2, status: 'done' });
+    expect([easternTime(part(a1.id)!.since!), easternTime(part(a2.id)!.since!)]).toEqual(['08:24', '11:30']);
+  });
+});
+
 describe('Refusing a Truck log read', () => {
   it('answers 404 for a Truck that does not exist', async () => {
     expect((await send('GET', `/api/trucks/nope/days/${MONDAY}`)).status).toBe(404);
