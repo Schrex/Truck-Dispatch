@@ -117,6 +117,20 @@ function inLane(assignments: Assignment[], openId: string | null | undefined): I
   return { first: on[0]?.id === openId, last: on[on.length - 1]?.id === openId };
 }
 
+/** "1 Unplanned work" under a lane's blocks, amber as the Truck log's box: for Dave to answer (docs/design/ui-standards.md). With onOpen it is a button that opens the answer. */
+function UnplannedMarker({ count, onOpen }: { count: number; onOpen?: () => void }) {
+  if (!onOpen) return <p className="inline-flex rounded-md border border-warning bg-warning/10 px-3 py-2 text-sm font-semibold">{count} Unplanned work</p>;
+  return (
+    <button
+      type="button"
+      className="lift inline-flex h-11 items-center rounded-md border border-warning bg-warning/10 px-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      onClick={onOpen}
+    >
+      {count} Unplanned work
+    </button>
+  );
+}
+
 /**
  * The board's lanes: each Driver's name and usual Truck (or, with checkIns,
  * his check-in today), then his
@@ -129,8 +143,8 @@ function inLane(assignments: Assignment[], openId: string | null | undefined): I
  * and an Unassigned lane holding Drafts says to pick a Driver to Assign one.
  * With onDiscard each cancelled block has Discard, on any day.
  * Without them the lanes are read-only.
- * With unplanned, a Driver's lane with Unplanned work that day says how many
- * pieces after his blocks ("1 Unplanned work"); with none the lane is as before.
+ * With unplanned, a Driver's lane with Unplanned work that day says how much
+ * after his blocks ("1 Unplanned work"); with none the lane is as before.
  * With onUnplanned as well, that marker is a button that opens the answer.
  * On a phone a lane's blocks stack under the Driver; from an iPad in portrait
  * up, the Driver sits on the left and the blocks run beside him.
@@ -175,7 +189,7 @@ export function Lanes({
   /** Which lane the composer is open in; undefined when it is closed. */
   composingFor?: string | null;
   composer?: ReactNode;
-  /** How many pieces of Unplanned work each Driver (by id) has that day; only the simulation gives it so far. */
+  /** How much Unplanned work each Driver (by id) has that day; only the simulation gives it so far. */
   unplanned?: Record<string, number>;
   /** Dave taps a Driver's Unplanned work marker (by the Driver's id) to answer it. */
   onUnplanned?: (driverId: string) => void;
@@ -195,6 +209,25 @@ export function Lanes({
           <p data-lane-about className="text-sm text-muted-foreground">
             {about}
           </p>
+        );
+        const unplannedCount = (lane.driverId && unplanned?.[lane.driverId]) || 0;
+        // Beside the Driver the blocks fill the row, unless the Unplanned work marker sits under them.
+        const blockList = (
+          <ol className={unplannedCount === 0 ? 'grid gap-2 sm:grid-cols-2 md:flex-1 lg:grid-cols-3' : 'grid gap-2 sm:grid-cols-2 lg:grid-cols-3'}>
+            {lane.assignments.map((assignment, i) => (
+              <AssignmentBlock
+                key={assignment.id}
+                assignment={assignment}
+                first={i === firstAt}
+                usualTruck={lane.usualTruck?.number ?? null}
+                jobSites={jobSites}
+                onEdit={onEdit}
+                onAssign={lane.removed ? undefined : onAssign}
+                onDiscard={onDiscard}
+                open={i === openAt}
+              />
+            ))}
+          </ol>
         );
         const waiting = onAssign && !lane.driverId && lane.assignments.some((assignment) => assignment.assignedAt === null && !assignment.cancelledAt);
         return (
@@ -239,47 +272,14 @@ export function Lanes({
                   </Button>
                 )}
               </div>
-              {(() => {
-                const unplannedCount = (lane.driverId && unplanned?.[lane.driverId]) || 0;
-                const blocks = (fill: boolean) => (
-                  <ol className={fill ? 'grid gap-2 sm:grid-cols-2 md:flex-1 lg:grid-cols-3' : 'grid gap-2 sm:grid-cols-2 lg:grid-cols-3'}>
-                    {lane.assignments.map((assignment, i) => (
-                      <AssignmentBlock
-                        key={assignment.id}
-                        assignment={assignment}
-                        first={i === firstAt}
-                        usualTruck={lane.usualTruck?.number ?? null}
-                        jobSites={jobSites}
-                        onEdit={onEdit}
-                        onAssign={lane.removed ? undefined : onAssign}
-                        onDiscard={onDiscard}
-                        open={i === openAt}
-                      />
-                    ))}
-                  </ol>
-                );
-                if (unplannedCount === 0)
-                  return lane.assignments.length === 0 ? <EmptyBox className="md:flex-1">Nothing planned yet</EmptyBox> : blocks(true);
-                return (
-                  <div className="space-y-2 md:flex-1">
-                    {lane.assignments.length > 0 && blocks(false)}
-                    {/* Amber, as the Truck log's Unplanned work box: for Dave to answer (docs/design/ui-standards.md). */}
-                    {onUnplanned && lane.driverId ? (
-                      <button
-                        type="button"
-                        className="lift inline-flex h-11 items-center rounded-md border border-warning bg-warning/10 px-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        onClick={() => onUnplanned(lane.driverId!)}
-                      >
-                        {unplannedCount} Unplanned work
-                      </button>
-                    ) : (
-                      <p className="inline-flex rounded-md border border-warning bg-warning/10 px-3 py-2 text-sm font-semibold">
-                        {unplannedCount} Unplanned work
-                      </p>
-                    )}
-                  </div>
-                );
-              })()}
+              {unplannedCount === 0 ? (
+                lane.assignments.length === 0 ? <EmptyBox className="md:flex-1">Nothing planned yet</EmptyBox> : blockList
+              ) : (
+                <div className="space-y-2 md:flex-1">
+                  {lane.assignments.length > 0 && blockList}
+                  <UnplannedMarker count={unplannedCount} onOpen={onUnplanned && lane.driverId ? () => onUnplanned(lane.driverId!) : undefined} />
+                </div>
+              )}
             </div>
             {openAt >= 0 && editor?.(lane.assignments[openAt], inLane(lane.assignments, openId))}
             {composingFor === lane.driverId && composer}

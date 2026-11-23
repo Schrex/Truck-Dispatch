@@ -28,9 +28,9 @@ const PLAY_FROM = 4 * 60;
  * and the Truck log (the paper Daily Truck Log: header, one column per
  * Assignment, and the Unplanned work), each with what the
  * Trip builder works out at the clock's time. Dave answers the Unplanned work
- * from the lane or the Truck log, or splits a run that held two hauls; the
+ * from the lane or the Truck log, or splits it in two; the
  * answers and splits are held here, in memory, and a new scenario starts
- * with none. Made-up scenarios add a run to split and a second Driver on
+ * with none. Made-up scenarios add Unplanned work to split and a second Driver on
  * Truck 55 ("Who was driving?", asked first when Dave answers). Nothing is saved and the Worker is not asked.
  */
 export function SimulatePage() {
@@ -38,9 +38,9 @@ export function SimulatePage() {
   const [clock, setClock] = useState(DAY_END);
   const [playing, setPlaying] = useState(false);
   const [answers, setAnswers] = useState<UnplannedAnswer[]>([]);
-  /** Where Dave split runs that held two hauls: each Trip's leftAt. */
+  /** Where Dave split Unplanned work in two: each Trip's leftAt. */
   const [splits, setSplits] = useState<string[]>([]);
-  /** The piece of Unplanned work being answered (its id); null when none is. */
+  /** The Unplanned work being answered (its id); null when none is. */
   const [answering, setAnswering] = useState<string | null>(null);
 
   useEffect(() => {
@@ -60,18 +60,19 @@ export function SimulatePage() {
   const { truckDay } = day.tripDay;
   /** "Who was driving?": more than one Driver fits and Dave has not picked yet. */
   const whoDrove = truckDay.driver === null && truckDay.driverCandidates.length > 1 ? truckDay.driverCandidates : null;
-  const answer = useCallback((unplannedId: string) => setAnswering(unplannedId), []);
+  const openAnswer = useCallback((unplannedId: string) => setAnswering(unplannedId), []);
   /** Truck 55's Unplanned work is on its Driver's lane; while "Who was driving?" is open, on each who fits. */
-  const lanePieces = (driverId: string) =>
+  const laneUnplanned = (driverId: string) =>
     (truckDay.driver ? truckDay.driver.id === driverId : truckDay.driverCandidates.some((d) => d.id === driverId)) ? day.truckLog.unplanned : [];
-  /** The lane's marker opens the Driver's first piece Dave has not answered yet (else his first). */
+  /** The lane's marker opens the Driver's first Unplanned work Dave has not answered yet (else his first). */
   const openFromLane = (driverId: string) => {
-    const pieces = lanePieces(driverId);
-    const next = pieces.find((w) => !answers.some((a) => a.unplannedId === w.id)) ?? pieces[0];
-    if (next) answer(next.id);
+    const own = laneUnplanned(driverId);
+    const next = own.find((w) => !answers.some((a) => a.unplannedId === w.id)) ?? own[0];
+    if (next) openAnswer(next.id);
   };
-  const work = day.tripDay.unplanned.find((w) => w.id === answering);
-  const shown = day.truckLog.unplanned.find((w) => w.id === answering);
+  /** The Unplanned work being answered: as the Trip builder has it (its Trips and Places), and as the Truck log shows it (its line). */
+  const answeringWork = day.tripDay.unplanned.find((w) => w.id === answering);
+  const answeringBox = day.truckLog.unplanned.find((w) => w.id === answering);
 
   return (
     <div className="min-h-screen bg-surface">
@@ -144,7 +145,7 @@ export function SimulatePage() {
                 assignments={day.assignments}
                 drivers={day.drivers}
                 trucks={[REAL_DAY.truck]}
-                unplanned={Object.fromEntries(day.drivers.map((d) => [d.id, lanePieces(d.id).length]))}
+                unplanned={Object.fromEntries(day.drivers.map((d) => [d.id, laneUnplanned(d.id).length]))}
                 onUnplanned={openFromLane}
               />
             </section>
@@ -160,18 +161,18 @@ export function SimulatePage() {
           </div>
         </div>
         <TruckLog truck={REAL_DAY.truck} date={REAL_DAY.date} truckDay={day.tripDay.truckDay}>
-          <TruckLogAssignments columns={day.truckLog.columns} unplanned={day.truckLog.unplanned} whichAssignment={day.truckLog.whichAssignment} shopTrips={day.truckLog.shopTrips} onAnswer={answer} />
+          <TruckLogAssignments columns={day.truckLog.columns} unplanned={day.truckLog.unplanned} whichAssignment={day.truckLog.whichAssignment} shopTrips={day.truckLog.shopTrips} onAnswer={openAnswer} />
         </TruckLog>
-        {work && shown && (
+        {answeringWork && answeringBox && (
           <UnplannedAnswerFlow
             work={{
-              id: work.id,
-              line: unplannedLine(shown),
-              places: work.places.flatMap((p) => {
+              id: answeringWork.id,
+              line: unplannedLine(answeringBox),
+              places: answeringWork.places.flatMap((p) => {
                 const name = placeName(p.placeId);
                 return p.placeId && name ? [{ id: p.placeId, name }] : [];
               }),
-              splits: work.trips.slice(1).map((t) => ({
+              splits: answeringWork.trips.slice(1).map((t) => ({
                 at: t.leftAt,
                 label: `Split at ${easternTime(t.leftAt)} · ${placeName(t.fromPlaceId) ?? t.fromCode} → ${placeName(t.toPlaceId) ?? t.toCode}`,
               })),
@@ -181,13 +182,13 @@ export function SimulatePage() {
             driverId={truckDay.driver?.id ?? null}
             onSplit={(at) => {
               setSplits((all) => [...all, at]);
-              // The piece is now two: an answer to it was to the whole run.
-              setAnswers((all) => all.filter((a) => a.unplannedId !== work.id));
+              // It is now two: an answer to it was to the whole.
+              setAnswers((all) => all.filter((a) => a.unplannedId !== answeringWork.id));
               setAnswering(null);
             }}
-            // A link names one of that day's Assignments, never the one made from this same piece; the flow offers only the picked Driver's.
+            // A link names one of that day's Assignments, never the one made from this same Unplanned work; the flow offers only the picked Driver's.
             assignments={day.assignments
-              .filter((a) => a.date === REAL_DAY.date && a.id !== madeAssignmentId(work.id))
+              .filter((a) => a.date === REAL_DAY.date && a.id !== madeAssignmentId(answeringWork.id))
               .map((a) => ({ id: a.id, label: `${day.labels[a.id]} · ${a.fromPlaceName ?? '–'} → ${a.toPlaceName ?? '–'}`, driverId: a.driverId ?? undefined }))}
             onSave={(next) => {
               setAnswers((all) => [...all.filter((a) => a.unplannedId !== next.unplannedId), next]);
