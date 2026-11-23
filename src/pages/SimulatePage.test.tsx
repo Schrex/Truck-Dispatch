@@ -31,12 +31,19 @@ const columns = () =>
   within(screen.getByRole('region', { name: 'Truck log' }))
     .getAllByRole('group', { name: /^Assignment \d/ })
     .map((col) => Object.fromEntries([...col.querySelectorAll('dt')].map((dt) => [dt.textContent, dt.nextElementSibling?.textContent])));
-/** The Truck log's names for its columns, in order: Dave's Assignments, then the unverified extra jobs. */
+/** The Truck log's names for its Assignment columns, in Dave's order. */
 const columnNames = () =>
   within(screen.getByRole('region', { name: 'Truck log' }))
     .getAllByRole('group', { name: /^Assignment \d/ })
     .map((col) => col.getAttribute('aria-label'));
 /** The drives to and from the shop, as listed under the columns. */
+/** The Truck log's Unplanned work boxes, after the columns: what each reads. */
+const unplannedLog = () =>
+  within(screen.getByRole('region', { name: 'Truck log' }))
+    .queryAllByRole('group', { name: /^Unplanned work/ })
+    .map((box) => box.querySelector('p')?.textContent);
+/** What Randy's lane says about his Unplanned work, after his blocks; null when it says nothing. */
+const laneUnplanned = () => within(within(scheduler()).getByRole('article', { name: 'Randy' })).queryByText(/Unplanned work$/)?.textContent ?? null;
 const shopLog = () =>
   within(within(screen.getByRole('region', { name: 'Truck log' })).getByRole('group', { name: 'To and from the shop' }))
     .queryAllByRole('listitem')
@@ -176,8 +183,8 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
     });
   });
 
-  describe('Truck log columns: one per Assignment, one per unverified extra job, and the drives to and from the shop', () => {
-    it('at end of day: A1 and A2 as Assignment 1 and 2, tons from Tickets, and the Bishop Kearney stop as Assignment 3, unverified, for Dave', () => {
+  describe('Truck log columns: one per Assignment, then the Unplanned work, and the drives to and from the shop', () => {
+    it('at end of day: A1 and A2 as Assignment 1 and 2, tons from Tickets, and no column for the Bishop Kearney stop', () => {
       render(<SimulatePage />, { wrapper: MemoryRouter });
       expect(columns()).toEqual([
         {
@@ -198,17 +205,8 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
           '# of tons': 'from Tickets',
           'Trucking hours': '2.40',
         },
-        {
-          Job: 'J611 Bishop Kearney',
-          'Pick up': 'J25008 Los Flamboyanes',
-          'Drop off': 'J611 Bishop Kearney',
-          Material: 'Unknown · Dave decides',
-          '# of loads': 'Unknown · Dave decides',
-          '# of tons': 'from Tickets',
-          'Trucking hours': '0.46',
-        },
       ]);
-      expect(columnNames()).toEqual(['Assignment 1', 'Assignment 2', 'Assignment 3 · unverified']);
+      expect(columnNames()).toEqual(['Assignment 1', 'Assignment 2']);
     });
 
     it('at end of day logs the drive out of the shop in the morning and the drive back to it', () => {
@@ -223,7 +221,7 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
       expect(within(screen.getByRole('group', { name: 'To and from the shop' })).getByText('None yet')).toBeTruthy();
     });
 
-    it('with the reroute at 11:20 the Bishop Kearney Trip counts on A1, so there is no unverified column', () => {
+    it('with the reroute at 11:20 the Bishop Kearney Trip counts on A1', () => {
       render(<SimulatePage />, { wrapper: MemoryRouter });
       choose('reroute');
       expect(columns()[0]).toMatchObject({ Job: 'J611 Bishop Kearney', 'Drop off': 'J611 Bishop Kearney', '# of loads': '5' });
@@ -238,6 +236,45 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
         ['0', ''],
       ]);
       expect(columnNames()).toEqual(['Assignment 1', 'Assignment 2']);
+    });
+  });
+
+  describe('Unplanned work: the drive to Bishop Kearney and back, which Dave never Assigned', () => {
+    it('at end of day: an amber box after Dave’s columns with its Places and times, and "1 Unplanned work" after Randy’s blocks', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      expect(unplannedLog()).toEqual(['J25008 Los Flamboyanes ⇄ J611 Bishop Kearney · out 14:15, back 14:33 · 0.46 h']);
+      expect(within(screen.getByRole('group', { name: 'Unplanned work' })).queryByText(/Pick up|Drop off/)).toBeNull();
+      expect(laneUnplanned()).toBe('1 Unplanned work');
+      // His blocks are as before: the marker is not one of them.
+      expect(randy()).toEqual([`${A1} · 4 Loads · Done · since 08:24`, `${A2} · 2 Loads · Done · since 11:30`]);
+    });
+
+    it('with the reroute at 11:20 there is none: no box, nothing on the lane', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      choose('reroute');
+      expect(unplannedLog()).toEqual([]);
+      expect(laneUnplanned()).toBeNull();
+    });
+
+    it('before 14:23 there is none; from then it grows as the Trips are written', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      setClock(14 * 60 + 22);
+      expect(unplannedLog()).toEqual([]);
+      expect(laneUnplanned()).toBeNull();
+      setClock(14 * 60 + 25);
+      expect(unplannedLog()).toEqual(['J25008 Los Flamboyanes ⇄ J611 Bishop Kearney · out 14:15 · 0.14 h']);
+      expect(laneUnplanned()).toBe('1 Unplanned work');
+      setClock(14 * 60 + 45);
+      expect(unplannedLog()).toEqual(['J25008 Los Flamboyanes ⇄ J611 Bishop Kearney · out 14:15, back 14:33 · 0.46 h']);
+    });
+
+    it('in the Trip log both Trips are for Dave and neither is an Assignment’s', () => {
+      render(<SimulatePage />, { wrapper: MemoryRouter });
+      const rows = tripLog();
+      expect(rows.filter((r) => r[0] === '14:15' || r[0] === '14:33').map((r) => [r[0], r[3], r[4]])).toEqual([
+        ['14:15', 'for Dave', '–'],
+        ['14:33', 'for Dave', '–'],
+      ]);
     });
   });
 

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { TruckLogColumn } from '../../shared/trips';
+import type { TruckLogColumn, TruckLogUnplanned } from '../../shared/trips';
 import { TruckLogAssignments } from './TruckLogAssignments';
 
 afterEach(cleanup);
@@ -15,34 +15,52 @@ const column = (over: Partial<TruckLogColumn>): TruckLogColumn => ({
   loads: 2,
   tons: null,
   truckingHours: 1.5,
-  unverified: false,
   ...over,
 });
 const tonsBox = () => within(screen.getByRole('group', { name: 'Assignment 1' })).getByText('# of tons').nextElementSibling?.textContent;
 
 describe('Truck log column: # of tons', () => {
   it('writes the tons from the Tickets once there are some', () => {
-    render(<TruckLogAssignments columns={[column({ tons: 44.5 })]} shopTrips={[]} />);
+    render(<TruckLogAssignments columns={[column({ tons: 44.5 })]} unplanned={[]} shopTrips={[]} />);
     expect(tonsBox()).toBe('44.50');
   });
 
   it('is blank, marked "from Tickets", until then', () => {
-    render(<TruckLogAssignments columns={[column({ tons: null })]} shopTrips={[]} />);
+    render(<TruckLogAssignments columns={[column({ tons: null })]} unplanned={[]} shopTrips={[]} />);
     expect(tonsBox()).toBe('from Tickets');
   });
 });
 
-describe('Truck log: an extra job no Assignment explains', () => {
-  it('is its own column after Dave’s, marked unverified, with Material and # of loads for Dave to decide', () => {
-    render(
-      <TruckLogAssignments
-        columns={[column({}), column({ id: 'x', pickUp: 'Sample Site North', dropOff: 'Sample Site South', material: null, loads: null, unverified: true })]}
-        shopTrips={[]}
-      />,
-    );
-    const extra = within(screen.getByRole('group', { name: 'Assignment 2 · unverified' }));
-    expect(extra.getByText('Material').nextElementSibling?.textContent).toBe('Unknown · Dave decides');
-    expect(extra.getByText('# of loads').nextElementSibling?.textContent).toBe('Unknown · Dave decides');
-    expect(extra.getByText('Drop off').nextElementSibling?.textContent).toBe('Sample Site South');
+describe('Truck log: Unplanned work', () => {
+  const work = (over: Partial<TruckLogUnplanned> = {}): TruckLogUnplanned => ({
+    id: '2026-11-16T19:15:43Z',
+    places: ['Sample Site North', 'Sample Site South'],
+    tripsLeftAt: ['2026-11-16T19:15:43Z', '2026-11-16T19:33:17Z'],
+    truckingHours: 0.46,
+    ...over,
+  });
+
+  it('is an amber box after Dave’s columns with its Places and times, never a Pick up or Drop off', () => {
+    render(<TruckLogAssignments columns={[column({})]} unplanned={[work()]} shopTrips={[]} />);
+    const box = screen.getByRole('group', { name: 'Unplanned work' });
+    expect(box.textContent).toBe('Unplanned workSample Site North ⇄ Sample Site South · out 14:15, back 14:33 · 0.46 h');
+    expect(within(box).queryByText('Pick up')).toBeNull();
+    expect(within(box).queryByText('Drop off')).toBeNull();
+    expect(screen.getByRole('group', { name: 'Assignment 1' }).compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('says only when it went out while it has one Trip', () => {
+    render(<TruckLogAssignments columns={[]} unplanned={[work({ tripsLeftAt: ['2026-11-16T19:15:43Z'], truckingHours: 0.14 })]} shopTrips={[]} />);
+    expect(screen.getByRole('group', { name: 'Unplanned work' }).textContent).toBe('Unplanned workSample Site North ⇄ Sample Site South · out 14:15 · 0.14 h');
+  });
+
+  it('numbers the boxes when there is more than one', () => {
+    render(<TruckLogAssignments columns={[]} unplanned={[work(), work({ id: 'b' })]} shopTrips={[]} />);
+    expect(screen.getAllByRole('group').map((g) => g.getAttribute('aria-label'))).toEqual(['Unplanned work 1', 'Unplanned work 2', 'To and from the shop']);
+  });
+
+  it('shows no box when there is none', () => {
+    render(<TruckLogAssignments columns={[column({})]} unplanned={[]} shopTrips={[]} />);
+    expect(screen.queryByRole('group', { name: /Unplanned work/ })).toBeNull();
   });
 });

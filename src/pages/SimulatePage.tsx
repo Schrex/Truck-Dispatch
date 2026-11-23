@@ -23,7 +23,7 @@ const PLAY_FROM = 4 * 60;
  * round, the reroute at 11:20), then the Scheduler view (Randy's lane on the
  * real board lanes) and the Driver view (his Today on the real Driver cards)
  * and the Truck log (the paper Daily Truck Log: header, one column per
- * Assignment, and the Trips no Assignment explains), each with what the
+ * Assignment, and the Unplanned work), each with what the
  * Trip builder works out at the clock's time. Nothing is saved and the Worker is not asked.
  */
 export function SimulatePage() {
@@ -107,7 +107,13 @@ export function SimulatePage() {
           <div className="min-w-0 space-y-6">
             <section aria-label="Scheduler view" className="space-y-3">
               <h2 className="font-display text-xl font-semibold uppercase tracking-wide">Scheduler view</h2>
-              <Lanes assignments={day.assignments} drivers={[REAL_DAY.driver]} trucks={[REAL_DAY.truck]} />
+              <Lanes
+                assignments={day.assignments}
+                drivers={[REAL_DAY.driver]}
+                trucks={[REAL_DAY.truck]}
+                // Randy drove Truck 55 all day, so all its Unplanned work is on his lane.
+                unplanned={{ [REAL_DAY.driver.id]: day.truckLog.unplanned.length }}
+              />
             </section>
             <DriverView driverName={REAL_DAY.driver.name} date={REAL_DAY.date} assignments={day.assignments} />
           </div>
@@ -120,7 +126,7 @@ export function SimulatePage() {
           </div>
         </div>
         <TruckLog truck={REAL_DAY.truck} date={REAL_DAY.date} truckDay={day.tripDay.truckDay}>
-          <TruckLogAssignments columns={day.truckLog.columns} shopTrips={day.truckLog.shopTrips} />
+          <TruckLogAssignments columns={day.truckLog.columns} unplanned={day.truckLog.unplanned} shopTrips={day.truckLog.shopTrips} />
         </TruckLog>
       </main>
     </div>
