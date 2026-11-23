@@ -4,7 +4,7 @@ Status: draft, last updated 23 Nov 2026. This is the order of work in very small
 
 Legend: ✅ done · 🟡 in review · ⬜ to do · ⛔ blocked
 
-**Now:** phase 1 is built and on staging, with per-Assignment Assign merged ([PR #42](https://github.com/Schrex/Truck-Dispatch/pull/42)). Phase 2 is built and on staging ([PR #62](https://github.com/Schrex/Truck-Dispatch/pull/62), #48–#54), ready to try. Phase 3's Trip builder and simulation page are on staging too ([PR #21](https://github.com/Schrex/Truck-Dispatch/pull/21) and [PR #63](https://github.com/Schrex/Truck-Dispatch/pull/63)), on fake and recorded Fleet data only. Steps 1.8 and 1.10 are still open.
+**Now:** phase 1 is built and on staging, with per-Assignment Assign merged ([PR #42](https://github.com/Schrex/Truck-Dispatch/pull/42)). Phase 2 is built and on staging ([PR #62](https://github.com/Schrex/Truck-Dispatch/pull/62), #48–#54), ready to try. Phase 3's Trip builder and simulation page are on staging too ([PR #21](https://github.com/Schrex/Truck-Dispatch/pull/21), [PR #63](https://github.com/Schrex/Truck-Dispatch/pull/63), [PR #66](https://github.com/Schrex/Truck-Dispatch/pull/66) and [PR #71](https://github.com/Schrex/Truck-Dispatch/pull/71)), on fake and recorded Fleet data only. Every page follows one layout ([PR #68](https://github.com/Schrex/Truck-Dispatch/pull/68), brought up to [`ui-standards.md`](../design/ui-standards.md) in [PR #79](https://github.com/Schrex/Truck-Dispatch/pull/79)). Dave can drop HCSS Fleet exports on a Fleet imports page, which stores their visits ([PR #99](https://github.com/Schrex/Truck-Dispatch/pull/99)). Steps 1.8 and 1.10 are still open.
 
 ## Phase 1: Plan (Dave plans, Drivers see it)
 
@@ -18,6 +18,10 @@ Legend: ✅ done · 🟡 in review · ⬜ to do · ⛔ blocked
 8. ⬜ Decide whether Places keep "On the truck map" in Settings (it comes from the HCSS boundary, like the Truck wording that was removed)
 9. ✅ Assign each Assignment on its own, replacing Send per day (spec #44, ADR 0005, [PR #42](https://github.com/Schrex/Truck-Dispatch/pull/42), merged 23 Nov; smoke test follow-up in [PR #56](https://github.com/Schrex/Truck-Dispatch/pull/56))
 10. ⬜ Dave uses it for real for one week alongside #trucks, and we fix what he hits (to confirm)
+11. ✅ Discard cancelled Assignments from the Board, Dismiss them on the Driver view; Settings drops Bring back, with UI polish ([PR #67](https://github.com/Schrex/Truck-Dispatch/pull/67))
+12. ✅ One header and navigation on every page, and UI polish ([PR #68](https://github.com/Schrex/Truck-Dispatch/pull/68)); every page brought up to the UI standards ([PR #79](https://github.com/Schrex/Truck-Dispatch/pull/79))
+13. ✅ One Assignment for several Drivers at once ("Who?" in the composer), and every **+** opens a blank composer ([PR #80](https://github.com/Schrex/Truck-Dispatch/pull/80))
+14. ✅ Settings saves an entry on **Save**, not as you type, and adding a removed entry's name brings it back ([PR #98](https://github.com/Schrex/Truck-Dispatch/pull/98))
 
 ## Phase 2: Check in (which Truck, Inspection, Truck problems)
 
@@ -34,11 +38,11 @@ Spec: [`phase-2-check-in.md`](phase-2-check-in.md), issue [#47](https://github.c
 
 ## Phase 3: Trips (from the Truck)
 
-The Trip builder and a simulation page that runs Truck 55's real day (17 Nov) or any uploaded Fleet export are on staging: design, Trip builder and simulation in [PR #21](https://github.com/Schrex/Truck-Dispatch/pull/21); Scheduler view, Driver view and Truck log on top of it in [PR #63](https://github.com/Schrex/Truck-Dispatch/pull/63) (which includes #21). Nothing reads live Fleet data yet, so no step below is done.
+The Trip builder and a simulation page that runs Truck 55's real day (Mon 16 Nov) are on staging: design, Trip builder and simulation in [PR #21](https://github.com/Schrex/Truck-Dispatch/pull/21); Scheduler view, Driver view and Truck log on top of it in [PR #63](https://github.com/Schrex/Truck-Dispatch/pull/63) (which includes #21); the Trip log of every Trip in [PR #66](https://github.com/Schrex/Truck-Dispatch/pull/66); unverified extra-job columns and the drives to and from the shop in [PR #71](https://github.com/Schrex/Truck-Dispatch/pull/71). Fleet exports dropped by hand are stored as visits, with Truck HCSS codes and Place geofence codes set in Settings ([PR #99](https://github.com/Schrex/Truck-Dispatch/pull/99)). Nothing reads Fleet automatically yet, and Trips are not built from the stored visits yet.
 
 0. ⬜ Ask HCSS for API access to the Fleet report now, alongside phases 1 and 2, since it is the slowest step and nothing before phase 3 depends on it (to confirm)
 1. ⛔ Read HCSS Fleet place events automatically. Blocked on API access (403); the other routes are polling live position or Fleet's email alerts.
-2. 🟡 Store the raw events; pair them into Trips; clean out pass-throughs and boundary flicker (pairing and clean-up in the Trip builder, [PR #21](https://github.com/Schrex/Truck-Dispatch/pull/21); storing waits on 3.1)
+2. 🟡 Store the raw events; pair them into Trips; clean out pass-throughs and boundary flicker (pairing and clean-up in the Trip builder, [PR #21](https://github.com/Schrex/Truck-Dispatch/pull/21); storing visits from exports dropped by hand in [PR #99](https://github.com/Schrex/Truck-Dispatch/pull/99); storing them automatically waits on 3.1)
 3. ⬜ Driver for each Trip = whoever last inspected that Truck
 4. ⬜ A Trip from an Assignment's From to its To is a Load
 5. ⬜ Now and Done on the Board (started, finished, "since 9:40")
@@ -50,7 +54,7 @@ The Trip builder and a simulation page that runs Truck 55's real day (17 Nov) or
 2. ⬜ End-of-day sign-off: the Driver confirms his Trips and Tickets
 3. ⬜ Next morning, Dave answers what is left: Trips with no Assignment, "Who was driving?", Assignments with no Trips
 4. ⬜ The Driver's part locks at 9 AM the next day
-5. ⬜ Truck log page per Truck per day, plus CSV (header and one column per Assignment prototyped on the simulation page, [PR #63](https://github.com/Schrex/Truck-Dispatch/pull/63))
+5. ⬜ Truck log page per Truck per day, plus CSV (header, one column per Assignment, unverified extra-job columns and the drives to and from the shop prototyped on the simulation page, [PR #63](https://github.com/Schrex/Truck-Dispatch/pull/63) and [PR #71](https://github.com/Schrex/Truck-Dispatch/pull/71))
 
 ## Later (not scheduled)
 
