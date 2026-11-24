@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: draft, last updated 23 Nov 2026. This is the order of work in very small steps. Each step should be one PR that can be shipped and tried on its own, and should leave staging usable. The detailed decisions for each phase are in `docs/design/dispatch-board-decisions.md`.
+Status: draft, last updated 24 Nov 2026. This is the order of work in very small steps. Each step should be one PR that can be shipped and tried on its own, and should leave staging usable. The detailed decisions for each phase are in `docs/design/dispatch-board-decisions.md`.
 
 Legend: ✅ done · 🟡 in review · ⬜ to do · ⛔ blocked
 
@@ -35,6 +35,19 @@ Spec: [`phase-2-check-in.md`](phase-2-check-in.md), issue [#47](https://github.c
 5. ✅ Truck problems from Inspections, with Mark fixed and history in Settings ([#52](https://github.com/Schrex/Truck-Dispatch/issues/52), stories 19, 21–25). Needs 2.3.
 6. ✅ Report a problem at any time that day ([#53](https://github.com/Schrex/Truck-Dispatch/issues/53), story 20). Needs 2.5.
 7. ✅ Open problems shown on the lane, the composer's Truck chip and the start of an Inspection ([#54](https://github.com/Schrex/Truck-Dispatch/issues/54), stories 11, 29). Needs 2.4 and 2.5.
+
+## Assignments read the way Dave writes (For, At, Haul / Move / Other, Customers)
+
+Spec: issue [#118](https://github.com/Schrex/Truck-Dispatch/issues/118), tickets #119–#128, with the mockups linked there. An Assignment says whom it is for (a Foreman or a Customer), where the Truck works (At), and what kind of work it is (a Haul, a Move or Other), and the Trip builder matches Trips by them. All in review together in [PR #129](https://github.com/Schrex/Truck-Dispatch/pull/129).
+
+0. 🟡 Prefactors: a typed name that resolves into one of several lists ([#126](https://github.com/Schrex/Truck-Dispatch/issues/126)); plain Assignment columns declared once for copy, Changed and handover ([#127](https://github.com/Schrex/Truck-Dispatch/issues/127)); Trip builder routes beyond From and To, and the "nothing fits" rule named ([#128](https://github.com/Schrex/Truck-Dispatch/issues/128))
+1. 🟡 Customers list in Settings beside Foremen, each with a usual Place ([#119](https://github.com/Schrex/Truck-Dispatch/issues/119))
+2. 🟡 **For** on the Assignment: a Foreman or a Customer ([#120](https://github.com/Schrex/Truck-Dispatch/issues/120)). Needs 0 and 1.
+3. 🟡 **At** on the Assignment: where the Truck works, filled from For's usual Place ([#121](https://github.com/Schrex/Truck-Dispatch/issues/121)); the composer is one sentence of chips. Needs 2.
+4. 🟡 **Haul** and **Move**: the kind toggle, a Move's machine, From and To ([#122](https://github.com/Schrex/Truck-Dispatch/issues/122))
+5. 🟡 **Other**: shop, standby, water truck, its text as its whole content ([#123](https://github.com/Schrex/Truck-Dispatch/issues/123)). Needs 4.
+6. 🟡 Trip builder: At fills a missing From or To, At Trips, the Job from At ([#124](https://github.com/Schrex/Truck-Dispatch/issues/124)). Needs 0 and 3.
+7. 🟡 Trip builder: Move Trips count no Loads, and an Other's Trips are not a haul ([#125](https://github.com/Schrex/Truck-Dispatch/issues/125)). Needs 5 and 6.
 
 ## Phase 3: Trips (from the Truck)
 
