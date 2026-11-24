@@ -186,3 +186,33 @@ describe('reading a picture', () => {
     expect((await send('DELETE', '/api/paper-logs')).status).toBe(405);
   });
 });
+
+describe('taking a photo off', () => {
+  const takeOff = (id: string, NOW = '2026-11-19T15:30:00.000Z') => send('POST', `/api/paper-logs/${id}/take-off`, undefined, { NOW });
+
+  it('hides it from the day and keeps it, with when it was taken off and its picture still served', async () => {
+    const wrong = await photoOf(await attach());
+    const right = await photoOf(await attach({ attachedBy: 'dave' }));
+    const response = await takeOff(wrong.id);
+    expect(response.status).toBe(200);
+    expect(await photoOf(response)).toEqual({ ...wrong, takenOffAt: '2026-11-19T15:30:00.000Z' });
+    expect((await day(TODAY)).photos).toEqual([right]);
+    expect((await day(TODAY, 'drv-a')).photos).toEqual([right]);
+    const kept = await picture(wrong.id);
+    expect(kept.status).toBe(200);
+    expect(new Uint8Array(await kept.arrayBuffer())).toEqual(JPEG);
+  });
+
+  it('changes nothing when taken off again, and keeps the first time', async () => {
+    const photo = await photoOf(await attach());
+    await takeOff(photo.id);
+    const again = await takeOff(photo.id, '2026-11-19T18:00:00.000Z');
+    expect(again.status).toBe(200);
+    expect((await photoOf(again)).takenOffAt).toBe('2026-11-19T15:30:00.000Z');
+  });
+
+  it('answers 404 for a photo never attached, and 405 to anything but a POST', async () => {
+    expect((await takeOff(crypto.randomUUID())).status).toBe(404);
+    expect((await send('GET', `/api/paper-logs/${crypto.randomUUID()}/take-off`)).status).toBe(405);
+  });
+});

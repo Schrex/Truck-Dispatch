@@ -17,6 +17,7 @@ import { PAPER_LOG_ATTACHERS, PAPER_LOG_MAX_BYTES, PAPER_LOG_TYPES, type PaperLo
  *                                         → 201 { photo }, or 200 { photo } for an id already kept
  *   GET  api/paper-logs?date=[&driverId=] the day's photos, oldest first   → 200 { date, photos }
  *   GET  api/paper-logs/:id/picture       the picture's bytes, cacheable privately for a year
+ *   POST api/paper-logs/:id/take-off      Dave hides a wrong photo, kept  → 200 { photo }
  */
 export async function handlePaperLogs(request: Request, env: Env, route: string, query: URLSearchParams): Promise<Response | null> {
   const method = request.method;
@@ -32,6 +33,12 @@ export async function handlePaperLogs(request: Request, env: Env, route: string,
   if (pictureOf) {
     if (reading) return readPicture(env, decodeURIComponent(pictureOf[1]));
     return json({ error: 'method_not_allowed' }, 405, { Allow: 'GET, HEAD' });
+  }
+
+  const takingOff = /^paper-logs\/([^/]+)\/take-off$/.exec(route);
+  if (takingOff) {
+    if (method === 'POST') return takeOff(env, decodeURIComponent(takingOff[1]));
+    return json({ error: 'method_not_allowed' }, 405, { Allow: 'POST' });
   }
 
   return null;
@@ -129,6 +136,19 @@ async function readDay(env: Env, date: string | null, driverId: string | null): 
     .bind(date, driverId || null)
     .all<PaperLogPhoto>();
   return json({ date, photos } satisfies PaperLogDay);
+}
+
+/**
+ * Dave takes a wrong photo off: it is hidden from the day and kept, row and
+ * picture. Only the first time is recorded; taking it off again changes nothing.
+ */
+async function takeOff(env: Env, id: string): Promise<Response> {
+  await env.DB.prepare('UPDATE paper_log_photos SET taken_off_at = ? WHERE id = ? AND taken_off_at IS NULL')
+    .bind(clock(env).now.toISOString(), id)
+    .run();
+  const photo = await readPhoto(env, id);
+  if (!photo) return json({ error: 'not_found' }, 404);
+  return json({ photo });
 }
 
 /** A year: a picture never changes once kept. */
