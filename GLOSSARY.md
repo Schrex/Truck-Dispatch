@@ -59,7 +59,7 @@ The finished record of one Truck for one day: who drove it, its Inspection, its 
 _Avoid_: daily log, timesheet
 
 **Paper log**:
-A photo of the paper Daily Truck Log for one Truck on one day, attached by its Driver or by Dave as a backup. Any Truck can have one on today or a past day, in as many photos as it takes; each is kept and only ever followed by more. Nobody types what is on it. It is asked for only when a Truck cannot record its own Trips. Where the Truck did record Trips, they stay the record and the Paper log is only shown beside them. Attaching one is not a Check-in.
+A photo of the paper Daily Truck Log for one Truck on one day, attached by its Driver or by Dave as a backup. Any Truck can have one on today or a past day, in as many photos as it takes; each is kept and only ever followed by more. Nobody types what is on it. Where the Truck did record Trips, they stay the record and the Paper log is only shown beside them. Attaching one is not a Check-in.
 _Avoid_: manual truck log, manual log, log photo
 
 **Total hours**:
