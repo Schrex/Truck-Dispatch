@@ -9,6 +9,7 @@ import { driverTruck, handleTruckLogs, storedDay } from './truckLogs';
 import { exists, handleList, isActive, isList } from './lists';
 import { checkTyped, saveLinked, typedIn, type Typed } from './typedNames';
 import { DAY_ORDER, SELECT_ASSIGNMENT, marked, type AssignmentRow } from './assignmentQueries';
+import { copiedPlain, plainBefore, plainWas, type PlainColumn } from './plainColumns';
 import { addDays, dayState, draftsOn, holidayName, isCalendarDate, mondayOf, weekDates } from '../../shared/days';
 import { NOTE_LIMIT, type Assignment, type BusinessDay, type CopiedDay, type Day, type DriverAssignment, type DriverDay, type ListName, type NewAssignment, type TypedNames, type Was, type Week } from '../../shared/types';
 
@@ -183,9 +184,22 @@ async function readDay(env: Env, date: string | null): Promise<Response> {
 }
 
 /**
+ * An Assignment's plain columns (see PlainColumn), declared once: each is
+ * read from a request as text, saved by adding ("Who?" too) and changing,
+ * carried by a handover, copied by Start from and Copy to as its `copy`
+ * says, kept before each change and compared for Changed. Its own checks
+ * go in validate. A new one is one line here.
+ */
+const PLAIN = [
+  { key: 'note', column: 'note', missing: null },
+] as const satisfies readonly (PlainColumn & { key: keyof NewAssignment & keyof Was })[];
+
+type PlainKey = (typeof PLAIN)[number]['key'];
+
+/**
  * The fields a Driver reads that can be shown as "was …": each by the id that
  * says whether it really changed (a rename is not a change) and the name the
- * Driver is shown. The note has no id; its text is both.
+ * Driver is shown. Plain columns (PLAIN) are compared as they are.
  */
 const WAS_FIELDS = [
   ['truckId', 'truckNumber'],
@@ -193,7 +207,6 @@ const WAS_FIELDS = [
   ['toPlaceId', 'toPlaceName'],
   ['materialId', 'materialName'],
   ['foremanId', 'foremanName'],
-  ['note', 'note'],
 ] as const satisfies readonly (readonly [keyof Assignment, keyof Was])[];
 
 /**
@@ -236,7 +249,7 @@ async function readDriverDay(env: Env, driverId: string, date: string): Promise<
 
 /** The fields a Driver reads that are not as they were when Assigned, each with the name it had then. */
 function wasWhenAssigned(now: Assignment, before: Partial<Assignment>): Was {
-  const was: Was = {};
+  const was = plainWas(now, before, PLAIN) as Was;
   for (const [id, name] of WAS_FIELDS) if ((before[id] ?? null) !== now[id]) was[name] = (before[name] ?? null) as string | null;
   return was;
 }
@@ -306,8 +319,9 @@ function isUnassigned(): Response {
  * The columns a copy takes from its source, each an entry of a list: kept
  * only while that entry is active, so a copy holds only what exists now (a
  * removed Driver's work goes to Unassigned). Named rather than skipped, so a
- * column a later migration adds is never copied by accident. The note, the
- * times and whether it was cancelled are not copied; the position is new.
+ * column a later migration adds is never copied by accident. Plain columns
+ * are copied as PLAIN declares (the note is not); the times and whether it
+ * was cancelled are not copied; the position is new.
  */
 const COPIED = [
   { column: 'driver_id', table: 'drivers' },
@@ -366,13 +380,16 @@ async function copyTo(request: Request, env: Env, from: string): Promise<Respons
  * one statement, so work added meanwhile is never copied over.
  */
 async function copyOnto(env: Env, from: string, to: string): Promise<Response> {
-  const kept = COPIED.map(({ column, table }) => `(SELECT id FROM ${table} WHERE id = a.${column} AND active = 1) AS ${column}`);
+  const kept = [
+    ...COPIED.map(({ column, table }) => `(SELECT id FROM ${table} WHERE id = a.${column} AND active = 1) AS ${column}`),
+    ...copiedPlain(PLAIN),
+  ];
   const { results: sources } = await env.DB.prepare(
     `SELECT ${kept.join(', ')} FROM assignments a LEFT JOIN drivers d ON d.id = a.driver_id
       WHERE a.date = ? AND a.cancelled_at IS NULL ${DAY_ORDER}`,
   )
     .bind(from)
-    .all<Record<(typeof COPIED)[number]['column'], string | null>>();
+    .all<Record<(typeof COPIED)[number]['column'], string | null> & Record<string, unknown>>();
   if (sources.length === 0) return json({ error: 'nothing_to_copy', message: 'That day has no Assignments to copy.' }, 409);
 
   // A fresh position in each lane, in the source's order; a removed Driver's work joins Unassigned.
@@ -382,7 +399,7 @@ async function copyOnto(env: Env, from: string, to: string): Promise<Response> {
     lanes.set(source.driver_id, position + 1);
     return { ...source, id: crypto.randomUUID(), position };
   });
-  const columns = [...COPIED.map(({ column }) => column), 'id', 'position'];
+  const columns = [...COPIED.map(({ column }) => column), ...PLAIN.filter((p) => 'copy' in p).map((p) => p.column), 'id', 'position'];
   const now = clock(env).now.toISOString();
   const { meta } = await env.DB.prepare(
     `INSERT INTO assignments (date, created_at, updated_at, ${columns.join(', ')})
@@ -508,7 +525,7 @@ const FIELDS_BEFORE = `SELECT json_object(
     'driverId', b.driver_id, 'driverName', d.name, 'truckId', b.truck_id, 'truckNumber', t.number,
     'fromPlaceId', b.from_place_id, 'fromPlaceName', pf.short_name, 'toPlaceId', b.to_place_id, 'toPlaceName', pt.short_name,
     'materialId', b.material_id, 'materialName', m.name, 'foremanId', b.foreman_id, 'foremanName', f.name,
-    'note', b.note, 'position', b.position, 'cancelledAt', b.cancelled_at)
+    ${plainBefore(PLAIN)}, 'position', b.position, 'cancelledAt', b.cancelled_at)
   FROM assignments b LEFT JOIN drivers d ON d.id = b.driver_id LEFT JOIN trucks t ON t.id = b.truck_id
   LEFT JOIN places pf ON pf.id = b.from_place_id LEFT JOIN places pt ON pt.id = b.to_place_id
   LEFT JOIN materials m ON m.id = b.material_id LEFT JOIN foremen f ON f.id = b.foreman_id
@@ -700,8 +717,8 @@ const REFERENCES = [
 
 type ReferenceKey = (typeof REFERENCES)[number]['key'];
 
-/** A field added to NewAssignment does not compile until it is declared in REFERENCES or handled like date and note. */
-type Undeclared = Exclude<keyof NewAssignment, 'date' | 'note' | ReferenceKey>;
+/** A field added to NewAssignment does not compile until it is declared in REFERENCES or PLAIN, or handled like date. */
+type Undeclared = Exclude<keyof NewAssignment, 'date' | ReferenceKey | PlainKey>;
 const everyFieldDeclared: [Undeclared] extends [never] ? true : Undeclared = true;
 void everyFieldDeclared;
 
@@ -709,15 +726,16 @@ void everyFieldDeclared;
  * An Assignment as a request sends it, checked and tidied. A Place or Material
  * it typed by name is linked only when it is saved (see saveLinked).
  */
-type ReadAssignment = { date: string; note: string | null; typed: Typed[]; alsoDriverIds: string[] } & Record<ReferenceKey, string | null>;
+type ReadAssignment = { date: string; typed: Typed[]; alsoDriverIds: string[] } & Record<ReferenceKey | PlainKey, string | null>;
 
 /** The columns adding an Assignment saves, in the order savedValues gives them. */
-const SAVED_COLUMNS = ['date', ...REFERENCES.map((r) => r.column), 'note'];
+const SAVED_COLUMNS = ['date', ...REFERENCES.map((r) => r.column), ...PLAIN.map((p) => p.column)];
 
 /** A field a change may send: any but the day, which is fixed. */
-type ChangeKey = ReferenceKey | 'note';
+type ChangeKey = ReferenceKey | PlainKey;
 
-const COLUMN_OF = Object.fromEntries([...REFERENCES.map((r) => [r.key, r.column]), ['note', 'note']]) as Record<ChangeKey, string>;
+/** Each field a change may send to its column: what a change sets and a handover carries. */
+const COLUMN_OF = Object.fromEntries([...REFERENCES, ...PLAIN].map((c) => [c.key, c.column])) as Record<ChangeKey, string>;
 
 /** The fields a change sends, checked and tidied (empty is null), and the names it typed. */
 interface ReadChange {
@@ -726,7 +744,7 @@ interface ReadChange {
 }
 
 function savedValues(read: ReadAssignment): (string | null)[] {
-  return [read.date, ...REFERENCES.map((r) => read[r.key]), read.note];
+  return [read.date, ...REFERENCES.map((r) => read[r.key]), ...PLAIN.map((p) => read[p.key])];
 }
 
 /** The Assignment a request sends, checked and tidied, or the response refusing it. */
@@ -740,8 +758,8 @@ async function readAssignment(request: Request, env: Env): Promise<ReadAssignmen
   const also = await readAlso(env, body.alsoDriverIds, text(body.driverId) || null);
   if (typeof also === 'string') errors.alsoDriverIds = also;
   if (Object.keys(errors).length > 0) return refuse(errors);
-  const ids = Object.fromEntries(REFERENCES.map((r) => [r.key, text(body[r.key]) || null])) as Record<ReferenceKey, string | null>;
-  return { date: body.date as string, ...ids, note: text(body.note) || null, typed: typedIn(body), alsoDriverIds: also as string[] };
+  const fields = Object.fromEntries([...REFERENCES, ...PLAIN].map((c) => [c.key, text(body[c.key]) || null])) as Record<ReferenceKey | PlainKey, string | null>;
+  return { date: body.date as string, ...fields, typed: typedIn(body), alsoDriverIds: also as string[] };
 }
 
 /**
