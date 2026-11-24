@@ -275,6 +275,11 @@ export async function attachPaperLog(photo: NewPaperLogPhoto, picture: Blob): Pr
   ).photo;
 }
 
+/** Dave takes a wrong Paper log photo off: hidden from the day and kept. Again, it changes nothing. */
+export async function takeOffPaperLog(id: string): Promise<PaperLogPhoto> {
+  return (await request<{ photo: PaperLogPhoto }>(`api/paper-logs/${encodeURIComponent(id)}/take-off`, { method: 'POST' })).photo;
+}
+
 /** Where a Paper log photo's picture is read, through the Worker only. */
 export function paperLogPictureUrl(id: string): string {
   return `${basePath()}/api/paper-logs/${encodeURIComponent(id)}/picture`;

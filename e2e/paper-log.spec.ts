@@ -9,7 +9,10 @@ import { DESKTOP, PHONE } from './clock';
 // before the Driver attached, the Driver's lane counts the photos once the
 // page regains the focus; Dave opens the lane's Paper log, sees the Driver's
 // photos and attaches one himself, which the Driver's page then shows "by Dave".
-// An Escape right after opening a photo closes only the photo.
+// An Escape right after opening a photo closes only the photo. The Driver has no
+// Take off. The Driver's photos were of the wrong sheet: Dave takes them off (a
+// Take off that fails says so and leaves the photo), the lane counts one, and
+// the Driver's page then shows only Dave's.
 // The Worker's clock is fixed at 9:00 AM US Eastern on Mon 23 Nov.
 
 /** Sun 22 Nov: Yesterday on the Driver page. */
@@ -49,7 +52,7 @@ const escapeRightAfterOpening = (button: Locator) =>
       }),
   );
 
-test('a Driver attaches a Paper log photo for yesterday, and Dave sees it on the Board and attaches one himself', async ({ browser }) => {
+test("a Driver attaches a Paper log photo for yesterday, and Dave sees it on the Board, attaches one himself and takes the Driver's off", async ({ browser }) => {
   // Dave has yesterday's Board open: nothing attached yet, and a day to come has no Paper log.
   const board = await (await browser.newContext({ viewport: DESKTOP })).newPage();
   await board.goto('/truck-dispatch/?date=2026-11-24');
@@ -126,8 +129,36 @@ test('a Driver attaches a Paper log photo for yesterday, and Dave sees it on the
   await expect(dialog).toHaveCount(0);
   await expect(lane.getByRole('button', { name: 'Paper log for Sample Driver B · 3 photos' })).toBeVisible();
 
-  // The Driver's page shows the photo Dave attached for him.
+  // The Driver's page shows the photo Dave attached for him, and has no Take off.
   await phone.reload();
   await phone.getByRole('group', { name: 'Day' }).getByRole('button', { name: 'Yesterday' }).click();
   await expect(photos.getByRole('listitem')).toHaveText(['Truck 24 · attached 9:00', 'Truck 24 · attached 9:00', 'Truck 24 · attached 9:00 · by Dave']);
+  await photos.getByRole('button', { name: 'Open photo 1 full size' }).click();
+  await expect(full.getByRole('img', { name: 'Paper log for Truck 24, full size' })).toBeVisible();
+  await expect(phone.getByRole('button', { name: 'Take off' })).toHaveCount(0);
+  await phone.keyboard.press('Escape');
+
+  // The Driver's photos were of the wrong sheet: Dave takes them off. A Take off that fails says so and leaves the photo listed.
+  await lane.getByRole('button', { name: 'Paper log for Sample Driver B · 3 photos' }).click();
+  await board.route('**/api/paper-logs/*/take-off', (route) => route.abort(), { times: 1 });
+  await listed.getByRole('button', { name: 'Open photo 1 full size' }).click();
+  await fullOnBoard.getByRole('button', { name: 'Take off' }).click();
+  await expect(fullOnBoard.getByRole('alert')).toHaveText('This photo was not taken off. Try again.');
+  await board.keyboard.press('Escape');
+  await expect(listed.getByRole('listitem')).toHaveCount(3);
+
+  for (const left of [2, 1]) {
+    await listed.getByRole('button', { name: 'Open photo 1 full size' }).click();
+    await fullOnBoard.getByRole('button', { name: 'Take off' }).click();
+    await expect(fullOnBoard).toHaveCount(0);
+    await expect(listed.getByRole('listitem')).toHaveCount(left);
+  }
+  await expect(listed.getByRole('listitem')).toHaveText(['Truck 24 · attached 9:00 · by Dave']);
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(lane.getByRole('button', { name: 'Paper log for Sample Driver B · 1 photo' })).toBeVisible();
+
+  // The Driver's page then shows only Dave's.
+  await phone.reload();
+  await phone.getByRole('group', { name: 'Day' }).getByRole('button', { name: 'Yesterday' }).click();
+  await expect(photos.getByRole('listitem')).toHaveText(['Truck 24 · attached 9:00 · by Dave']);
 });

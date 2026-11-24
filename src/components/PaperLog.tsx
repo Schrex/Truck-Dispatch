@@ -4,7 +4,7 @@ import type { PaperLogAttacher, PaperLogPhoto, Truck } from '../../shared/types'
 import { clockTime } from '../../shared/days';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { attachPaperLog, fetchPaperLogs, FieldErrors, paperLogPictureUrl, Refused } from '@/lib/api';
+import { attachPaperLog, fetchPaperLogs, FieldErrors, paperLogPictureUrl, Refused, takeOffPaperLog } from '@/lib/api';
 import { shrinkPhoto } from '@/lib/shrinkPhoto';
 
 /** A photo the Worker has not kept yet: sending, or failed with Try again (the same id, the same picture). */
@@ -42,7 +42,9 @@ export interface PaperLogProps {
  * with Try again, which repeats the same attach, so it is kept once. A
  * refusal is shown as the Worker's plain message. The day's photos are listed
  * oldest first, "Truck 24 · attached 9:00", and open full size on a tap.
- * Nothing on the sheet is typed.
+ * Nothing on the sheet is typed. In Dave's mode only, an opened photo has
+ * Take off: it leaves the list (and the count) and is kept by the Worker; a
+ * Driver can only add another.
  */
 export function PaperLog({ date, driverId, attacher, trucks, suggestedTruckId, refreshes = 0, onPhotos }: PaperLogProps) {
   const [photos, setPhotos] = useState<PaperLogPhoto[] | null>(null);
@@ -52,6 +54,8 @@ export function PaperLog({ date, driverId, attacher, trucks, suggestedTruckId, r
   /** The Truck tapped; null until one is, so a suggestion read later still applies. */
   const [tapped, setTapped] = useState<string | null>(null);
   const [open, setOpen] = useState<number | null>(null);
+  /** Take off on the opened photo: sending, or failed with its message. */
+  const [takingOff, setTakingOff] = useState<'sending' | 'failed' | null>(null);
   const heading = useId();
   const camera = useRef<HTMLInputElement>(null);
   const library = useRef<HTMLInputElement>(null);
@@ -111,6 +115,28 @@ export function PaperLog({ date, driverId, attacher, trucks, suggestedTruckId, r
   };
 
   const shown = open === null ? null : photos?.[open] ?? null;
+
+  const view = (index: number | null) => {
+    setTakingOff(null);
+    setOpen(index);
+  };
+
+  /** Dave takes the opened photo off: it leaves the list once the Worker has it; a failure says so and leaves it. */
+  const takeOff = async (photo: PaperLogPhoto) => {
+    setTakingOff('sending');
+    try {
+      await takeOffPaperLog(photo.id);
+    } catch {
+      setTakingOff('failed');
+      return;
+    }
+    view(null);
+    setPhotos((current) => {
+      const next = (current ?? []).filter((p) => p.id !== photo.id);
+      reported.current?.(next);
+      return next;
+    });
+  };
 
   return (
     <section aria-labelledby={heading} className="animate-rise space-y-3 rounded-lg border bg-card p-4 shadow-sm">
@@ -172,7 +198,7 @@ export function PaperLog({ date, driverId, attacher, trucks, suggestedTruckId, r
                 type="button"
                 aria-label={`Open photo ${i + 1} full size`}
                 className="lift h-16 w-16 shrink-0 overflow-hidden rounded-md border bg-muted"
-                onClick={() => setOpen(i)}
+                onClick={() => view(i)}
               >
                 <img src={paperLogPictureUrl(photo.id)} alt={`Paper log photo ${i + 1}`} className="h-full w-full object-cover" />
               </button>
@@ -206,7 +232,7 @@ export function PaperLog({ date, driverId, attacher, trucks, suggestedTruckId, r
         </ul>
       )}
 
-      <Dialog open={shown !== null} onOpenChange={(isOpen) => !isOpen && setOpen(null)}>
+      <Dialog open={shown !== null} onOpenChange={(isOpen) => !isOpen && view(null)}>
         {shown && (
           <DialogContent className="max-h-[95vh] max-w-3xl overflow-auto">
             <DialogHeader>
@@ -217,6 +243,19 @@ export function PaperLog({ date, driverId, attacher, trucks, suggestedTruckId, r
               </DialogDescription>
             </DialogHeader>
             <img src={paperLogPictureUrl(shown.id)} alt={`Paper log for Truck ${shown.truckNumber}, full size`} className="h-auto w-full" />
+            {attacher === 'dave' && (
+              <div className="flex flex-wrap items-center gap-3">
+                <Button type="button" variant="outline" className="h-11" disabled={takingOff === 'sending'} onClick={() => takeOff(shown)}>
+                  {takingOff === 'sending' && <Loader2 className="h-4 w-4 animate-spin" />} Take off
+                </Button>
+                <span className="text-sm text-muted-foreground">Hides a photo of the wrong sheet. It is kept.</span>
+                {takingOff === 'failed' && (
+                  <p role="alert" className="w-full text-destructive">
+                    This photo was not taken off. Try again.
+                  </p>
+                )}
+              </div>
+            )}
           </DialogContent>
         )}
       </Dialog>
