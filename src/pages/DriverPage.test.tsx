@@ -828,7 +828,7 @@ describe('his Truck log under Today', () => {
     const asOf = IMPORTED[cut];
     const visits = readFleetJson(JSON.parse(cut === '10:15' ? CUT_1015 : CUT_1620));
     const tripDay = buildTripDay({
-      places: REAL_DAY.places, jobs: REAL_DAY.jobs, visits, now: asOf, dayOver: false,
+      places: REAL_DAY.places, notConsidered: REAL_DAY.notConsidered, jobs: REAL_DAY.jobs, visits, now: asOf, dayOver: false,
       assignments: [
         { id: 'a1', label: 'A1', fromPlaceId: J25008, toPlaceId: VILLAGER, cancelledAt: null, changes: [] },
         { id: 'a2', label: 'A2', fromPlaceId: WALWORTH, toPlaceId: J25008, cancelledAt: null, changes: [] },

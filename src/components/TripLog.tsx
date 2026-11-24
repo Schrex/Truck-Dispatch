@@ -9,15 +9,14 @@ const KIND: Record<string, { label: string; style: string }> = {
   empty: { label: 'empty', style: 'bg-muted text-muted-foreground' },
   [NOT_A_HAUL]: { label: 'not a haul', style: 'bg-muted text-muted-foreground italic' },
   null: { label: 'for Dave', style: 'bg-warning/25 text-foreground' },
-  waiting: { label: 'waiting', style: 'border text-muted-foreground' },
 };
 
 /**
  * The simulation's Trip log: every Trip the Truck made, as the Trip builder
  * has it at the clock's time, the drives to and from the shop included. Each
  * says whether it was a Load or an empty drive, which Assignment it counts
- * on, and the matching rule that decided it. A Trip still "waiting" is not
- * written yet: the visit it reaches could still turn out to be a drive-through.
+ * on, and the matching rule that decided it. A Trip counts as soon as the
+ * Truck arrives; visits to fences on the Not considered list never make one.
  */
 export function TripLog({
   trips,
@@ -50,9 +49,9 @@ export function TripLog({
           </thead>
           <tbody>
             {trips.map((trip) => {
-              const kind = KIND[trip.written ? String(trip.match.kind) : 'waiting'];
+              const kind = KIND[String(trip.match.kind)];
               return (
-                <tr key={trip.leftAt} className={cn('border-t align-top', !trip.written && 'text-muted-foreground')}>
+                <tr key={trip.leftAt} className="border-t align-top">
                   <td className="px-2 py-1.5 tabular-nums">{easternTime(trip.leftAt)}</td>
                   <td className="px-2 py-1.5">
                     {placeName(trip.fromPlaceId, trip.fromCode)} → {placeName(trip.toPlaceId, trip.toCode)}
@@ -61,8 +60,8 @@ export function TripLog({
                   <td className="px-2 py-1.5">
                     <span className={cn('whitespace-nowrap rounded px-1.5 py-0.5 text-xs font-semibold', kind.style)}>{kind.label}</span>
                   </td>
-                  <td className="px-2 py-1.5">{(trip.written && trip.match.assignmentId && assignmentLabels[trip.match.assignmentId]) || '–'}</td>
-                  <td className="px-2 py-1.5 text-muted-foreground">{trip.written ? trip.match.reason : 'Not written yet'}</td>
+                  <td className="px-2 py-1.5">{(trip.match.assignmentId && assignmentLabels[trip.match.assignmentId]) || '–'}</td>
+                  <td className="px-2 py-1.5 text-muted-foreground">{trip.match.reason}</td>
                 </tr>
               );
             })}

@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { easternTime } from './days';
 import { buildTripDay, matchTrip, routeAt, type MadeAssignment, type TripAssignment } from './trips';
-import { FIXTURE_METER, FIXTURE_PARKED_AT_JOB, FIXTURE_PLACES, FIXTURE_SCENARIOS, FIXTURE_VISITS } from './trips.fixture';
+import { FIXTURE_METER, FIXTURE_NOT_CONSIDERED, FIXTURE_PARKED_AT_JOB, FIXTURE_PLACES, FIXTURE_SCENARIOS, FIXTURE_VISITS } from './trips.fixture';
 
 const END_OF_DAY = '2026-11-17T04:59:00Z';
 const scenario = (id: string) => FIXTURE_SCENARIOS.find((s) => s.id === id)!.assignments;
 const day = (id: string, now = END_OF_DAY) =>
-  buildTripDay({ places: FIXTURE_PLACES, visits: FIXTURE_VISITS, assignments: scenario(id), now, meter: FIXTURE_METER });
+  buildTripDay({ notConsidered: FIXTURE_NOT_CONSIDERED, places: FIXTURE_PLACES, visits: FIXTURE_VISITS, assignments: scenario(id), now, meter: FIXTURE_METER });
 /** Each Trip as "08:24 J1001 North → PLANT load a1". */
 const lines = (d: ReturnType<typeof day>) =>
   d.trips.map((t) => `${easternTime(t.leftAt)} ${t.fromCode} → ${t.toCode} ${t.match.kind ?? 'NULL'} ${t.match.assignmentId ?? '-'}`);
@@ -14,12 +14,26 @@ const lines = (d: ReturnType<typeof day>) =>
 describe('Cleaning the raw Fleet visits', () => {
   const d = day('two');
 
-  it('drops the two drive-throughs and joins the short exit, 19 rows into 16 visits', () => {
+  it('drops the two visits to ROAD, not considered, and joins the short exit, 19 rows into 16 visits', () => {
     expect(FIXTURE_VISITS).toHaveLength(19);
     expect(d.dropped.map((x) => x.raw)).toEqual([6, 9]);
-    expect(d.dropped[0].reason).toMatch(/Drive-through: 61 s at ROAD/);
+    expect(d.dropped[0].reason).toBe('Not considered: ROAD');
     expect(d.merged).toEqual([{ into: 1, raw: [1, 2], reason: 'Short exit: left J1001 North for 2 min and came back' }]);
     expect(d.visits).toHaveLength(16);
+  });
+
+  it('drops a visit to a code on the Not considered list however long the Truck stayed, matching the code ignoring case', () => {
+    // A 40-minute stop at the Plant, with "plant" on the list: the day reads as if the Truck drove straight past it.
+    const d = buildTripDay({ places: FIXTURE_PLACES, visits: FIXTURE_VISITS, assignments: [], now: END_OF_DAY, notConsidered: ['ROAD', ' plant '] });
+    expect(d.visits.some((v) => v.geofenceCode === 'PLANT')).toBe(false);
+    expect(d.dropped.filter((x) => FIXTURE_VISITS[x.raw].geofenceCode === 'PLANT').map((x) => x.reason)).toEqual(Array(4).fill('Not considered: PLANT'));
+    expect(d.trips.some((t) => t.toCode === 'PLANT' || t.fromCode === 'PLANT')).toBe(false);
+  });
+
+  it('keeps a 61 s visit to a code not on the list as a stop: only the list decides', () => {
+    const d = buildTripDay({ places: FIXTURE_PLACES, visits: FIXTURE_VISITS, assignments: [], now: END_OF_DAY, notConsidered: [] });
+    expect(d.dropped).toEqual([]);
+    expect(d.trips.filter((t) => t.toCode === 'ROAD').map((t) => easternTime(t.arrivedAt))).toEqual(['09:52', '10:47']);
   });
 
   it('marks the visit that starts at local midnight as where the day began', () => {
@@ -29,7 +43,7 @@ describe('Cleaning the raw Fleet visits', () => {
 
   it('lists a geofence code with no Place, once', () => {
     const places = FIXTURE_PLACES.filter((p) => p.id !== 'plc-south');
-    const without = buildTripDay({ places, visits: FIXTURE_VISITS, assignments: [], now: END_OF_DAY });
+    const without = buildTripDay({ notConsidered: FIXTURE_NOT_CONSIDERED, places, visits: FIXTURE_VISITS, assignments: [], now: END_OF_DAY });
     expect(without.unknownCodes).toEqual(['J1002 South']);
     expect(d.unknownCodes).toEqual([]);
   });
@@ -93,7 +107,7 @@ describe('Trips and matching on the 16 Nov day', () => {
     ];
     const places = FIXTURE_PLACES.map((p) => ({ ...p, jobId: p.id === 'plc-north' ? 'job-north' : p.id === 'plc-quarry' ? 'job-quarry' : null }));
     const jobOf = (assignments: TripAssignment[]) =>
-      buildTripDay({ places, jobs, visits: FIXTURE_VISITS, assignments, now: END_OF_DAY }).assignments.map((a) => a.job?.id ?? null);
+      buildTripDay({ notConsidered: FIXTURE_NOT_CONSIDERED, places, jobs, visits: FIXTURE_VISITS, assignments, now: END_OF_DAY }).assignments.map((a) => a.job?.id ?? null);
     // A1 North → Plant: the Plant has no Job, so North's. A2 Quarry → North: North's, over the Quarry's.
     expect(jobOf(scenario('two'))).toEqual(['job-north', 'job-north']);
     const plantToSouth = { ...scenario('two')[0], fromPlaceId: 'plc-plant', toPlaceId: 'plc-south' };
@@ -125,7 +139,7 @@ describe('Trips and matching on the 16 Nov day', () => {
 
   it('keeps a Trip back that matches an Assignment’s route: only an empty guess joins the Unplanned work', () => {
     const southToNorth = { ...scenario('two')[0], id: 'a3', label: 'A3', fromPlaceId: 'plc-south', toPlaceId: 'plc-north' };
-    const d = buildTripDay({ places: FIXTURE_PLACES, visits: FIXTURE_VISITS, assignments: [...scenario('two'), southToNorth], now: END_OF_DAY });
+    const d = buildTripDay({ notConsidered: FIXTURE_NOT_CONSIDERED, places: FIXTURE_PLACES, visits: FIXTURE_VISITS, assignments: [...scenario('two'), southToNorth], now: END_OF_DAY });
     expect(d.trips[13].match).toMatchObject({ kind: 'load', assignmentId: 'a3', rule: 1 });
     // A3 explains 14:15 too, as its way back (rule 2), so there is no Unplanned work at all.
     expect(d.unplanned).toEqual([]);
@@ -140,13 +154,13 @@ describe('Trips and matching on the 16 Nov day', () => {
 
   it('checks the day miles against Trip miles plus miles inside Places', () => {
     expect(day('two').miles).toEqual({ trips: 154.29, insidePlaces: 6.91, day: 161.61, ok: true });
-    const short = buildTripDay({ places: FIXTURE_PLACES, visits: FIXTURE_VISITS, assignments: [], now: END_OF_DAY, meter: { startOdometer: 258050.59, endOdometer: 258230 } });
+    const short = buildTripDay({ notConsidered: FIXTURE_NOT_CONSIDERED, places: FIXTURE_PLACES, visits: FIXTURE_VISITS, assignments: [], now: END_OF_DAY, meter: { startOdometer: 258050.59, endOdometer: 258230 } });
     expect(short.miles.ok).toBe(false);
   });
 
   it('builds the same Trips with miles blank when the visits have no odometers, as an xlsx export gives them', () => {
     const noMeters = FIXTURE_VISITS.map((v) => ({ ...v, entryOdometer: null, exitOdometer: null }));
-    const d = buildTripDay({ places: FIXTURE_PLACES, visits: noMeters, assignments: scenario('two'), now: END_OF_DAY, dayOver: true });
+    const d = buildTripDay({ notConsidered: FIXTURE_NOT_CONSIDERED, places: FIXTURE_PLACES, visits: noMeters, assignments: scenario('two'), now: END_OF_DAY, dayOver: true });
     expect(lines(d)).toEqual(lines(day('two')));
     expect(d.trips.every((t) => t.miles === null)).toBe(true);
     expect(d.truckDay).toMatchObject({ startMiles: null, endMiles: null });
@@ -157,7 +171,7 @@ describe('Trips and matching on the 16 Nov day', () => {
 
   it('leaves blank only the miles of a Trip whose visits miss an odometer', () => {
     const visits = FIXTURE_VISITS.map((v, i) => (i === FIXTURE_VISITS.length - 2 ? { ...v, exitOdometer: null } : v));
-    const d = buildTripDay({ places: FIXTURE_PLACES, visits, assignments: scenario('two'), now: END_OF_DAY });
+    const d = buildTripDay({ notConsidered: FIXTURE_NOT_CONSIDERED, places: FIXTURE_PLACES, visits, assignments: scenario('two'), now: END_OF_DAY });
     expect(lines(d)).toEqual(lines(day('two')));
     expect(d.trips.at(-1)!.miles).toBeNull();
     expect(d.trips[1].miles).toBe(3.39);
@@ -206,6 +220,7 @@ describe('Trips and matching on the 16 Nov day', () => {
   it('makes a run of three Trips nothing fits one piece: A1 cancelled at 10:10, its last three Trips to and from the Plant', () => {
     const [a1, a2] = scenario('two');
     const d = buildTripDay({
+      notConsidered: FIXTURE_NOT_CONSIDERED,
       places: FIXTURE_PLACES,
       visits: FIXTURE_VISITS,
       assignments: [{ ...a1, cancelledAt: '2026-11-16T15:10:00Z' }, a2],
@@ -232,9 +247,10 @@ describe('Make an Assignment: an answer to Unplanned work', () => {
     // A1 cancelled at 10:10: 10:27–11:25 to and from the Plant is Unplanned work. Dave says it loaded at the Plant.
     // Plant → North is the route of A1's ways back at 08:43 and 09:50; they stay A1's.
     expect(day('two').unplanned.map((w) => w.id)).not.toContain(plantRun);
-    const before = buildTripDay({ places: FIXTURE_PLACES, visits: FIXTURE_VISITS, assignments: cancelled, now: END_OF_DAY });
+    const before = buildTripDay({ notConsidered: FIXTURE_NOT_CONSIDERED, places: FIXTURE_PLACES, visits: FIXTURE_VISITS, assignments: cancelled, now: END_OF_DAY });
     expect(before.unplanned[0].id).toBe(plantRun);
     const d = buildTripDay({
+      notConsidered: FIXTURE_NOT_CONSIDERED,
       places: FIXTURE_PLACES,
       visits: FIXTURE_VISITS,
       assignments: cancelled,
@@ -263,6 +279,7 @@ describe('Make an Assignment: an answer to Unplanned work', () => {
 
   it('leaves Unplanned work it does not answer as it is', () => {
     const d = buildTripDay({
+      notConsidered: FIXTURE_NOT_CONSIDERED,
       places: FIXTURE_PLACES,
       visits: FIXTURE_VISITS,
       assignments: scenario('two'),
@@ -278,7 +295,7 @@ describe('Split: one run that held two hauls', () => {
   const [a1, a2] = scenario('two');
   const cancelled = [{ ...a1, cancelledAt: '2026-11-16T15:10:00Z' }, a2];
   const at = (splits: string[], madeAssignments: MadeAssignment[] = []) =>
-    buildTripDay({ places: FIXTURE_PLACES, visits: FIXTURE_VISITS, assignments: cancelled, now: END_OF_DAY, answers: { splits, madeAssignments } });
+    buildTripDay({ notConsidered: FIXTURE_NOT_CONSIDERED, places: FIXTURE_PLACES, visits: FIXTURE_VISITS, assignments: cancelled, now: END_OF_DAY, answers: { splits, madeAssignments } });
   const pieces = (d: ReturnType<typeof at>) => d.unplanned.map((w) => w.trips.map((t) => `${easternTime(t.leftAt)} ${t.fromCode} → ${t.toCode}`));
   /** 10:41, Plant → North: the second Trip of the run to and from the Plant. */
   const second = at([]).unplanned[0].trips[1].leftAt;
@@ -314,7 +331,7 @@ describe('Link to an Assignment and Not a haul: answers to Unplanned work', () =
   const cancelled = [{ ...a1, cancelledAt: '2026-11-16T15:10:00Z' }, a2];
   const plantRun = '2026-11-16T15:27:50Z';
   const answered = (answers: Parameters<typeof buildTripDay>[0]['answers']) =>
-    buildTripDay({ places: FIXTURE_PLACES, visits: FIXTURE_VISITS, assignments: cancelled, now: END_OF_DAY, answers });
+    buildTripDay({ notConsidered: FIXTURE_NOT_CONSIDERED, places: FIXTURE_PLACES, visits: FIXTURE_VISITS, assignments: cancelled, now: END_OF_DAY, answers });
 
   it('a link reroutes the Assignment only for its own piece: A2 gains the Plant run’s Load and keeps its Quarry Loads after it', () => {
     // Linked to A2 loaded at the Plant (Plant → North from 10:27). A2's Quarry → North Loads come after it and stay A2's;
@@ -356,10 +373,10 @@ describe('The day as the Worker knows it during the day', () => {
     expect(d.assignments[1]).toMatchObject({ loads: 0, status: 'none' });
   });
 
-  it('does not write a Trip until the visit it reaches is past the drive-through test', () => {
+  it('counts a Trip as soon as the Truck arrives, with no wait', () => {
     const d = day('two', '2026-11-16T13:35:30Z'); // 08:35:30, 1 min into the Plant
-    expect(d.trips.at(-1)).toMatchObject({ toCode: 'PLANT', written: false });
-    expect(d.assignments[0].loads).toBe(0);
+    expect(d.trips.at(-1)).toMatchObject({ toCode: 'PLANT', match: { kind: 'load', assignmentId: 'a1' } });
+    expect(d.assignments[0].loads).toBe(1);
   });
 
   it('knows nothing before the first visit', () => {
@@ -371,7 +388,7 @@ describe('The day as the Worker knows it during the day', () => {
 
 describe('The Truck’s end time when it stops away from the shop', () => {
   const parked = (dayOver: boolean, ignition = FIXTURE_PARKED_AT_JOB.ignition) => {
-    const d = buildTripDay({ places: FIXTURE_PLACES, visits: FIXTURE_PARKED_AT_JOB.visits, assignments: [], now: END_OF_DAY, ignition, dayOver }).truckDay;
+    const d = buildTripDay({ notConsidered: FIXTURE_NOT_CONSIDERED, places: FIXTURE_PLACES, visits: FIXTURE_PARKED_AT_JOB.visits, assignments: [], now: END_OF_DAY, ignition, dayOver }).truckDay;
     return { start: d.startAt && easternTime(d.startAt), end: d.endAt && easternTime(d.endAt), totalHours: d.totalHours };
   };
 
@@ -436,6 +453,7 @@ describe('The Driver from check-ins', () => {
   const randys = scenario('two').map((a) => ({ ...a, driverId: randy.id, truckId: null }));
   const withCheckIns = (assignments: TripAssignment[], checkIns: { driverId: string; at: string }[], now = END_OF_DAY) =>
     buildTripDay({
+      notConsidered: FIXTURE_NOT_CONSIDERED,
       places: FIXTURE_PLACES,
       visits: FIXTURE_VISITS,
       assignments,

@@ -12,8 +12,6 @@ const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const BUSINESS_TIME_ZONE = 'America/New_York';
 
-/** Rules tuned on 16 Nov: shorter than this is a drive-through. */
-export const DRIVE_THROUGH_MINUTES = 2;
 /** Two visits to the same Place this close together are one (a short exit). */
 export const SHORT_EXIT_MINUTES = 5;
 /** Day miles and Trip miles further apart than this mean something was missed. */
@@ -115,8 +113,6 @@ export interface Trip {
   arrivedAt: string;
   /** From the odometers; null when either visit has none (an xlsx export). */
   miles: number | null;
-  /** Written to the trips table: the visit it reaches is past the drive-through test, so it can no longer change. */
-  written: boolean;
   match: Match;
 }
 
@@ -227,7 +223,7 @@ export interface UnplannedPlace {
 }
 
 /**
- * Unplanned work (GLOSSARY.md): written Trips in a row that no Assignment
+ * Unplanned work (GLOSSARY.md): Trips in a row that no Assignment
  * explains, between the Trips an Assignment explains (or the shop), taken as
  * one piece for Dave to answer. The Truck cannot tell which way material
  * went, so it has its Places and times only: no From, no To, no Job, no Loads.
@@ -305,11 +301,11 @@ export interface TripDay {
   visits: CleanVisit[];
   trips: Trip[];
   assignments: AssignmentTrips[];
-  /** The Unplanned work: written Trips no Assignment explains, in pieces, for Dave to answer next morning. */
+  /** The Unplanned work: Trips no Assignment explains, in pieces, for Dave to answer next morning. */
   unplanned: UnplannedWork[];
-  /** The written Trips two or more Assignments fit equally: planned work, not Unplanned work; Dave picks which. */
+  /** The Trips two or more Assignments fit equally: planned work, not Unplanned work; Dave picks which. */
   whichAssignment: WhichAssignment[];
-  /** The written Trips to or from the shop or a yard (rule 3): leaving in the morning, getting back at the end of the day. */
+  /** The Trips to or from the shop or a yard (rule 3): leaving in the morning, getting back at the end of the day. */
   shopTrips: Trip[];
   /** The Truck's day: Driver, start and end, miles, Total hours. */
   truckDay: TruckDay;
@@ -388,6 +384,12 @@ export interface TripDayInput {
   assignments: TripAssignment[];
   /** What the Worker knows: only data up to this moment. */
   now: string;
+  /**
+   * Dave's Not considered list (Settings): geofence codes whose visits are
+   * dropped before Trips are built, however long the Truck stayed, matched
+   * ignoring case. Every other visit is a stop.
+   */
+  notConsidered: string[];
   /** The meter readings around the day; the end one is null until it exists. */
   meter?: { startOdometer: number; endOdometer: number | null } | null;
   /** The Truck and who might have driven it, for the Truck's Driver. */
@@ -434,21 +436,22 @@ function knownAt(visits: FleetVisit[], now: string) {
     });
 }
 
-/** Clean the known visits: drop drive-throughs, join short exits, mark where the day began. */
-function clean(known: ReturnType<typeof knownAt>, places: TripPlace[]) {
-  const placeOf = new Map(places.filter((p) => p.geofenceCode).map((p) => [p.geofenceCode!.toLowerCase(), p.id]));
+/** A geofence code as codes are matched: trimmed, ignoring case. */
+export const codeKey = (code: string) => code.trim().toLowerCase();
+
+/** Clean the known visits: drop the ones not considered, join short exits, mark where the day began. */
+function clean(known: ReturnType<typeof knownAt>, places: TripPlace[], notConsidered: string[]) {
+  const placeOf = new Map(places.filter((p) => p.geofenceCode).map((p) => [codeKey(p.geofenceCode!), p.id]));
+  const skipped = new Set(notConsidered.map(codeKey));
   const dropped: TripDay['dropped'] = [];
   const merged: TripDay['merged'] = [];
   const visits: CleanVisit[] = [];
   for (const { raw, visit } of known) {
-    if (visit.exitedAt !== null) {
-      const minutes = (ms(visit.exitedAt) - ms(visit.enteredAt)) / MINUTE;
-      if (minutes < DRIVE_THROUGH_MINUTES) {
-        dropped.push({ raw, reason: `Drive-through: ${Math.round(minutes * 60)} s at ${visit.geofenceCode}, under ${DRIVE_THROUGH_MINUTES} min` });
-        continue;
-      }
+    if (skipped.has(codeKey(visit.geofenceCode))) {
+      dropped.push({ raw, reason: `Not considered: ${visit.geofenceCode}` });
+      continue;
     }
-    const placeId = placeOf.get(visit.geofenceCode.toLowerCase()) ?? null;
+    const placeId = placeOf.get(codeKey(visit.geofenceCode)) ?? null;
     const last = visits.at(-1);
     if (last && last.exitedAt !== null && last.geofenceCode.toLowerCase() === visit.geofenceCode.toLowerCase()) {
       const gap = (ms(visit.enteredAt) - ms(last.exitedAt)) / MINUTE;
@@ -542,14 +545,13 @@ export function matchTrip(
   return { kind: null, assignmentId: null, rule: 7, reason: 'No Assignment fits; Dave answers next morning' };
 }
 
-/** Pair the cleaned visits into Trips: from one visit's exit to the next visit's entry. */
-function pair(visits: CleanVisit[], now: string): Omit<Trip, 'match'>[] {
+/** Pair the cleaned visits into Trips: from one visit's exit to the next visit's entry, as soon as the Truck arrives. */
+function pair(visits: CleanVisit[]): Omit<Trip, 'match'>[] {
   const trips: Omit<Trip, 'match'>[] = [];
   for (let i = 0; i + 1 < visits.length; i++) {
     const from = visits[i];
     const to = visits[i + 1];
     if (from.exitedAt === null) continue;
-    const settled = to.exitedAt !== null || ms(now) - ms(to.enteredAt) >= DRIVE_THROUGH_MINUTES * MINUTE;
     trips.push({
       fromPlaceId: from.placeId,
       toPlaceId: to.placeId,
@@ -559,7 +561,6 @@ function pair(visits: CleanVisit[], now: string): Omit<Trip, 'match'>[] {
       arrivedAt: to.enteredAt,
       // No odometers (an xlsx export): the Trip is still made, its miles blank.
       miles: to.entryOdometer === null || from.exitOdometer === null ? null : round(to.entryOdometer - from.exitOdometer),
-      written: settled,
     });
   }
   return trips;
@@ -577,11 +578,10 @@ function jobOf(route: Route, places: TripPlace[], jobs: TripJob[]): TripJob | nu
 /** Now, Done or neither (proposal P5): Now while the Truck's latest Trip is its and the Truck is not back at the shop. */
 function summarize(input: TripDayInput, assignments: TripAssignment[], trips: Trip[]): AssignmentTrips[] {
   const { places, now } = input;
-  const written = trips.filter((t) => t.written);
-  const latest = written.at(-1);
+  const latest = trips.at(-1);
   const atShop = latest ? isShopOrYard(kindOf(places, latest.toPlaceId)) : false;
   return assignments.map((a) => {
-    const own = written.filter((t) => t.match.assignmentId === a.id);
+    const own = trips.filter((t) => t.match.assignmentId === a.id);
     const loads = own.filter((t) => t.match.kind === 'load');
     const status: AssignmentStatus = own.length === 0 ? 'none' : latest?.match.assignmentId === a.id && !atShop ? 'now' : 'done';
     const first = own[0];
@@ -706,9 +706,8 @@ const BACK_INTO_UNPLANNED: Match = {
 
 /**
  * Each run of Trips nothing fits, with the drives back into it. Every Trip is
- * walked (an unwritten last one is taken back too, so it is never shown as an
- * Assignment's for two minutes). Returns the Trips with their matches, and
- * the runs as index lists into them.
+ * walked. Returns the Trips with their matches, and the runs as index lists
+ * into them.
  */
 function unplannedRuns(trips: Trip[]): { trips: Trip[]; runs: number[][] } {
   const out: Trip[] = [];
@@ -810,14 +809,14 @@ function answerRuns(trips: Trip[], runs: number[][], answers: UnplannedAnswers, 
 /** Still Unplanned work: no Assignment counts it and Dave has not said it was not a haul. */
 const unanswered = (t: Trip) => t.match.assignmentId === null && t.match.kind !== NOT_A_HAUL;
 
-/** The pieces of Unplanned work: in each run, the written Trips still nobody's, in rows. */
+/** The pieces of Unplanned work: in each run, the Trips still nobody's, in rows. */
 function piecesOf(trips: Trip[], runs: number[][]): UnplannedWork[] {
   const rows: Trip[][] = [];
   for (const run of runs) {
     let row: Trip[] | null = null;
     for (const i of run) {
       const t = trips[i];
-      if (!unanswered(t) || !t.written) {
+      if (!unanswered(t)) {
         row = null;
         continue;
       }
@@ -839,8 +838,8 @@ function piecesOf(trips: Trip[], runs: number[][]): UnplannedWork[] {
 /** One Truck's day as the Worker would know it at `now`. */
 export function buildTripDay(input: TripDayInput): TripDay {
   const known = knownAt(input.visits, input.now);
-  const { visits, dropped, merged } = clean(known, input.places);
-  const matched = pair(visits, input.now).map((t) => ({ ...t, match: matchTrip(t, assignmentsAt(input, t.leftAt), input.places) }));
+  const { visits, dropped, merged } = clean(known, input.places, input.notConsidered);
+  const matched = pair(visits).map((t) => ({ ...t, match: matchTrip(t, assignmentsAt(input, t.leftAt), input.places) }));
   const grouped = unplannedRuns(matched);
   const answers = input.answers ?? {};
   const runs = splitRuns(grouped.trips, grouped.runs, answers.splits ?? []);
@@ -853,7 +852,7 @@ export function buildTripDay(input: TripDayInput): TripDay {
     return link ? linkedAssignment(a, link) : a;
   };
   const unplanned = piecesOf(trips, runs);
-  // Inside cleaned visits only: a drive-through's miles are already in the Trip across it,
+  // Inside cleaned visits only: a skipped visit.s miles are already in the Trip across it,
   // and a short exit's miles are inside the joined visit.
   // Without odometers on every Trip and closed visit, the sums are not known.
   const closed = visits.filter((v) => v.exitedAt !== null);
@@ -872,9 +871,9 @@ export function buildTripDay(input: TripDayInput): TripDay {
     assignments: summarize(input, [...input.assignments, ...made].map(linked), trips),
     unplanned,
     whichAssignment: trips
-      .filter((t) => t.written && t.match.candidates)
+      .filter((t) => t.match.candidates)
       .map((trip) => ({ id: trip.leftAt, trip, candidates: trip.match.candidates! })),
-    shopTrips: trips.filter((t) => t.written && t.match.rule === 3),
+    shopTrips: trips.filter((t) => t.match.rule === 3),
     truckDay: truckDayOf(input, visits, trips),
     unknownCodes,
     miles: {
