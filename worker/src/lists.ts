@@ -141,13 +141,6 @@ export const LISTS: Record<ListName, List> = {
     name: { key: 'label', column: 'label', missing: 'Write what the Driver checks.', taken: 'There is already an item with this wording.' },
     fields: [{ key: 'optional', column: 'optional', kind: 'flag', message: 'Choose optional or not.' }],
   },
-  // Geofence codes the Trip builder skips (shared/trips.ts); matched ignoring case, like a Place's code.
-  'not-considered': {
-    table: 'not_considered',
-    one: 'notConsidered',
-    name: { key: 'code', column: 'code', missing: 'Write the geofence code.', taken: 'This code is on the Not considered list already.' },
-    fields: [],
-  },
 };
 
 /** The longest a list entry's name or other text may be. */

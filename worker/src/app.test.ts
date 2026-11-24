@@ -917,34 +917,9 @@ describe('the lists Dave does not order', () => {
 });
 
 describe('the Not considered list', () => {
-  const codes = async (search = '') => (await list(`/api/not-considered${search}`)).map((e) => e.code);
-
-  it('adds a geofence code, trimmed, that no Place needs, and lists the codes by code', async () => {
-    const response = await post('/api/not-considered', { code: '  WEITSMANS  ' });
-    expect(response.status).toBe(201);
-    expect(((await response.json()) as { notConsidered: Entry }).notConsidered).toMatchObject({ code: 'WEITSMANS', active: true });
-    await post('/api/not-considered', { code: 'GAS STATION' });
-    expect(await codes()).toEqual(['GAS STATION', 'WEITSMANS']);
-  });
-
-  it('refuses a code already on the list, ignoring case', async () => {
-    await post('/api/not-considered', { code: 'GAS STATION' });
-    expect(await refusal(await post('/api/not-considered', { code: ' gas station ' }))).toEqual({ code: 'This code is on the Not considered list already.' });
-    expect(await refusal(await post('/api/not-considered', { code: '  ' }))).toEqual({ code: 'Write the geofence code.' });
-  });
-
-  it('takes a code off the list, and adding it again brings it back', async () => {
-    const { notConsidered } = (await (await post('/api/not-considered', { code: 'GAS STATION' })).json()) as { notConsidered: Entry };
-    expect((await send('PATCH', `/api/not-considered/${notConsidered.id}`, { active: false })).status).toBe(200);
-    expect(await codes()).toEqual([]);
-    const again = await post('/api/not-considered', { code: 'gas station' });
-    expect(again.status).toBe(200);
-    expect(await again.json()).toMatchObject({ notConsidered: { id: notConsidered.id, code: 'gas station', active: true }, broughtBack: true });
-  });
-
-  it('has no order and no delete', async () => {
-    expect((await send('PUT', '/api/not-considered/order', { order: [] })).status).toBe(405);
-    expect((await send('DELETE', '/api/not-considered/x', {})).status).toBe(405);
+  it('is gone: Geofences replace it (api/geofences)', async () => {
+    expect((await get('/api/not-considered')).status).toBe(404);
+    expect((await post('/api/not-considered', { code: 'GAS STATION' })).status).toBe(404);
   });
 });
 
