@@ -529,6 +529,14 @@ export interface FleetImport extends ImportCounts {
   codesWithNoPlace: CodeWithNoPlace[];
 }
 
+/** What Clear Fleet imports (DELETE api/fleet-imports) deleted: how many Imports, visits and Geofences. */
+export interface ClearedImports {
+  imports: number;
+  visits: number;
+  /** 0 unless the Geofences were cleared too. */
+  geofences: number;
+}
+
 /**
  * A Truck's stored day (GET api/trucks/:id/days/:date): its stored visits and
  * the Assignments that name it, through the Trip builder and the shared Truck

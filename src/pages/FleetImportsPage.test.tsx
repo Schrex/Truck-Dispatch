@@ -30,6 +30,8 @@ let answered: Partial<FleetImport>;
 let notConsidered: string[];
 /** Whether turning a Geofence to Not considered fails. */
 let notConsideredFails: boolean;
+/** The query of each Clear Fleet imports the page sent, in order. */
+let cleared: string[];
 
 /** The Import route as the page sees it: every visit sent is new, on Truck 55. */
 const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -42,6 +44,11 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     return answer({
       import: { id: 'imp-1', truckId: 'trk-55', truckNumber: '55', fileName: body.fileName, format: body.format, importedAt: '2026-11-16T20:05:00.000Z', added: body.rows.length, closed: 0, unchanged: 0, days: [{ date: '2026-11-16', added: body.rows.length, closed: 0, unchanged: 0 }], codesWithNoPlace: [], ...answered } satisfies FleetImport,
     }, 201);
+  }
+  if (url.pathname.endsWith('/api/fleet-imports') && init?.method === 'DELETE') {
+    cleared.push(url.search);
+    storedDays = {};
+    return answer({ cleared: { imports: 2, visits: 14, geofences: url.searchParams.get('geofences') === '1' ? 9 : 0 } });
   }
   const geofence = /\/api\/geofences\/([^/]+)$/.exec(url.pathname);
   if (geofence && init?.method === 'PATCH') {
@@ -148,6 +155,7 @@ beforeEach(() => {
   answered = {};
   notConsidered = ['sunset'];
   notConsideredFails = false;
+  cleared = [];
   storedDays = {};
   asked = [];
   api.mockClear();
@@ -517,6 +525,42 @@ describe('A stored day on the Fleet imports page', () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+  });
+
+  describe('Start over', () => {
+    const startOver = () => screen.getByRole('region', { name: 'Start over' });
+
+    it('asks once more, then clears every Import and stored visit, empties the Imports list and reads the day again', async () => {
+      store('trk-55', '2026-11-17', readFleetJson(JSON.parse(CUT_1305)), AS_OF);
+      await openPage();
+      drop(new File([EXPORT_1502], 'EntryExit-1502.json', { type: 'application/json' }));
+      expect(await screen.findByText('18 new · 0 closed · 0 already stored')).toBeTruthy();
+
+      fireEvent.click(within(startOver()).getByRole('button', { name: 'Clear Fleet imports' }));
+      expect(cleared).toEqual([]);
+      fireEvent.click(within(startOver()).getByRole('button', { name: 'Yes, clear them' }));
+
+      await waitFor(() => expect(cleared).toEqual(['']));
+      await waitFor(() => expect(screen.queryByRole('region', { name: 'Imports' })).toBeNull());
+      expect(await screen.findByText('No Import has covered this day yet.')).toBeTruthy();
+      expect(within(startOver()).getByRole('button', { name: 'Clear Fleet imports' })).toBeTruthy();
+    });
+
+    it('clears the Geofences too with the switch on', async () => {
+      await openPage();
+      fireEvent.click(within(startOver()).getByRole('switch', { name: 'Also clear Geofences' }));
+      fireEvent.click(within(startOver()).getByRole('button', { name: 'Clear Fleet imports' }));
+      fireEvent.click(within(startOver()).getByRole('button', { name: 'Yes, clear them' }));
+      await waitFor(() => expect(cleared).toEqual(['?geofences=1']));
+    });
+
+    it('sends nothing on Cancel', async () => {
+      await openPage();
+      fireEvent.click(within(startOver()).getByRole('button', { name: 'Clear Fleet imports' }));
+      fireEvent.click(within(startOver()).getByRole('button', { name: 'Cancel' }));
+      expect(within(startOver()).getByRole('button', { name: 'Clear Fleet imports' })).toBeTruthy();
+      expect(cleared).toEqual([]);
     });
   });
 });

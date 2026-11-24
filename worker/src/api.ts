@@ -75,7 +75,7 @@ export async function handleApi(request: Request, env: Env, route: string, query
   const problems = await handleTruckProblems(request, env, route, query);
   if (problems) return problems;
 
-  const fleetImports = await handleFleetImports(request, env, route);
+  const fleetImports = await handleFleetImports(request, env, route, query);
   if (fleetImports) return fleetImports;
 
   const geofences = await handleGeofences(request, env, route);

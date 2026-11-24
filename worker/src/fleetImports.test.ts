@@ -331,3 +331,46 @@ describe('Importing an xlsx Fleet export', () => {
     expect(await counts(await importFile('2026-11-16-1502.json'))).toBe('0 new · 0 closed · 18 already stored');
   });
 });
+
+describe('Clearing Fleet imports', () => {
+  /** How many Geofences are stored. */
+  const geofenceCount = async () => (await d1.database().prepare('SELECT count(*) AS n FROM geofences').first<{ n: number }>())?.n;
+  const clear = (path = '/api/fleet-imports', vars = {}) => send('DELETE', path, undefined, vars);
+
+  it('deletes every Import, day and visit, says how many, and keeps the Geofences and the Truck', async () => {
+    const { truckId } = await setUpTruck55(send, d1);
+    await importFile('2026-11-16-cut-1015.json');
+    await importFile('2026-11-16-cut-1305.json');
+    const geofences = await geofenceCount();
+    expect(geofences).toBeGreaterThan(0);
+
+    const response = await clear();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ cleared: { imports: 2, visits: 14, geofences: 0 } });
+    expect(await storedCounts()).toEqual(NOTHING);
+    expect(await geofenceCount()).toBe(geofences);
+
+    // The Truck's day has no Import and no visits; the same file imports as new again.
+    const day = (await (await send('GET', `/api/trucks/${truckId}/days/2026-11-16`, undefined, { NOW: AFTERNOON })).json()) as { asOf: string | null };
+    expect(day.asOf).toBeNull();
+    expect(await counts(await importFile('2026-11-16-cut-1015.json'))).toBe('8 new · 0 closed · 0 already stored');
+  });
+
+  it('also deletes every Geofence and its toggle with geofences=1', async () => {
+    await setUpTruck55(send, d1);
+    await importFile('2026-11-16-1502.json');
+    const geofences = await geofenceCount();
+    const response = await clear('/api/fleet-imports?geofences=1');
+    expect(await response.json()).toEqual({ cleared: { imports: 1, visits: 18, geofences } });
+    expect(await geofenceCount()).toBe(0);
+  });
+
+  it.each([['production'], [undefined]])('refuses where ENVIRONMENT is %j, and deletes nothing', async (ENVIRONMENT) => {
+    await setUpTruck55(send, d1);
+    await importFile('2026-11-16-1502.json');
+    expect(await refusalOf(await clear('/api/fleet-imports', { ENVIRONMENT }))).toEqual({
+      status: 403, error: 'imports_not_allowed', message: 'Fleet imports can be cleared only on local, preview and staging.',
+    });
+    expect(await storedCounts()).toEqual({ imports: 1, days: 1, visits: 18 });
+  });
+});
