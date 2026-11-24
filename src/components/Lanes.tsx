@@ -182,7 +182,8 @@ function WhichAssignmentBox({ ties }: { ties: StoredWhichAssignment[] }) {
  * `editor` gives for it under the lane's blocks. With onAdd each lane but a removed
  * Driver's has a + that asks for the composer, which the lane named by
  * composingFor (a Driver's id, or null for Unassigned) shows under its
- * Driver. With onAssign each Draft with an active Driver has Assign on its block,
+ * Driver; there the + turns to × ("Close the composer for …") and onAdd
+ * with that lane closes it. With onAssign each Draft with an active Driver has Assign on its block,
  * and an Unassigned lane holding Drafts says to pick a Driver to Assign one.
  * With onDiscard each cancelled block has Discard, on any day.
  * Without them the lanes are read-only.
@@ -314,7 +315,7 @@ export function Lanes({
                   <Button
                     variant="outline"
                     size="icon"
-                    aria-label={`Add an Assignment for ${name}`}
+                    aria-label={composingFor === lane.driverId ? `Close the composer for ${name}` : `Add an Assignment for ${name}`}
                     aria-expanded={composingFor === lane.driverId}
                     className={cn(
                       'group h-11 w-11 shrink-0 rounded-full border-dashed hover:border-solid hover:border-primary hover:bg-primary hover:text-primary-foreground',

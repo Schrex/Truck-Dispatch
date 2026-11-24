@@ -125,6 +125,9 @@ describe('Lanes', () => {
     rerender(<Lanes assignments={[]} drivers={drivers} trucks={trucks} onAdd={onAdd} composingFor="drv-b" composer={<p>The composer</p>} />);
     expect(within(screen.getByRole('article', { name: 'Sample Driver B' })).getByText('The composer')).toBeTruthy();
     expect(screen.getAllByText('The composer')).toHaveLength(1);
+    // The open lane's + is a × that closes it: onAdd with that lane again.
+    fireEvent.click(screen.getByRole('button', { name: 'Close the composer for Sample Driver B' }));
+    expect(onAdd).toHaveBeenLastCalledWith('drv-b');
   });
 
   it('offers Assign on a Draft in an active Driver\'s lane, never in a removed Driver\'s, whom no one would reach', () => {

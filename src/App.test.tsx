@@ -694,6 +694,19 @@ describe('the composer', () => {
     expect(within(lane('Sample Driver A')).queryByRole('form')).toBeNull();
   });
 
+  it('closes the composer when its lane\'s + (now ×) is tapped again, and opens it blank on the next tap', async () => {
+    await day();
+    await compose('Sample Driver A');
+    const close = within(lane('Sample Driver A')).getByRole('button', { name: 'Close the composer for Sample Driver A' });
+    expect(close.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.click(close);
+    expect(screen.queryByRole('form')).toBeNull();
+    const add = within(lane('Sample Driver A')).getByRole('button', { name: 'Add an Assignment for Sample Driver A' });
+    expect(add.getAttribute('aria-expanded')).toBe('false');
+    await compose('Sample Driver A');
+    expect(screen.getAllByRole('form')).toHaveLength(1);
+  });
+
   it('offers Places and Materials as chips in the order of their lists, active ones only, each with "Or type it"', async () => {
     await day();
     const composer = await compose('Sample Driver A');
