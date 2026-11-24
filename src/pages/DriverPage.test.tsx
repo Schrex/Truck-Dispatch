@@ -10,7 +10,7 @@ import { readFleetJson } from '../../shared/fleetExport';
 import { buildTripDay } from '../../shared/trips';
 import { truckLog, truckLogLanes } from '../../shared/truckLog';
 import { REAL_DAY } from '@/simulate/realDay';
-import type { CheckIn, DriverAssignment, DriverDay, DriverTruckLog, Inspection, NewInspection, TruckProblem } from '../../shared/types';
+import type { CheckIn, DriverAssignment, DriverDay, DriverTruckLog, Inspection, NewInspection, PaperLogPhoto, TruckProblem } from '../../shared/types';
 // The whole 16 Nov day cut at 10:15 and at 16:20, as Fleet would have exported it then.
 import CUT_1015 from '../../shared/fixtures/fleet/2026-11-16-cut-1015.json?raw';
 import CUT_1620 from '../../shared/fixtures/fleet/2026-11-16-cut-1620.json?raw';
@@ -65,6 +65,11 @@ const problemReads: string[] = [];
 /** Every Report a problem the phone sent, and how many to fail before one is saved. */
 const reports: unknown[] = [];
 let failReports = 0;
+/** Every Paper log photo the Worker keeps; each attach the phone sent (its query), how many to fail, and a refusal to answer the next one with. */
+let paperLogs: PaperLogPhoto[] = [];
+const attaches: string[] = [];
+let failAttaches = 0;
+let refuseAttach: string | null = null;
 /** The Worker's clock when a Finish is saved: 6:42 AM US Eastern. */
 const DONE_AT = '2026-11-19T11:42:00.000Z';
 
@@ -123,6 +128,31 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     problemReads.push(url.search);
     const truckId = url.searchParams.get('truckId');
     return answer({ problems: problems.filter((p) => (url.searchParams.get('open') !== '1' || !p.fixedAt) && (!truckId || p.truckId === truckId)) });
+  }
+  if (path.endsWith('/api/paper-logs') && init?.method === 'POST') {
+    attaches.push(url.search);
+    if (failAttaches > 0) {
+      failAttaches -= 1;
+      return answer({ error: 'oops' }, 500);
+    }
+    if (refuseAttach) return answer({ error: 'invalid', fields: { picture: refuseAttach } }, 400);
+    const q = url.searchParams;
+    const kept = paperLogs.find((p) => p.id === q.get('id'));
+    if (kept) return answer({ photo: kept });
+    const truck = trucks.find((t) => t.id === q.get('truckId'))!;
+    const driver = drivers.find((d) => d.id === q.get('driverId'))!;
+    const photo: PaperLogPhoto = {
+      id: q.get('id')!, date: q.get('date')!, truckId: truck.id, truckNumber: truck.number, driverId: driver.id, driverName: driver.name,
+      attachedBy: q.get('attachedBy') as PaperLogPhoto['attachedBy'], attachedAt: '2026-11-19T21:05:00.000Z',
+      contentType: new Headers(init.headers).get('Content-Type')!, size: (init.body as Blob).size, takenOffAt: null,
+    };
+    paperLogs.push(photo);
+    return answer({ photo }, 201);
+  }
+  if (path.endsWith('/api/paper-logs')) {
+    const date = url.searchParams.get('date')!;
+    const driverId = url.searchParams.get('driverId');
+    return answer({ date, photos: paperLogs.filter((p) => p.date === date && (!driverId || p.driverId === driverId)) });
   }
   if (path.endsWith('/api/trucks')) return answer({ trucks: url.searchParams.get('include') ? trucks : trucks.filter((t) => t.active) });
   if (path.endsWith('/api/inspection-items')) return answer({ 'inspection-items': checklist });
@@ -198,6 +228,10 @@ beforeEach(() => {
   problemReads.length = 0;
   reports.length = 0;
   failReports = 0;
+  paperLogs = [];
+  attaches.length = 0;
+  failAttaches = 0;
+  refuseAttach = null;
   localStorage.clear();
   vi.stubGlobal('fetch', api);
 });
@@ -886,5 +920,81 @@ describe('his Truck log under Today', () => {
     const today = await day('Today, Mon, Nov 16');
     await waitFor(() => expect(cardsIn(today)).toHaveLength(2));
     expect(within(today).queryByRole('region', { name: 'Truck log' })).toBeNull();
+  });
+});
+
+describe('his Paper log', () => {
+  beforeEach(() => {
+    localStorage.setItem('truck-dispatch:view', 'driver');
+    localStorage.setItem('truck-dispatch:driver', 'drv-a');
+  });
+
+  const paperLog = () => screen.findByRole('region', { name: 'Paper log' });
+  const pressed = (section: HTMLElement) =>
+    within(within(section).getByRole('group', { name: 'Truck' }))
+      .getAllByRole('button')
+      .filter((b) => b.getAttribute('aria-pressed') === 'true')
+      .map((b) => b.textContent);
+  const photograph = (section: HTMLElement) =>
+    fireEvent.change(within(section).getByLabelText('Photo from the camera'), {
+      target: { files: [new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1])], 'sheet.png', { type: 'image/png' })] },
+    });
+  const listed = async (section: HTMLElement) =>
+    within(await within(section).findByRole('list', { name: 'Paper log photos' }))
+      .getAllByRole('listitem')
+      .map((item) => item.textContent);
+
+  it('is offered on today with his usual Truck, on a past day with that day\'s check-in Truck, and never on a day to come', async () => {
+    checkIns['2026-11-18'] = [{ driverId: 'drv-a', driverName: 'Sample Driver A', truckId: 'trk-27', truckNumber: '27', inspectionId: 'i-1', doneAt: '2026-11-18T11:00:00.000Z', needsRepair: false }];
+    open('/');
+    await waitFor(async () => expect(pressed(await paperLog())).toEqual(['Truck 21']));
+    await pick('Yesterday');
+    await day('Yesterday, Wed, Nov 18');
+    await waitFor(async () => expect(pressed(await paperLog())).toEqual(['Truck 27']));
+    await pick('Tomorrow');
+    await day('Tomorrow, Fri, Nov 20');
+    expect(screen.queryByRole('region', { name: 'Paper log' })).toBeNull();
+  });
+
+  it('waits for a Truck to be tapped when he has no usual Truck and no check-in that day', async () => {
+    const usual = drivers[0].defaultTruckId;
+    drivers[0].defaultTruckId = null;
+    try {
+      open('/');
+      const section = await paperLog();
+      await within(section).findByText('No photos yet for this day.');
+      expect(within(section).getByRole('button', { name: 'Photograph Paper log' })).toHaveProperty('disabled', true);
+      expect(within(section).getByRole('button', { name: 'Choose a photo' })).toHaveProperty('disabled', true);
+      fireEvent.click(within(section).getByRole('button', { name: 'Truck 24' }));
+      expect(within(section).getByRole('button', { name: 'Photograph Paper log' })).toHaveProperty('disabled', false);
+      photograph(section);
+      expect(await listed(section)).toEqual(['Truck 24 · attached 16:05']);
+    } finally {
+      drivers[0].defaultTruckId = usual;
+    }
+  });
+
+  it('keeps a photo that failed to send with Try again, which repeats the same attach and keeps it once', async () => {
+    failAttaches = 1;
+    open('/');
+    const section = await paperLog();
+    await within(section).findByText('No photos yet for this day.');
+    photograph(section);
+    fireEvent.click(await within(section).findByRole('button', { name: 'Try again' }));
+    expect(await listed(section)).toEqual(['Truck 21 · attached 16:05']);
+    expect(attaches).toHaveLength(2);
+    expect(new URLSearchParams(attaches[1]).get('id')).toBe(new URLSearchParams(attaches[0]).get('id'));
+    expect(new URLSearchParams(attaches[0]).get('attachedBy')).toBe('driver');
+    expect(within(section).queryByRole('button', { name: 'Try again' })).toBeNull();
+  });
+
+  it('shows a refusal from the Worker as a plain message', async () => {
+    refuseAttach = 'This file is not a readable photo. Take it again.';
+    open('/');
+    const section = await paperLog();
+    await within(section).findByText('No photos yet for this day.');
+    photograph(section);
+    expect((await within(section).findByRole('alert')).textContent).toBe('This file is not a readable photo. Take it again.');
+    expect(within(section).queryByRole('button', { name: 'Try again' })).toBeNull();
   });
 });

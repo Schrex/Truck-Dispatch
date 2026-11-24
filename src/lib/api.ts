@@ -1,4 +1,4 @@
-import type { Assignment, ClearedImports, AssignmentChange, BusinessDay, ChangedAssignment, CheckIn, CheckIns, CopiedDay, Day, DriverDay, FleetImport, Geofence, NewFleetImport, Inspection, NewInspection, EntryFields, ListName, Lists, AddAssignment, OrderedList, TruckLogDay, TruckProblem, WeekDay } from '../../shared/types';
+import type { Assignment, ClearedImports, AssignmentChange, BusinessDay, ChangedAssignment, CheckIn, CheckIns, CopiedDay, Day, DriverDay, FleetImport, Geofence, NewFleetImport, Inspection, NewInspection, EntryFields, ListName, Lists, AddAssignment, OrderedList, PaperLogAttacher, PaperLogDay, PaperLogPhoto, TruckLogDay, TruckProblem, WeekDay } from '../../shared/types';
 import { basePath } from './basePath';
 
 // Every call starts at the base path the page was reached under: /api/...
@@ -246,4 +246,36 @@ export async function setNotConsidered(code: string, notConsidered: boolean): Pr
  */
 export function fetchTruckLogDay(truckId: string, date: string, at?: string): Promise<TruckLogDay> {
   return request<TruckLogDay>(`api/trucks/${encodeURIComponent(truckId)}/days/${encodeURIComponent(date)}${at ? `?at=${encodeURIComponent(at)}` : ''}`);
+}
+
+/** A day's Paper log photos, oldest first, without the ones taken off; one Driver's with driverId. */
+export async function fetchPaperLogs(date: string, driverId?: string): Promise<PaperLogPhoto[]> {
+  const query = new URLSearchParams({ date, ...(driverId ? { driverId } : {}) });
+  return (await request<PaperLogDay>(`api/paper-logs?${query}`)).photos;
+}
+
+/** Whose Paper log photo it is and who attached it; the id is made by the phone (a UUID). */
+export interface NewPaperLogPhoto {
+  id: string;
+  date: string;
+  truckId: string;
+  driverId: string;
+  attachedBy: PaperLogAttacher;
+}
+
+/**
+ * Attaches one Paper log photo: the picture as the body. Sent again with the
+ * same id (Try again after a lost reply), it answers the photo already kept
+ * and keeps nothing more.
+ */
+export async function attachPaperLog(photo: NewPaperLogPhoto, picture: Blob): Promise<PaperLogPhoto> {
+  const query = new URLSearchParams({ ...photo });
+  return (
+    await request<{ photo: PaperLogPhoto }>(`api/paper-logs?${query}`, { method: 'POST', headers: { 'Content-Type': picture.type }, body: picture })
+  ).photo;
+}
+
+/** Where a Paper log photo's picture is read, through the Worker only. */
+export function paperLogPictureUrl(id: string): string {
+  return `${basePath()}/api/paper-logs/${encodeURIComponent(id)}/picture`;
 }
