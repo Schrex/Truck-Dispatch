@@ -99,8 +99,12 @@ _Avoid_: tie (in what Dave or a Driver reads)
 **Trip part**:
 What the Truck's Trips say about one Assignment at a moment of the day: its Loads so far, Now or Done, since when, and its Trucking hours. An Assignment has one only once a Trip counts on it.
 
+**Geofence list** (Geofences in Settings):
+Every geofence code the app knows: HCSS's Location list, and every code an Import brought. Each code is either considered or **Not considered**. A geofence code is how a visit names where the Truck was; a Place may have one.
+_Avoid_: locations, fences list, Not considered list
+
 **Not considered**:
-A geofence code Dave says is never work, such as a fuel stop, a diner or a road fence, kept on one list in Settings. A Truck's visit to it is skipped, however long it stayed, so the day reads as if the Truck drove straight past; every other visit is a stop. It applies to every Truck and every day, past ones included, and taking a code off the list brings its visits back.
+A geofence code Dave turned off in the Geofence list because it is never work, such as a fuel stop, a diner or a road fence. A Truck's visit to it is skipped, however long it stayed, so the day reads as if the Truck drove straight past; every other visit is a stop. It applies to every Truck and every day, past ones included, and turning the code back on brings its visits back.
 _Avoid_: drive-through, ignored, skipped Place
 
 **Import**:

@@ -5,7 +5,7 @@ import { App } from '../App';
 // The pages load lazily in the app (App.tsx); importing them here compiles them
 // before the first test, so a cold run never waits on that inside a test.
 import './SettingsPage';
-import type { TruckProblem } from '../../shared/types';
+import type { Geofence, TruckProblem } from '../../shared/types';
 
 /** When the Worker marks a problem fixed in these tests: Thursday 19 Nov 2026, 10:00 AM US Eastern. */
 const FIXED_AT = '2026-11-19T15:00:00.000Z';
@@ -24,9 +24,9 @@ const problem = (fields: Partial<TruckProblem>): TruckProblem => ({
  * first to last, the rest after.
  */
 type Entry = Record<string, unknown> & { id: string; active: boolean };
-const NAME: Record<string, string> = { drivers: 'name', trucks: 'number', jobs: 'name', places: 'shortName', materials: 'name', foremen: 'name', 'inspection-items': 'label', 'not-considered': 'code' };
-/** The response key for one entry, where it is not the list's name less its last letter. */
-const ONE: Record<string, string> = { 'not-considered': 'notConsidered' };
+const NAME: Record<string, string> = { drivers: 'name', trucks: 'number', jobs: 'name', places: 'shortName', materials: 'name', foremen: 'name', 'inspection-items': 'label' };
+/** The Geofences as the Worker holds them, by code: a PATCH turns one to Not considered or back. */
+let geofences: Geofence[];
 let lists: Record<string, Entry[]>;
 const sent: { method: string; path: string; body: unknown }[] = [];
 /** A list whose GET fails, if any. */
@@ -57,7 +57,19 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     problems = [...problems.filter((p) => p.id !== closed.id && !p.fixedAt), closed, ...problems.filter((p) => p.id !== closed.id && p.fixedAt)];
     return answer({ problem: closed });
   }
-  const [, list, id] = /\/api\/(drivers|trucks|jobs|places|materials|foremen|inspection-items|not-considered)(?:\/([^/]+))?$/.exec(url.pathname) ?? [];
+  if (url.pathname.endsWith('/api/geofences')) {
+    return failing === 'geofences' ? answer({ error: 'oops' }, 500) : answer({ geofences });
+  }
+  const toggling = /\/api\/geofences\/([^/]+)$/.exec(url.pathname);
+  if (toggling && init?.method === 'PATCH') {
+    const body = JSON.parse(String(init.body));
+    sent.push({ method: 'PATCH', path: url.pathname, body });
+    if (saveFails) return answer({ error: 'oops' }, 500);
+    const code = decodeURIComponent(toggling[1]);
+    geofences = geofences.map((g) => (g.code === code ? { ...g, notConsidered: body.notConsidered } : g));
+    return answer({ geofence: geofences.find((g) => g.code === code) });
+  }
+  const [, list, id] = /\/api\/(drivers|trucks|jobs|places|materials|foremen|inspection-items)(?:\/([^/]+))?$/.exec(url.pathname) ?? [];
   if (!list) return answer({ error: 'not_found' }, 404);
   const method = init?.method ?? 'GET';
   if (method === 'GET' && list === failing) return answer({ error: 'oops' }, 500);
@@ -74,7 +86,7 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     return answer({ [list]: lists[list] });
   }
   const name = NAME[list];
-  const one = ONE[list] ?? list.slice(0, -1);
+  const one = list.slice(0, -1);
   // Like the Worker, a Place that stops being a job site loses its usual Foreman.
   const dropped = list === 'places' && 'kind' in body && body.kind !== 'job_site' ? { usualForemanId: null } : {};
   const named = name in body ? entries.find((e) => e.id !== id && String(e[name]).toLowerCase() === String(body[name]).toLowerCase()) : undefined;
@@ -144,11 +156,13 @@ beforeEach(() => {
       { id: 'insp-11', label: 'Air tank (drain)', optional: true, active: true },
       { id: 'insp-x', label: 'Sample Old Item', optional: false, active: false },
     ],
-    'not-considered': [
-      { id: 'nc-road', code: 'SAMPLE-ROAD', active: true },
-      { id: 'nc-old', code: 'SAMPLE-OLD-FUEL', active: false },
-    ],
   };
+  geofences = [
+    { code: 'GAS STATION', notConsidered: false },
+    { code: 'SAMPLE GAS NORTH', notConsidered: true },
+    { code: 'SHOP', notConsidered: false },
+    { code: 'sunset', notConsidered: true },
+  ];
   sent.length = 0;
   failing = null;
   saveFails = false;
@@ -168,7 +182,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-type Title = 'Drivers' | 'Trucks' | 'Places' | 'Materials' | 'Jobs' | 'Foremen' | 'Inspection checklist' | 'Not considered';
+type Title = 'Drivers' | 'Trucks' | 'Places' | 'Materials' | 'Jobs' | 'Foremen' | 'Inspection checklist';
 
 /** Opens Settings and waits until every section has its chips. */
 const settings = async () => {
@@ -214,7 +228,7 @@ describe('Settings', () => {
       'Jobs',
       'Foremen',
       'Inspection checklist',
-      'Not considered',
+      'Geofences',
     ]);
     expect(screen.queryByRole('tab')).toBeNull();
   });
@@ -596,33 +610,55 @@ describe('Settings', () => {
     });
   });
 
-  describe('the Not considered list', () => {
-    it('lists the geofence codes in use, and adds one trimmed', async () => {
+  describe('Geofences', () => {
+    const geofencesSection = () => screen.getByRole('region', { name: 'Geofences' });
+    /** Each row shown: its code, and whether its Considered switch is on. */
+    const rows = () =>
+      within(geofencesSection()).getAllByRole('switch').map((toggle) => [toggle.getAttribute('aria-label'), toggle.getAttribute('aria-checked') === 'true']);
+
+    it('lists every code by code, each with a switch that is on while it is considered', async () => {
       await settings();
-      expect(chips('Not considered')).toEqual(['SAMPLE-ROAD']);
-      const panel = add('Not considered', 'geofence code');
-      type(panel, 'Geofence code', '  GAS STATION  ');
-      save(panel);
-      await closed();
-      expect(chips('Not considered')).toEqual(['SAMPLE-ROAD', 'GAS STATION']);
-      expect(sent).toEqual([{ method: 'POST', path: '/api/not-considered', body: { code: 'GAS STATION' } }]);
+      expect(rows()).toEqual([
+        ['Consider GAS STATION', true],
+        ['Consider SAMPLE GAS NORTH', false],
+        ['Consider SHOP', true],
+        ['Consider sunset', false],
+      ]);
     });
 
-    it('refuses a code already on the list, next to the field', async () => {
+    it('narrows the list to the codes holding what is typed, ignoring case', async () => {
       await settings();
-      const panel = add('Not considered', 'geofence code');
-      type(panel, 'Geofence code', 'sample-road');
-      save(panel);
-      expect(await within(panel).findByText('That one is already in the list.')).toBeTruthy();
-      expect(chips('Not considered')).toEqual(['SAMPLE-ROAD']);
+      fireEvent.change(within(geofencesSection()).getByRole('searchbox', { name: 'Search geofences' }), { target: { value: 'gas' } });
+      expect(rows().map(([label]) => label)).toEqual(['Consider GAS STATION', 'Consider SAMPLE GAS NORTH']);
+      fireEvent.change(within(geofencesSection()).getByRole('searchbox', { name: 'Search geofences' }), { target: { value: 'nowhere' } });
+      expect(within(geofencesSection()).queryAllByRole('switch')).toEqual([]);
+      expect(within(geofencesSection()).getByText('No geofence code holds “nowhere”.')).toBeTruthy();
     });
 
-    it('takes a code off the list after asking', async () => {
+    it('turns a code to Not considered, and back', async () => {
       await settings();
-      fireEvent.click(within(open('Not considered', 'SAMPLE-ROAD')).getByRole('button', { name: 'Remove' }));
-      fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Remove' }));
-      await waitFor(() => expect(chips('Not considered')).toEqual([]));
-      expect(sent).toEqual([{ method: 'PATCH', path: '/api/not-considered/nc-road', body: { active: false } }]);
+      fireEvent.click(within(geofencesSection()).getByRole('switch', { name: 'Consider GAS STATION' }));
+      await waitFor(() => expect(within(geofencesSection()).getByRole('switch', { name: 'Consider GAS STATION' }).getAttribute('aria-checked')).toBe('false'));
+      fireEvent.click(within(geofencesSection()).getByRole('switch', { name: 'Consider sunset' }));
+      await waitFor(() => expect(within(geofencesSection()).getByRole('switch', { name: 'Consider sunset' }).getAttribute('aria-checked')).toBe('true'));
+      expect(sent).toEqual([
+        { method: 'PATCH', path: '/api/geofences/GAS%20STATION', body: { notConsidered: true } },
+        { method: 'PATCH', path: '/api/geofences/sunset', body: { notConsidered: false } },
+      ]);
+    });
+
+    it('puts the switch back and says so when the save fails', async () => {
+      await settings();
+      saveFails = true;
+      fireEvent.click(within(geofencesSection()).getByRole('switch', { name: 'Consider SHOP' }));
+      expect(await screen.findByText('Could not save SHOP')).toBeTruthy();
+      expect(within(geofencesSection()).getByRole('switch', { name: 'Consider SHOP' }).getAttribute('aria-checked')).toBe('true');
+    });
+
+    it('says when the codes could not load', async () => {
+      failing = 'geofences';
+      await settings();
+      expect(within(geofencesSection()).getByText(/Could not load the geofences/)).toBeTruthy();
     });
   });
 

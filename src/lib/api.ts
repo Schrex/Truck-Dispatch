@@ -1,4 +1,4 @@
-import type { Assignment, AssignmentChange, BusinessDay, ChangedAssignment, CheckIn, CheckIns, CopiedDay, Day, DriverDay, FleetImport, NewFleetImport, Inspection, NewInspection, EntryFields, ListName, Lists, AddAssignment, OrderedList, TruckLogDay, TruckProblem, WeekDay } from '../../shared/types';
+import type { Assignment, AssignmentChange, BusinessDay, ChangedAssignment, CheckIn, CheckIns, CopiedDay, Day, DriverDay, FleetImport, Geofence, NewFleetImport, Inspection, NewInspection, EntryFields, ListName, Lists, AddAssignment, OrderedList, TruckLogDay, TruckProblem, WeekDay } from '../../shared/types';
 import { basePath } from './basePath';
 
 // Every call starts at the base path the page was reached under: /api/...
@@ -219,6 +219,16 @@ export async function reportTruckProblem(report: { driverId: string; truckId: st
 /** Imports a Fleet export's rows, read by the page (shared/fleetExport.ts): what it added, for which Truck and days. */
 export async function importFleetExport(body: NewFleetImport): Promise<FleetImport> {
   return (await request<{ import: FleetImport }>('api/fleet-imports', json('POST', body))).import;
+}
+
+/** Every geofence code the app knows, by code, each with its Not considered toggle (Settings). */
+export async function fetchGeofences(): Promise<Geofence[]> {
+  return (await request<{ geofences: Geofence[] }>('api/geofences')).geofences;
+}
+
+/** Turns a geofence code to Not considered (its visits are skipped on every day) or back. */
+export async function setNotConsidered(code: string, notConsidered: boolean): Promise<Geofence> {
+  return (await request<{ geofence: Geofence }>(`api/geofences/${encodeURIComponent(code)}`, json('PATCH', { notConsidered }))).geofence;
 }
 
 /**

@@ -88,15 +88,14 @@ export interface InspectionItem {
 }
 
 /**
- * A geofence code on the Not considered list: its visits are skipped before
- * Trips are built, however long the Truck stayed. Typed in Settings (or by
- * "Don't consider" on the Fleet imports page), trimmed; unique, ignoring case.
- * It needs no Place. Taking it off the list (inactive) brings its visits back.
+ * A geofence code the app knows (Settings, Geofences): from HCSS's Location
+ * list, or brought by an Import. Unique, ignoring case. Turned to Not
+ * considered, its visits are skipped before Trips are built, however long the
+ * Truck stayed; turned back, they count again (GET, PATCH api/geofences).
  */
-export interface NotConsidered {
-  id: string;
+export interface Geofence {
   code: string;
-  active: boolean;
+  notConsidered: boolean;
 }
 
 /**
@@ -111,7 +110,6 @@ export interface Lists {
   materials: Material;
   foremen: Foreman;
   'inspection-items': InspectionItem;
-  'not-considered': NotConsidered;
 }
 export type ListName = keyof Lists;
 

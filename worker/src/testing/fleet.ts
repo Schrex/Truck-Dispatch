@@ -3,6 +3,7 @@ import { expect } from 'vitest';
 import { readSheet } from 'read-excel-file/universal';
 import { readFleetJson, readFleetXlsx, type FleetExportRow } from '../../../shared/fleetExport';
 import type { apiOn } from './api';
+import type { localD1 } from './localD1';
 
 /** A Fleet export fixture (shared/fixtures/fleet/) read into rows, as the Fleet imports page sends them. */
 export function fleetRows(name: string): FleetExportRow[] {
@@ -22,10 +23,11 @@ export async function fleetXlsxRows(name: string, equipmentCode: string): Promis
 /**
  * The 16 Nov day's own data, set up in the test database: Truck 55 with its
  * HCSS code MCK-55-17, its Driver (usual Truck 55), the five Places with
- * their geofence codes and "sunset", the road fence it drives through, on the
- * Not considered list, all through the API as Settings adds them.
+ * their geofence codes, all through the API as Settings adds them; and
+ * "sunset", the road fence it drives through, a Geofence turned to Not
+ * considered, as if HCSS's Location list had brought it.
  */
-export async function setUpTruck55(send: ReturnType<typeof apiOn>) {
+export async function setUpTruck55(send: ReturnType<typeof apiOn>, d1: ReturnType<typeof localD1>) {
   const truck = await send('POST', '/api/trucks', { number: '55', hcssCode: 'MCK-55-17' });
   expect(truck.status).toBe(201);
   const truckId = ((await truck.json()) as { truck: { id: string } }).truck.id;
@@ -40,6 +42,6 @@ export async function setUpTruck55(send: ReturnType<typeof apiOn>) {
   ]) {
     expect((await send('POST', '/api/places', { shortName, kind, geofenceCode })).status).toBe(201);
   }
-  expect((await send('POST', '/api/not-considered', { code: 'sunset' })).status).toBe(201);
+  await d1.database().prepare("INSERT INTO geofences (code, not_considered) VALUES ('sunset', 1)").run();
   return { truckId };
 }

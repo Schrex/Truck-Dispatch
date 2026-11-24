@@ -37,7 +37,7 @@ export function localD1() {
   beforeEach(async () => {
     const DB = database();
     // Rows that point at others go first: Fleet visits and Import days at Imports, and Imports at Trucks; Truck problems at Inspections, Drivers and Trucks, an Inspection's answers at it and Inspections at Drivers, Trucks and items, an Assignment's earlier fields at it, Assignments and orders at the lists, Drivers at Trucks, Places at Jobs.
-    await DB.batch(['fleet_visits', 'fleet_import_days', 'fleet_imports', 'truck_problems', 'inspection_answers', 'inspections', 'assignment_changes', 'day_sends', 'assignments', 'orders', 'drivers', 'trucks', 'places', 'jobs', 'materials', 'foremen', 'inspection_items', 'not_considered'].map((table) => DB.prepare(`DELETE FROM ${table}`)));
+    await DB.batch(['fleet_visits', 'fleet_import_days', 'fleet_imports', 'truck_problems', 'inspection_answers', 'inspections', 'assignment_changes', 'day_sends', 'assignments', 'orders', 'drivers', 'trucks', 'places', 'jobs', 'materials', 'foremen', 'inspection_items', 'not_considered', 'geofences'].map((table) => DB.prepare(`DELETE FROM ${table}`)));
     await reseed();
   });
 

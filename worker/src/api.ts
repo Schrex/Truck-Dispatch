@@ -4,6 +4,7 @@ import { json, readJson, refuse, text } from './http';
 import { handleInspections } from './inspections';
 import { handleTruckProblems } from './truckProblems';
 import { handleFleetImports } from './fleetImports';
+import { handleGeofences } from './geofences';
 import { driverTruck, handleTruckLogs, storedDay } from './truckLogs';
 import { exists, handleList, isActive, isList } from './lists';
 import { checkTyped, saveLinked, typedIn, type Typed } from './typedNames';
@@ -76,6 +77,9 @@ export async function handleApi(request: Request, env: Env, route: string, query
 
   const fleetImports = await handleFleetImports(request, env, route);
   if (fleetImports) return fleetImports;
+
+  const geofences = await handleGeofences(request, env, route);
+  if (geofences) return geofences;
 
   const truckLogs = await handleTruckLogs(request, env, route, query);
   if (truckLogs) return truckLogs;

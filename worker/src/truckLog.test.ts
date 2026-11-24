@@ -18,7 +18,7 @@ const MONDAY = '2026-11-16';
 
 /** The 16 Nov day set up: Truck 55, Randy and the Places, with each Place's id by its short name. */
 async function setUpDay() {
-  const { truckId } = await setUpTruck55(send);
+  const { truckId } = await setUpTruck55(send, d1);
   const places = ((await (await send('GET', '/api/places')).json()) as { places: Place[] }).places;
   const drivers = ((await (await send('GET', '/api/drivers')).json()) as { drivers: { id: string; name: string }[] }).drivers;
   const placeId = (shortName: string) => places.find((p) => p.shortName === shortName)!.id;
@@ -202,13 +202,12 @@ describe('Which Assignments a stored day matches', () => {
 });
 
 describe('Codes with no Place on a stored day', () => {
-  it('leaves out "sunset", on the Not considered list, and lists it once it is taken off', async () => {
+  it('leaves out "sunset", turned to Not considered, and lists it once it is turned back', async () => {
     const { truckId } = await planMonday();
     await importCut('2026-11-16-cut-1620.json');
     expect((await readLog(truckId)).codesWithNoPlace).toEqual([]);
 
-    const [sunset] = (await (await send('GET', '/api/not-considered')).json() as { 'not-considered': { id: string }[] })['not-considered'];
-    await send('PATCH', `/api/not-considered/${sunset.id}`, { active: false });
+    expect((await send('PATCH', '/api/geofences/sunset', { notConsidered: false })).status).toBe(200);
     expect((await readLog(truckId)).codesWithNoPlace).toEqual([{ code: 'sunset' }]);
   });
 });
@@ -244,7 +243,7 @@ const NOV_23: [string, string, string | null][] = [
   ['SHOP', '2026-11-23T21:01:42.000Z', null],
 ];
 
-describe('The Not considered list on a real day (Mon 23 Nov, Truck 53)', () => {
+describe('Geofences turned to Not considered on a real day (Mon 23 Nov, Truck 53)', () => {
   /** Truck 53, its Driver, the three Places, and one Assignment Villager → J2601 Talmudical, Assigned the evening before; the Driver checks in at 06:00. */
   async function setUpNov23() {
     const truck = await send('POST', '/api/trucks', { number: '53', hcssCode: 'SAMPLE-53' });
@@ -268,10 +267,10 @@ describe('The Not considered list on a real day (Mon 23 Nov, Truck 53)', () => {
   }
   const readNov23 = (truckId: string) => readLog(truckId, { date: '2026-11-23', NOW: '2026-11-24T13:00:00.000Z' });
 
-  it('with GAS STATION and WEITSMANS not considered: 9 Loads, no Unplanned work, no gas station in the Trip log, and the day ends at the shop at 16:01', async () => {
-    await send('POST', '/api/not-considered', { code: 'GAS STATION' });
-    await send('POST', '/api/not-considered', { code: 'weitsmans' });
+  it('with GAS STATION and WEITSMANS, which the Import brought, turned off: 9 Loads, no Unplanned work, no gas station in the Trip log, and the day ends at the shop at 16:01', async () => {
     const { truckId, assignment } = await setUpNov23();
+    expect((await send('PATCH', '/api/geofences/GAS%20STATION', { notConsidered: true })).status).toBe(200);
+    expect((await send('PATCH', '/api/geofences/weitsmans', { notConsidered: true })).status).toBe(200);
 
     const log = await readNov23(truckId);
     expect(log.truckLog.columns.find((c) => c.id === assignment.id)?.loads).toBe(9);

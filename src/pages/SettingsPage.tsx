@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp, ClipboardList } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ORDERED_LISTS, type ListName, type OrderedList } from '../../shared/types';
 import { EntryPanel } from '@/components/settings/EntryPanel';
+import { GeofencesSection } from '@/components/settings/GeofencesSection';
 import { ListSection } from '@/components/settings/ListSection';
 import { TruckProblemsSection } from '@/components/settings/TruckProblemsSection';
 import { section, type NameOf, type Row, type SectionSpec } from '@/components/settings/spec';
@@ -87,16 +88,6 @@ const SECTIONS: SectionSpec<ListName>[] = [
     fields: [{ key: 'optional', label: 'Optional', kind: 'switch', hint: 'A Driver may finish his Inspection without answering it.' }],
     detail: (item) => (item.optional ? 'Optional' : null),
     renamed: 'new wording is used from the next Inspection on.',
-  }),
-  section({
-    list: 'not-considered',
-    title: 'Not considered',
-    noun: 'geofence code',
-    // Fuel stops, diners and road fences: their visits are never stops. A code needs no Place.
-    name: { key: 'code', label: 'Geofence code' },
-    fields: [],
-    status: () => 'Its visits are skipped on every Truck and every day, past days included. Remove it to bring them back.',
-    renamed: 'the new code is skipped on every day, and the old one is considered again.',
   }),
 ];
 
@@ -212,6 +203,8 @@ export function SettingsPage() {
           {spec.list === 'trucks' && <TruckProblemsSection />}
           </div>
         ))}
+        {/* Not a list like the others: every code the app knows, each with its Not considered switch. */}
+        <GeofencesSection />
       </main>
       {open && openSpec && (
         <EntryPanel

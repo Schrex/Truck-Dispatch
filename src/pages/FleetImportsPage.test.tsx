@@ -26,9 +26,9 @@ let sent: NewFleetImport[];
 let refusal: { status: number; body: unknown } | null;
 /** What the Worker's answer to an Import says, over the stored one. */
 let answered: Partial<FleetImport>;
-/** Dave's Not considered list as the Worker holds it: "sunset" unless a test says otherwise. */
+/** The Geofences turned to Not considered as the Worker holds them: "sunset" unless a test says otherwise. */
 let notConsidered: string[];
-/** Whether adding to the Not considered list fails. */
+/** Whether turning a Geofence to Not considered fails. */
 let notConsideredFails: boolean;
 
 /** The Import route as the page sees it: every visit sent is new, on Truck 55. */
@@ -43,11 +43,13 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       import: { id: 'imp-1', truckId: 'trk-55', truckNumber: '55', fileName: body.fileName, format: body.format, importedAt: '2026-11-16T20:05:00.000Z', added: body.rows.length, closed: 0, unchanged: 0, days: [{ date: '2026-11-16', added: body.rows.length, closed: 0, unchanged: 0 }], codesWithNoPlace: [], ...answered } satisfies FleetImport,
     }, 201);
   }
-  if (url.pathname.endsWith('/api/not-considered') && init?.method === 'POST') {
-    const { code } = JSON.parse(String(init.body)) as { code: string };
+  const geofence = /\/api\/geofences\/([^/]+)$/.exec(url.pathname);
+  if (geofence && init?.method === 'PATCH') {
+    const code = decodeURIComponent(geofence[1]);
+    const body = JSON.parse(String(init.body)) as { notConsidered: boolean };
     if (notConsideredFails) return answer({ error: 'oops' }, 500);
-    notConsidered.push(code.trim());
-    return answer({ notConsidered: { id: `nc-${code}`, code: code.trim(), active: true } }, 201);
+    if (body.notConsidered) notConsidered.push(code);
+    return answer({ geofence: { code, notConsidered: body.notConsidered } });
   }
   if (url.pathname.endsWith('/api/trucks')) return answer({ trucks: TRUCKS });
   if (url.pathname.endsWith('/api/today')) return answer({ today: TUESDAY, tomorrow: '2026-11-18', nextWorkingDay: '2026-11-18' });
@@ -226,7 +228,7 @@ describe('The Fleet imports page', () => {
     expect(within(list).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(["Don't consider BROCKPORT", "Don't consider GAS STATION"]);
   });
 
-  it('Don\'t consider on an Import\'s code puts it on the Not considered list and takes it off that Import\'s codes', async () => {
+  it('Don\'t consider on an Import\'s code turns that Geofence to Not considered and takes it off that Import\'s codes', async () => {
     answered = { codesWithNoPlace: [{ code: 'BROCKPORT' }, { code: 'GAS STATION' }] };
     await openPage();
     drop(new File([EXPORT_1502], 'EntryExit-1502.json', { type: 'application/json' }));
@@ -243,7 +245,7 @@ describe('The Fleet imports page', () => {
     drop(new File([EXPORT_1502], 'EntryExit-1502.json', { type: 'application/json' }));
     const list = await screen.findByRole('list', { name: 'Codes with no Place' });
     fireEvent.click(within(list).getByRole('button', { name: "Don't consider GAS STATION" }));
-    expect(await screen.findByText('Could not put GAS STATION on the Not considered list')).toBeTruthy();
+    expect(await screen.findByText('Could not turn GAS STATION to Not considered')).toBeTruthy();
     expect(within(list).getByRole('button', { name: "Don't consider GAS STATION" })).toBeTruthy();
   });
 
@@ -375,7 +377,7 @@ describe('A stored day on the Fleet imports page', () => {
     expect(header()).toMatchObject({ 'Start time': '06:24', 'End time': '', 'Total hours': '' });
   });
 
-  it('lists no codes with no Place when "sunset" is on the Not considered list', async () => {
+  it('lists no codes with no Place when "sunset" is turned to Not considered', async () => {
     store('trk-55', '2026-11-16', readFleetJson(JSON.parse(CUT_1620)), AS_OF);
     await openPage();
     await pickMonday('Truck 55 (MCK-55-17)');
@@ -383,7 +385,7 @@ describe('A stored day on the Fleet imports page', () => {
     expect(screen.queryByRole('list', { name: 'Codes with no Place' })).toBeNull();
   });
 
-  it('Don\'t consider on "sunset" puts it on the Not considered list and the day re-reads without it', async () => {
+  it('Don\'t consider on "sunset" turns that Geofence to Not considered and the day re-reads without it', async () => {
     notConsidered = [];
     store('trk-55', '2026-11-16', readFleetJson(JSON.parse(CUT_1620)), AS_OF);
     await openPage();

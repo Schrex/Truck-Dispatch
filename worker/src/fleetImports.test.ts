@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { apiOn } from './testing/api';
 import { fleetRows, fleetXlsxRows, setUpTruck55 } from './testing/fleet';
 import { localD1 } from './testing/localD1';
-import type { FleetImport } from '../../shared/types';
+import type { FleetImport, Geofence } from '../../shared/types';
 
 const d1 = localD1();
 const send = apiOn(d1);
@@ -25,7 +25,7 @@ const storedVisits = async (truckId: string) =>
 
 describe('Importing a JSON Fleet export', () => {
   it('stores the 18 visits of the 16 Nov export for Truck 55 and says 18 new', async () => {
-    const { truckId } = await setUpTruck55(send);
+    const { truckId } = await setUpTruck55(send, d1);
     const response = await importFile('2026-11-16-1502.json');
     expect(response.status).toBe(201);
     const { import: made } = (await response.json()) as { import: FleetImport };
@@ -37,13 +37,13 @@ describe('Importing a JSON Fleet export', () => {
   });
 
   it('stores the open J25008 visit from 14:43 with no exit time', async () => {
-    const { truckId } = await setUpTruck55(send);
+    const { truckId } = await setUpTruck55(send, d1);
     await importFile('2026-11-16-1502.json');
     expect((await storedVisits(truckId)).at(-1)).toMatchObject({ geofenceCode: 'J25008 Los Flamboyanes', enteredAt: '2026-11-16T19:43:31.000Z', exitedAt: null });
   });
 
   it('records the Import and links it to Mon 16 Nov', async () => {
-    const { truckId } = await setUpTruck55(send);
+    const { truckId } = await setUpTruck55(send, d1);
     const { import: made } = (await (await importFile('2026-11-16-1502.json')).json()) as { import: FleetImport };
     const DB = d1.database();
     expect(await DB.prepare('SELECT truck_id AS truckId, file_name AS fileName, format, imported_at AS importedAt, added FROM fleet_imports WHERE id = ?').bind(made.id).first()).toEqual({
@@ -53,7 +53,7 @@ describe('Importing a JSON Fleet export', () => {
   });
 
   it('adds only the visits it has not stored when the next cut of the day comes', async () => {
-    const { truckId } = await setUpTruck55(send);
+    const { truckId } = await setUpTruck55(send, d1);
     const added = async (name: string) => ((await (await importFile(name)).json()) as { import: FleetImport }).import.added;
     expect(await added('2026-11-16-cut-1015.json')).toBe(8);
     expect(await added('2026-11-16-cut-1305.json')).toBe(6);
@@ -85,7 +85,7 @@ describe('Refusing a Fleet export that would mix the wrong data into a Truck\'s 
   });
 
   it('refuses rows for a Truck that has the HCSS code but is not active, like an unknown code', async () => {
-    const { truckId } = await setUpTruck55(send);
+    const { truckId } = await setUpTruck55(send, d1);
     expect((await send('PATCH', `/api/trucks/${truckId}`, { active: false })).status).toBe(200);
     expect(await refusalOf(await importFile('2026-11-16-1502.json'))).toEqual({
       status: 400, error: 'unknown_truck', message: 'No Truck has the HCSS code MCK-55-17. Set it in Settings.',
@@ -94,7 +94,7 @@ describe('Refusing a Fleet export that would mix the wrong data into a Truck\'s 
   });
 
   it('refuses a file that holds more than one Truck, even when both are set up, and stores nothing', async () => {
-    await setUpTruck55(send);
+    await setUpTruck55(send, d1);
     expect((await send('POST', '/api/trucks', { number: '61', hcssCode: 'MCK-61-20' })).status).toBe(201);
     const rows = fleetRows('2026-11-16-1502.json');
     rows[rows.length - 1] = { ...rows[rows.length - 1], equipmentCode: 'MCK-61-20' };
@@ -110,7 +110,7 @@ describe('Refusing a Fleet export that would mix the wrong data into a Truck\'s 
     ['no row list at all', { Result: 'nothing' }],
     ['rows with a blank EquipmentCode', fleetRows('2026-11-16-1502.json').map((r) => ({ ...r, equipmentCode: '  ' }))],
   ])('refuses a file that is not a Fleet export (%s), and stores nothing', async (_, rows) => {
-    await setUpTruck55(send);
+    await setUpTruck55(send, d1);
     const response = await send('POST', '/api/fleet-imports', { fileName: 'notes.json', format: 'json', rows }, { NOW: AFTERNOON });
     expect(await refusalOf(response)).toEqual({
       status: 400, error: 'not_a_fleet_export', message: 'This is not a Fleet export. Export the entry/exit report from HCSS Fleet and drop that.',
@@ -119,7 +119,7 @@ describe('Refusing a Fleet export that would mix the wrong data into a Truck\'s 
   });
 
   it.each([['production'], ['prod'], ['Staging'], [''], [undefined]])('refuses any Import where ENVIRONMENT is %j, and stores nothing', async (ENVIRONMENT) => {
-    await setUpTruck55(send);
+    await setUpTruck55(send, d1);
     expect(await refusalOf(await importFile('2026-11-16-1502.json', { ENVIRONMENT }))).toEqual({
       status: 403, error: 'imports_not_allowed', message: 'Fleet imports are allowed only on local, preview and staging.',
     });
@@ -127,7 +127,7 @@ describe('Refusing a Fleet export that would mix the wrong data into a Truck\'s 
   });
 
   it.each([['local'], ['preview'], ['staging'], ['test']])('accepts a good file where ENVIRONMENT is %s', async (ENVIRONMENT) => {
-    await setUpTruck55(send);
+    await setUpTruck55(send, d1);
     expect(await counts(await importFile('2026-11-16-1502.json', { ENVIRONMENT }))).toBe('18 new · 0 closed · 0 already stored');
   });
 });
@@ -141,14 +141,14 @@ const counts = async (response: Response) => {
 
 describe('Importing a Fleet export that repeats the day so far', () => {
   it('stores nothing new when the same export is dropped again', async () => {
-    const { truckId } = await setUpTruck55(send);
+    const { truckId } = await setUpTruck55(send, d1);
     await importFile('2026-11-16-1502.json');
     expect(await counts(await importFile('2026-11-16-1502.json'))).toBe('0 new · 0 closed · 18 already stored');
     expect(await storedVisits(truckId)).toHaveLength(18);
   });
 
   it('closes the open J25008 visit when the cuts of the day come in order, storing each of the 19 visits once', async () => {
-    const { truckId } = await setUpTruck55(send);
+    const { truckId } = await setUpTruck55(send, d1);
     expect(await counts(await importFile('2026-11-16-cut-1015.json'))).toBe('8 new · 0 closed · 0 already stored');
     const { import: midday } = (await (await importFile('2026-11-16-cut-1305.json')).json()) as { import: FleetImport };
     expect(`${midday.added} new · ${midday.closed} closed · ${midday.unchanged} already stored`).toBe('6 new · 1 closed · 7 already stored');
@@ -162,7 +162,7 @@ describe('Importing a Fleet export that repeats the day so far', () => {
   });
 
   it('closes and reopens nothing when the 10:15 cut is dropped after the 16:20 one', async () => {
-    const { truckId } = await setUpTruck55(send);
+    const { truckId } = await setUpTruck55(send, d1);
     await importFile('2026-11-16-cut-1620.json');
     const before = await storedVisits(truckId);
     expect(await counts(await importFile('2026-11-16-cut-1015.json'))).toBe('0 new · 0 closed · 8 already stored');
@@ -170,7 +170,7 @@ describe('Importing a Fleet export that repeats the day so far', () => {
   });
 
   it('keeps each Import\'s counts with the Import', async () => {
-    await setUpTruck55(send);
+    await setUpTruck55(send, d1);
     await importFile('2026-11-16-cut-1015.json');
     const { import: midday } = (await (await importFile('2026-11-16-cut-1305.json')).json()) as { import: FleetImport };
     expect(await d1.database().prepare('SELECT added, closed, unchanged FROM fleet_imports WHERE id = ?').bind(midday.id).first()).toEqual({ added: 6, closed: 1, unchanged: 7 });
@@ -184,14 +184,14 @@ describe('Importing a Fleet export that repeats the day so far', () => {
     };
 
     it('keeps the seconds when they come after the minute, and counts it already stored', async () => {
-      const { truckId } = await setUpTruck55(send);
+      const { truckId } = await setUpTruck55(send, d1);
       await importVisit('2026-11-16T12:02:00Z');
       expect(await counts(await importVisit('2026-11-16T12:02:03Z'))).toBe('0 new · 0 closed · 1 already stored');
       expect(await storedVisits(truckId)).toEqual([expect.objectContaining({ enteredAt: '2026-11-16T12:02:03.000Z' })]);
     });
 
     it('keeps the seconds when the minute comes after them', async () => {
-      const { truckId } = await setUpTruck55(send);
+      const { truckId } = await setUpTruck55(send, d1);
       await importVisit('2026-11-16T12:02:03Z');
       expect(await counts(await importVisit('2026-11-16T12:02:00Z'))).toBe('0 new · 0 closed · 1 already stored');
       expect(await storedVisits(truckId)).toEqual([expect.objectContaining({ enteredAt: '2026-11-16T12:02:03.000Z' })]);
@@ -199,7 +199,7 @@ describe('Importing a Fleet export that repeats the day so far', () => {
 
     it('keeps the seconds when one file gives the visit both ways, in either order', async () => {
       const [row] = fleetRows('2026-11-16-1502.json').filter((r) => r.enteredAt.startsWith('2026-11-16T12:02'));
-      const { truckId } = await setUpTruck55(send);
+      const { truckId } = await setUpTruck55(send, d1);
       for (const order of [['2026-11-16T12:02:00Z', '2026-11-16T12:02:03Z'], ['2026-11-16T12:02:03Z', '2026-11-16T12:02:00Z']]) {
         await d1.database().prepare('DELETE FROM fleet_visits').run();
         const rows = order.map((enteredAt) => ({ ...row, enteredAt }));
@@ -219,7 +219,7 @@ const movedDays = (rows: ReturnType<typeof fleetRows>, days: number) => {
 
 describe('The days an Import touched', () => {
   it('reports each Eastern day with its own counts, and links the Import to both days', async () => {
-    await setUpTruck55(send);
+    await setUpTruck55(send, d1);
     const monday = fleetRows('2026-11-16-cut-1015.json');
     const rows = [...monday, ...movedDays(monday.slice(0, 3), 1)];
     const response = await send('POST', '/api/fleet-imports', { fileName: 'two-days.json', format: 'json', rows }, { NOW: AFTERNOON });
@@ -236,7 +236,7 @@ describe('The days an Import touched', () => {
   });
 
   it('files a visit entered at 23:50 Eastern under that day, though in UTC it is the next day', async () => {
-    await setUpTruck55(send);
+    await setUpTruck55(send, d1);
     const [row] = fleetRows('2026-11-16-1502.json');
     const late = { ...row, enteredAt: '2026-11-17T04:50:00Z', exitedAt: '2026-11-17T05:20:00Z' };
     const response = await send('POST', '/api/fleet-imports', { fileName: 'late.json', format: 'json', rows: [late] }, { NOW: AFTERNOON });
@@ -245,16 +245,36 @@ describe('The days an Import touched', () => {
   });
 });
 
+describe('The Geofences an Import brings', () => {
+  const geofences = async () => ((await (await send('GET', '/api/geofences')).json()) as { geofences: Geofence[] }).geofences;
+
+  it('adds each code new to the app, trimmed and considered, and leaves the ones it knows as they are', async () => {
+    await setUpTruck55(send, d1);
+    await d1.database().prepare("INSERT INTO geofences (code) VALUES ('Shop')").run();
+    const rows = fleetRows('2026-11-16-1502.json').map((r) => (r.geofenceCode === 'VILLAGER' ? { ...r, geofenceCode: '  BROCKPORT ' } : r));
+    expect((await send('POST', '/api/fleet-imports', { fileName: 'brockport.json', format: 'json', rows }, { NOW: AFTERNOON })).status).toBe(201);
+
+    expect(await geofences()).toEqual([
+      { code: 'BROCKPORT', notConsidered: false },
+      { code: 'J25008 Los Flamboyanes', notConsidered: false },
+      { code: 'J611 Bishop Kearney', notConsidered: false },
+      { code: 'Shop', notConsidered: false },
+      { code: 'sunset', notConsidered: true },
+      { code: 'WALWDOLO', notConsidered: false },
+    ]);
+  });
+});
+
 describe('Codes with no Place', () => {
-  it('leaves out "sunset" from the 16 Nov JSON, on the Not considered list, and stores its visits', async () => {
-    const { truckId } = await setUpTruck55(send);
+  it('leaves out "sunset" from the 16 Nov JSON, turned to Not considered, and stores its visits', async () => {
+    const { truckId } = await setUpTruck55(send, d1);
     const { import: made } = (await (await importFile('2026-11-16-1502.json')).json()) as { import: FleetImport };
     expect(made.codesWithNoPlace).toEqual([]);
     expect((await storedVisits(truckId)).filter((v) => v.geofenceCode === 'sunset')).toHaveLength(2);
   });
 
-  it('lists a code with no Place and not on the Not considered list, however short the visits there', async () => {
-    await setUpTruck55(send);
+  it('lists a code with no Place and not turned to Not considered, however short the visits there', async () => {
+    await setUpTruck55(send, d1);
     // The Villager plant's visits, as if no Place had its code yet.
     const rows = fleetRows('2026-11-16-1502.json').map((r) => (r.geofenceCode === 'VILLAGER' ? { ...r, geofenceCode: 'BROCKPORT' } : r));
     const response = await send('POST', '/api/fleet-imports', { fileName: 'brockport.json', format: 'json', rows }, { NOW: AFTERNOON });
@@ -262,15 +282,14 @@ describe('Codes with no Place', () => {
     const { import: made } = (await response.json()) as { import: FleetImport };
     expect(made.codesWithNoPlace).toEqual([{ code: 'BROCKPORT' }]);
 
-    // Off the list, "sunset" (61 s each time) is listed like any other code.
-    const [sunset] = ((await (await send('GET', '/api/not-considered')).json()) as { 'not-considered': { id: string }[] })['not-considered'];
-    await send('PATCH', `/api/not-considered/${sunset.id}`, { active: false });
+    // Turned back to considered, "sunset" (61 s each time) is listed like any other code.
+    expect((await send('PATCH', '/api/geofences/sunset', { notConsidered: false })).status).toBe(200);
     const again = await send('POST', '/api/fleet-imports', { fileName: 'brockport.json', format: 'json', rows }, { NOW: AFTERNOON });
     expect(((await again.json()) as { import: FleetImport }).import.codesWithNoPlace).toEqual([{ code: 'BROCKPORT' }, { code: 'sunset' }]);
   });
 
   it('lists none when every code has a Place, matching codes whatever their case', async () => {
-    await setUpTruck55(send);
+    await setUpTruck55(send, d1);
     const rows = fleetRows('2026-11-16-1502.json')
       .filter((r) => r.geofenceCode !== 'sunset')
       .map((r) => ({ ...r, geofenceCode: r.geofenceCode.toLowerCase() }));
@@ -286,7 +305,7 @@ describe('Importing an xlsx Fleet export', () => {
     send('POST', '/api/fleet-imports', { fileName: XLSX, format: 'xlsx', rows: await fleetXlsxRows(XLSX, 'MCK-55-17') }, { NOW: AFTERNOON });
 
   it('after the 15:02 JSON, adds the 15 Nov Shop day and the Shop visit at 16:03, and closes J25008 at 15:41', async () => {
-    const { truckId } = await setUpTruck55(send);
+    const { truckId } = await setUpTruck55(send, d1);
     await importFile('2026-11-16-1502.json');
     expect(await counts(await importXlsx())).toBe('2 new · 1 closed · 17 already stored');
 
@@ -297,7 +316,7 @@ describe('Importing an xlsx Fleet export', () => {
   });
 
   it('stores the xlsx alone as 20 visits, 19 on Mon 16 Nov and the Shop day before, and records its format', async () => {
-    const { truckId } = await setUpTruck55(send);
+    const { truckId } = await setUpTruck55(send, d1);
     const response = await importXlsx();
     expect(response.status).toBe(201);
     const { import: made } = (await response.json()) as { import: FleetImport };
@@ -307,7 +326,7 @@ describe('Importing an xlsx Fleet export', () => {
   });
 
   it('adds nothing when the 15:02 JSON comes after the xlsx', async () => {
-    await setUpTruck55(send);
+    await setUpTruck55(send, d1);
     await importXlsx();
     expect(await counts(await importFile('2026-11-16-1502.json'))).toBe('0 new · 0 closed · 18 already stored');
   });
