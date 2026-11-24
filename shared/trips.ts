@@ -52,10 +52,25 @@ export interface FleetVisit {
   exitOdometer: number | null;
 }
 
-/** An Assignment's From and To, now or as an earlier version kept in assignment_changes. */
+/**
+ * What matching reads of an Assignment at a moment of the day: its From and
+ * To, now or as an earlier version kept in assignment_changes. To carry
+ * another field, add it here and its default to ROUTE_DEFAULTS: routeAt and
+ * savedRoute pick it up.
+ */
 export interface Route {
   fromPlaceId: string | null;
   toPlaceId: string | null;
+}
+
+/** Each Route field, and what it is when the values saved before a change lack it (an older saved copy). */
+const ROUTE_DEFAULTS: Route = { fromPlaceId: null, toPlaceId: null };
+
+/** The route in `values`: an Assignment, or the values saved before a change (assignment_changes.before). */
+export function savedRoute(values: Partial<Route>): Route {
+  const route = { ...ROUTE_DEFAULTS };
+  for (const key of Object.keys(ROUTE_DEFAULTS) as (keyof Route)[]) if (values[key] !== undefined) Object.assign(route, { [key]: values[key] });
+  return route;
 }
 
 /** An Assignment as matching needs it. */
@@ -63,7 +78,7 @@ export interface TripAssignment extends Route {
   id: string;
   label: string;
   cancelledAt: string | null;
-  /** Earlier versions: the From and To it had before each change (assignment_changes). */
+  /** Earlier versions: the route it had before each change (assignment_changes). */
   changes: { changedAt: string; before: Route }[];
   /** Whose it is: with check-ins (TruckDayInput.checkIns), a Trip matches only its Driver's Assignments. */
   driverId?: string | null;
@@ -77,11 +92,17 @@ export const NOT_A_HAUL = 'not_a_haul';
 /** NOT_A_HAUL: Dave answered its Unplanned work "Not a haul". */
 export type TripKind = 'load' | 'empty' | typeof NOT_A_HAUL | null;
 
-/** Which rule decided a Trip, and in words why. Rule 7 is "nothing fits". */
+/**
+ * "Nothing fits": the last rule, after every rule that can fit a Trip. A new
+ * rule goes before it by taking its number and moving this one up.
+ */
+export const NOTHING_FITS = 7;
+
+/** Which rule decided a Trip, and in words why. NOTHING_FITS is "nothing fits". */
 export interface Match {
   kind: TripKind;
   assignmentId: string | null;
-  rule: 1 | 2 | 3 | 4 | 5 | 6 | 7;
+  rule: 1 | 2 | 3 | 4 | 5 | 6 | typeof NOTHING_FITS;
   reason: string;
   /**
    * A tie: the Assignments (ids, in Dave's order) that fit equally at `rule`.
@@ -489,7 +510,7 @@ export function linkedAssignment<A extends TripAssignment>(assignment: A, link: 
 /** The Assignment as it was at `at`: the earliest change after it kept what it had then. */
 export function routeAt(assignment: TripAssignment, at: string): Route {
   const later = assignment.changes.filter((c) => ms(c.changedAt) > ms(at)).sort((a, b) => ms(a.changedAt) - ms(b.changedAt));
-  return later[0]?.before ?? { fromPlaceId: assignment.fromPlaceId, toPlaceId: assignment.toPlaceId };
+  return savedRoute(later[0]?.before ?? assignment);
 }
 
 const RULES: {
@@ -542,7 +563,7 @@ export function matchTrip(
     const m = at({ rule: 6, kind: 'load', fits: (r, _a, b) => r.toPlaceId === b && r.fromPlaceId === null, reason: 'From a plant to the Assignment’s drop; its From is empty' });
     if (m) return m;
   }
-  return { kind: null, assignmentId: null, rule: 7, reason: 'No Assignment fits; Dave answers next morning' };
+  return { kind: null, assignmentId: null, rule: NOTHING_FITS, reason: 'No Assignment fits; Dave answers next morning' };
 }
 
 /** Pair the cleaned visits into Trips: from one visit's exit to the next visit's entry, as soon as the Truck arrives. */
@@ -683,8 +704,8 @@ function truckDayOf(input: TripDayInput, visits: CleanVisit[], trips: Trip[]): T
   };
 }
 
-/** "Nothing fits": rule 7, so no Assignments tied for the Trip either. */
-const fitsNone = (m: Match) => m.kind === null && m.rule === 7;
+/** "Nothing fits", so no Assignments tied for the Trip either. */
+const fitsNone = (m: Match) => m.kind === null && m.rule === NOTHING_FITS;
 
 /**
  * The drive back into a piece of Unplanned work's own Places. Where a piece
@@ -700,7 +721,7 @@ const fitsNone = (m: Match) => m.kind === null && m.rule === 7;
 const BACK_INTO_UNPLANNED: Match = {
   kind: null,
   assignmentId: null,
-  rule: 7,
+  rule: NOTHING_FITS,
   reason: 'Back to where this Unplanned work already went; Dave answers it with the rest',
 };
 
@@ -801,7 +822,7 @@ function answerRuns(trips: Trip[], runs: number[][], answers: UnplannedAnswers, 
   for (const no of answers.notAHauls ?? []) {
     const run = runs.find((r) => runId(trips, r) === no.unplannedId);
     for (const i of run ?? [])
-      out[i] = { ...trips[i], match: { kind: NOT_A_HAUL, assignmentId: null, rule: 7, reason: no.note ? `Not a haul: ${no.note}` : 'Not a haul' } };
+      out[i] = { ...trips[i], match: { kind: NOT_A_HAUL, assignmentId: null, rule: NOTHING_FITS, reason: no.note ? `Not a haul: ${no.note}` : 'Not a haul' } };
   }
   return out;
 }

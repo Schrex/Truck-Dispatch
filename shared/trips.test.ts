@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { easternTime } from './days';
-import { buildTripDay, matchTrip, routeAt, type MadeAssignment, type TripAssignment } from './trips';
+import { buildTripDay, matchTrip, NOTHING_FITS, routeAt, savedRoute, type MadeAssignment, type TripAssignment } from './trips';
 import { FIXTURE_METER, FIXTURE_NOT_CONSIDERED, FIXTURE_PARKED_AT_JOB, FIXTURE_PLACES, FIXTURE_SCENARIOS, FIXTURE_VISITS } from './trips.fixture';
 
 const END_OF_DAY = '2026-11-17T04:59:00Z';
@@ -419,7 +419,7 @@ describe('Matching one Trip', () => {
 
   it('still matches an Assignment cancelled after the Trip left, not one cancelled before', () => {
     expect(matchTrip(trip, [a({ cancelledAt: '2026-11-16T16:00:00Z' })], FIXTURE_PLACES).kind).toBe('load');
-    expect(matchTrip(trip, [a({ cancelledAt: '2026-11-16T14:00:00Z' })], FIXTURE_PLACES).rule).toBe(7);
+    expect(matchTrip(trip, [a({ cancelledAt: '2026-11-16T14:00:00Z' })], FIXTURE_PLACES).rule).toBe(NOTHING_FITS);
   });
 
   it('counts a plant to the drop as a Load when the Assignment has no From', () => {
@@ -438,6 +438,16 @@ describe('Matching one Trip', () => {
     expect(routeAt(changed, '2026-11-16T13:00:00Z').toPlaceId).toBe('plc-plant');
     expect(routeAt(changed, '2026-11-16T15:00:00Z').toPlaceId).toBe('plc-quarry');
     expect(routeAt(changed, '2026-11-16T17:00:00Z').toPlaceId).toBe('plc-south');
+  });
+
+  it('reads only the route from the Assignment, not its other fields', () => {
+    expect(routeAt(a({ driverId: 'drv-randy', truckId: 'trk-55' }), '2026-11-16T13:00:00Z')).toEqual({ fromPlaceId: 'plc-north', toPlaceId: 'plc-plant' });
+  });
+
+  it('reads a route from the values saved before a change, defaulting what they lack', () => {
+    const saved = { driverId: 'drv-randy', fromPlaceId: 'plc-north', toPlaceId: 'plc-plant', materialId: 'mat-stone', note: 'x' };
+    expect(savedRoute(saved)).toEqual({ fromPlaceId: 'plc-north', toPlaceId: 'plc-plant' });
+    expect(savedRoute({ fromPlaceId: 'plc-north' })).toEqual({ fromPlaceId: 'plc-north', toPlaceId: null });
   });
 });
 
