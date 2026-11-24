@@ -87,7 +87,7 @@ Anywhere a Truck loads, dumps or parks: a plant, a job site, the shop, a yard.
 _Avoid_: site, location, geofence
 
 **Job**:
-A construction project with a job number. A Job can have more than one Place; a Place belongs to at most one Job. An Assignment's Job is the Job of its drop-off, or of its pick-up when the drop-off belongs to none.
+A construction project with a job number. A Job can have more than one Place; a Place belongs to at most one Job. An Assignment's Job is the Job of its To, then of its At, then of its From: the first that belongs to a Job.
 _Avoid_: site, project
 
 ## Work
@@ -99,6 +99,9 @@ _Avoid_: run, leg
 **Load**:
 A Trip carrying material from a pickup Place to a drop Place. Counted from the Truck and tickets, never entered by Dave.
 _Avoid_: run
+
+**At Trip**:
+A Trip that starts or ends at the At of an Assignment with no From or To. It counts toward Now / Done and Trucking hours, never toward Loads: the Truck cannot tell which way material went, and round trips cannot give a true count, so its Loads come from Tickets. With a From or a To, At fills the missing end instead and the Trips are Loads as usual.
 
 **Unplanned work**:
 Trips in a row that a Truck made and no Assignment explains, taken as one piece of work for Dave to answer: make an Assignment for it, link it to an Assignment, or say it was not a haul. The Truck cannot tell which way material went, so where it was loaded is Dave's to say.

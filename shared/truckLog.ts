@@ -55,7 +55,8 @@ export function truckLog<A extends TruckLogAssignment>({ tripDay, places, assign
       pickUp: a.fromPlaceName,
       dropOff: a.toPlaceName,
       material: a.materialName,
-      loads: trips?.loads ?? 0,
+      // Null for an At-only Haul: its Loads come from Tickets.
+      loads: trips ? trips.loads : 0,
       tons: trips?.tons ?? null,
       truckingHours: trips?.truckingHours ?? null,
       ...(a.fromTheTruck && { fromTheTruck: true }),

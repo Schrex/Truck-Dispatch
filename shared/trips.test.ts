@@ -100,7 +100,7 @@ describe('Trips and matching on the 16 Nov day', () => {
     expect(a2).toEqual({ assignmentId: 'a2', job: null, loads: 0, empties: 0, tons: null, status: 'none', since: null, lastLoadAt: null, truckingHours: null });
   });
 
-  it('gives each Assignment the Job of its drop-off, else of its pick-up, else none', () => {
+  it('gives each Assignment the Job of its To, else its At, else its From, else none', () => {
     const jobs = [
       { id: 'job-north', name: 'North', jobNumber: 'J1001' },
       { id: 'job-quarry', name: 'Quarry stockpile', jobNumber: null },
@@ -112,6 +112,13 @@ describe('Trips and matching on the 16 Nov day', () => {
     expect(jobOf(scenario('two'))).toEqual(['job-north', 'job-north']);
     const plantToSouth = { ...scenario('two')[0], fromPlaceId: 'plc-plant', toPlaceId: 'plc-south' };
     expect(jobOf([plantToSouth])).toEqual([null]);
+    // The Job is the To's, then the At's, then the From's: the first that belongs to a Job.
+    const [a1, a2] = scenario('two');
+    expect(jobOf([{ ...a1, fromPlaceId: null, toPlaceId: null, atPlaceId: 'plc-north' }])).toEqual(['job-north']);
+    expect(jobOf([{ ...a2, atPlaceId: 'plc-north' }])).toEqual(['job-north']);
+    expect(jobOf([{ ...a2, toPlaceId: 'plc-plant', atPlaceId: 'plc-north' }])).toEqual(['job-north']);
+    expect(jobOf([{ ...a1, fromPlaceId: 'plc-quarry', toPlaceId: 'plc-plant', atPlaceId: 'plc-north' }])).toEqual(['job-north']);
+    expect(jobOf([{ ...a1, fromPlaceId: 'plc-quarry', toPlaceId: 'plc-plant', atPlaceId: 'plc-south' }])).toEqual(['job-quarry']);
   });
 
   it('makes the South stop and the drive back from it one piece of Unplanned work: its Places and times, never a Pick up or Drop off', () => {
@@ -238,6 +245,99 @@ describe('Trips and matching on the 16 Nov day', () => {
   });
 });
 
+describe('At: where the Truck works', () => {
+  const [a1, a2] = scenario('two');
+  const withAssignments = (assignments: TripAssignment[], now = END_OF_DAY) =>
+    buildTripDay({ notConsidered: FIXTURE_NOT_CONSIDERED, places: FIXTURE_PLACES, visits: FIXTURE_VISITS, assignments, now });
+
+  it('fills a missing From with At: at North, to the Plant matches as North → Plant, with real Loads', () => {
+    const d = withAssignments([{ ...a1, fromPlaceId: null, atPlaceId: 'plc-north' }, a2]);
+    expect(lines(d)).toEqual(lines(day('two')));
+    expect(d.assignments[0]).toMatchObject({ loads: 4, empties: 3, truckingHours: 3.02 });
+  });
+
+  it('fills a missing To with At: from the Quarry, at North matches as Quarry → North, its way back an empty, not a Load from the pickup', () => {
+    const fromAt = { ...a2, toPlaceId: null, atPlaceId: 'plc-north' };
+    const d = withAssignments([a1, fromAt]);
+    expect(lines(d)).toEqual(lines(day('two')));
+    const wayBack = { fromPlaceId: 'plc-north', toPlaceId: 'plc-quarry', leftAt: '2026-11-16T17:54:36Z' };
+    expect(matchTrip(wayBack, [fromAt], FIXTURE_PLACES)).toMatchObject({ kind: 'empty', rule: 2, reason: 'The way back of the Assignment' });
+    // At is not the pickup: leaving the Quarry for South is no Load, as it would be with To empty and no At.
+    const elsewhere = { fromPlaceId: 'plc-quarry', toPlaceId: 'plc-south', leftAt: '2026-11-16T17:54:36Z' };
+    expect(matchTrip(elsewhere, [fromAt], FIXTURE_PLACES).kind).not.toBe('load');
+  });
+
+  it('with only At, counts each Trip that starts or ends there as an At Trip: Now / Done and hours, never Loads', () => {
+    const atOnly = { ...a1, fromPlaceId: null, toPlaceId: null, atPlaceId: 'plc-north' };
+    const d = withAssignments([atOnly, a2]);
+    expect(lines(d)).toEqual([
+      // The shop rule runs first, as for every rule.
+      '06:24 SHOP → J1001 North empty -',
+      '08:24 J1001 North → PLANT at a1',
+      '08:43 PLANT → J1001 North at a1',
+      '09:35 J1001 North → PLANT at a1',
+      '09:50 PLANT → J1001 North at a1',
+      '10:27 J1001 North → PLANT at a1',
+      '10:41 PLANT → J1001 North at a1',
+      '11:14 J1001 North → PLANT at a1',
+      // A2's route fits first.
+      '11:30 PLANT → QUARRY empty a2',
+      '12:08 QUARRY → J1001 North load a2',
+      '12:54 J1001 North → QUARRY empty a2',
+      '13:29 QUARRY → J1001 North load a2',
+      '14:15 J1001 North → J1002 South at a1',
+      '14:33 J1002 South → J1001 North at a1',
+      '15:41 J1001 North → SHOP empty -',
+    ]);
+    expect(d.trips[1].match).toMatchObject({ rule: 7, reason: 'Starts or ends at the Assignment’s At', atPlaceId: 'plc-north' });
+    expect(NOTHING_FITS).toBe(8);
+    // Leaving North at 08:24 to arriving back there at 14:43: 6 h 19 min. Loads are blank, from Tickets.
+    expect(d.assignments[0]).toEqual({
+      assignmentId: 'a1',
+      job: null,
+      loads: null,
+      empties: 0,
+      tons: null,
+      status: 'done',
+      since: '2026-11-16T13:24:26Z',
+      lastLoadAt: null,
+      truckingHours: 6.32,
+    });
+    expect(d.unplanned).toEqual([]);
+  });
+
+  it('is Now while the Truck’s latest Trip is an At Trip', () => {
+    const atOnly = { ...a1, fromPlaceId: null, toPlaceId: null, atPlaceId: 'plc-north' };
+    expect(withAssignments([atOnly], '2026-11-16T15:02:00Z').assignments[0]).toMatchObject({ status: 'now', loads: null });
+  });
+
+  it('asks "Which Assignment?" when two Assignments have only the same At', () => {
+    const at = (id: string) => ({ ...a1, id, label: id.toUpperCase(), fromPlaceId: null, toPlaceId: null, atPlaceId: 'plc-north' });
+    const d = withAssignments([at('a1'), at('a3')]);
+    expect(d.trips[1].match).toMatchObject({ kind: null, rule: 7, candidates: ['a1', 'a3'] });
+    expect(d.whichAssignment).toHaveLength(12);
+  });
+
+  it('never matches on a null At: an Assignment with no From, To or At fits nothing, not even a Place with no geofence', () => {
+    const blank = { ...a1, fromPlaceId: null, toPlaceId: null, atPlaceId: null };
+    const unknown = { fromPlaceId: null, toPlaceId: null, leftAt: '2026-11-16T15:00:00Z' };
+    expect(matchTrip(unknown, [blank], FIXTURE_PLACES).rule).toBe(NOTHING_FITS);
+  });
+
+  it('matches no Trip at an At with no geofence code: the Assignment shows no Trips', () => {
+    const places = FIXTURE_PLACES.map((p) => (p.id === 'plc-south' ? { ...p, geofenceCode: null } : p));
+    const atSouth = { ...a1, fromPlaceId: null, toPlaceId: null, atPlaceId: 'plc-south' };
+    const d = buildTripDay({ notConsidered: FIXTURE_NOT_CONSIDERED, places, visits: FIXTURE_VISITS, assignments: [atSouth], now: END_OF_DAY });
+    expect(d.trips.some((t) => t.match.assignmentId === 'a1')).toBe(false);
+    expect(d.assignments[0]).toMatchObject({ status: 'none', truckingHours: null });
+  });
+
+  it('ignores At for matching when From and To are both set', () => {
+    const d = withAssignments([{ ...a1, atPlaceId: 'plc-south' }, { ...a2, atPlaceId: 'plc-plant' }]);
+    expect(lines(d)).toEqual(lines(day('two')));
+  });
+});
+
 describe('Make an Assignment: an answer to Unplanned work', () => {
   const [a1, a2] = scenario('two');
   const cancelled = [{ ...a1, cancelledAt: '2026-11-16T15:10:00Z' }, a2];
@@ -256,7 +356,7 @@ describe('Make an Assignment: an answer to Unplanned work', () => {
       assignments: cancelled,
       now: END_OF_DAY,
       answers: {
-        madeAssignments: [{ id: 'a3', label: 'A3', fromPlaceId: 'plc-plant', toPlaceId: 'plc-north', cancelledAt: null, changes: [], unplannedId: plantRun }],
+        madeAssignments: [{ id: 'a3', label: 'A3', fromPlaceId: 'plc-plant', toPlaceId: 'plc-north', atPlaceId: null, cancelledAt: null, changes: [], unplannedId: plantRun }],
       },
     });
     expect(lines(d).slice(1, 8)).toEqual([
@@ -284,7 +384,7 @@ describe('Make an Assignment: an answer to Unplanned work', () => {
       visits: FIXTURE_VISITS,
       assignments: scenario('two'),
       now: END_OF_DAY,
-      answers: { madeAssignments: [{ id: 'a3', label: 'A3', fromPlaceId: 'plc-south', toPlaceId: 'plc-north', cancelledAt: null, changes: [], unplannedId: plantRun }] },
+      answers: { madeAssignments: [{ id: 'a3', label: 'A3', fromPlaceId: 'plc-south', toPlaceId: 'plc-north', atPlaceId: null, cancelledAt: null, changes: [], unplannedId: plantRun }] },
     });
     expect(d.unplanned).toHaveLength(1);
     expect(d.assignments[2]).toMatchObject({ assignmentId: 'a3', loads: 0, status: 'none' });
@@ -316,7 +416,7 @@ describe('Split: one run that held two hauls', () => {
   });
 
   it('answers each part on its own: each made Assignment claims only its own part’s Trips', () => {
-    const made = (id: string, from: string, to: string, unplannedId: string): MadeAssignment => ({ id, label: id.toUpperCase(), fromPlaceId: from, toPlaceId: to, cancelledAt: null, changes: [], unplannedId });
+    const made = (id: string, from: string, to: string, unplannedId: string): MadeAssignment => ({ id, label: id.toUpperCase(), fromPlaceId: from, toPlaceId: to, atPlaceId: null, cancelledAt: null, changes: [], unplannedId });
     const d = at([second], [made('a3', 'plc-north', 'plc-plant', '2026-11-16T15:27:50Z'), made('a4', 'plc-plant', 'plc-north', second)]);
     expect(lines(d).slice(5, 8)).toEqual(['10:27 J1001 North → PLANT load a3', '10:41 PLANT → J1001 North load a4', '11:14 J1001 North → PLANT empty a4']);
     expect(d.assignments.slice(2).map((a) => [a.assignmentId, a.loads, a.empties, a.truckingHours])).toEqual([
@@ -411,6 +511,7 @@ describe('Matching one Trip', () => {
     label: 'X',
     fromPlaceId: 'plc-north',
     toPlaceId: 'plc-plant',
+    atPlaceId: null,
     cancelledAt: null,
     changes: [],
     ...extra,
@@ -440,14 +541,24 @@ describe('Matching one Trip', () => {
     expect(routeAt(changed, '2026-11-16T17:00:00Z').toPlaceId).toBe('plc-south');
   });
 
-  it('reads only the route from the Assignment, not its other fields', () => {
-    expect(routeAt(a({ driverId: 'drv-randy', truckId: 'trk-55' }), '2026-11-16T13:00:00Z')).toEqual({ fromPlaceId: 'plc-north', toPlaceId: 'plc-plant' });
+  it('reads only the route from the Assignment, its From, To and At, not its other fields', () => {
+    expect(routeAt(a({ driverId: 'drv-randy', truckId: 'trk-55', atPlaceId: 'plc-south' }), '2026-11-16T13:00:00Z')).toEqual({
+      fromPlaceId: 'plc-north',
+      toPlaceId: 'plc-plant',
+      atPlaceId: 'plc-south',
+    });
   });
 
-  it('reads a route from the values saved before a change, defaulting what they lack', () => {
-    const saved = { driverId: 'drv-randy', fromPlaceId: 'plc-north', toPlaceId: 'plc-plant', materialId: 'mat-stone', note: 'x' };
-    expect(savedRoute(saved)).toEqual({ fromPlaceId: 'plc-north', toPlaceId: 'plc-plant' });
-    expect(savedRoute({ fromPlaceId: 'plc-north' })).toEqual({ fromPlaceId: 'plc-north', toPlaceId: null });
+  it('reads a route from the values saved before a change, defaulting what they lack: an older saved copy has no At', () => {
+    const saved = { driverId: 'drv-randy', fromPlaceId: 'plc-north', toPlaceId: 'plc-plant', atPlaceId: 'plc-south', atPlaceName: 'Sample Site South', note: 'x' };
+    expect(savedRoute(saved)).toEqual({ fromPlaceId: 'plc-north', toPlaceId: 'plc-plant', atPlaceId: 'plc-south' });
+    expect(savedRoute({ fromPlaceId: 'plc-north' })).toEqual({ fromPlaceId: 'plc-north', toPlaceId: null, atPlaceId: null });
+  });
+
+  it('reads At as it was before a change, so a new At at noon does not re-match the morning', () => {
+    const changed = a({ atPlaceId: 'plc-south', changes: [{ changedAt: '2026-11-16T17:00:00Z', before: { fromPlaceId: 'plc-north', toPlaceId: 'plc-plant' } }] });
+    expect(routeAt(changed, '2026-11-16T13:00:00Z').atPlaceId).toBeNull();
+    expect(routeAt(changed, '2026-11-16T18:00:00Z').atPlaceId).toBe('plc-south');
   });
 });
 

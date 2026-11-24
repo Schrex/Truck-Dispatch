@@ -163,6 +163,7 @@ async function storedTruckDay(env: Env, truck: StoredTruck, date: string, at: st
     label: labels[a.id],
     fromPlaceId: a.fromPlaceId,
     toPlaceId: a.toPlaceId,
+    atPlaceId: a.atPlaceId,
     cancelledAt: a.cancelledAt,
     changes: changesOf(a.id),
     driverId: a.driverId,
@@ -198,7 +199,15 @@ async function storedTruckDay(env: Env, truck: StoredTruck, date: string, at: st
     .filter((a) => !discardedIds.has(a.id) && (namesTruck(a) || hasTrips(a)))
     .map((row): Assignment => {
       const route = routeAt(tripAssignments.find((t) => t.id === row.id)!, moment);
-      return { ...marked(row), fromPlaceId: route.fromPlaceId, fromPlaceName: placeName(route.fromPlaceId), toPlaceId: route.toPlaceId, toPlaceName: placeName(route.toPlaceId) };
+      return {
+        ...marked(row),
+        fromPlaceId: route.fromPlaceId,
+        fromPlaceName: placeName(route.fromPlaceId),
+        toPlaceId: route.toPlaceId,
+        toPlaceName: placeName(route.toPlaceId),
+        atPlaceId: route.atPlaceId,
+        atPlaceName: placeName(route.atPlaceId),
+      };
     });
   const { assignments, ...log } = truckLog({ tripDay, places: tripPlaces, assignments: shown, labels });
 

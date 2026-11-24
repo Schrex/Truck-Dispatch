@@ -272,8 +272,8 @@ export type TripStatus = 'now' | 'done' | 'none';
 
 /** An Assignment's Trips as the screens show them, at one moment of the day. */
 export interface AssignmentTripPart {
-  /** Loads hauled on it so far. */
-  loads: number;
+  /** Loads hauled on it so far; null for an At-only Haul (At, no From or To), whose Loads come from Tickets, shown blank "from Tickets". */
+  loads: number | null;
   /** The tons on its Loads' Tickets (phase 4); null until Tickets exist, shown blank "from Tickets". */
   tons: number | null;
   /** Now while the Truck's latest Trip is its and the Truck is not back at the shop; Done once it moved on; none before its first Trip. */

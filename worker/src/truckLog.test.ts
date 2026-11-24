@@ -208,6 +208,59 @@ describe('Which Assignments a stored day matches', () => {
     expect((await readLog(truckId)).assignments.map((a) => [a.atPlaceId, a.atPlaceName])).toEqual([[placeId('J25008 Los Flamboyanes'), 'J25008 Los Flamboyanes']]);
   });
 
+  it('fills the missing From with At: at J25008, to Villager counts the Loads J25008 → Villager', async () => {
+    const { truckId, randy, placeId } = await setUpDay();
+    const a1 = await assigned({ driverId: randy, atPlaceId: placeId('J25008 Los Flamboyanes'), toPlaceId: placeId('Villager') });
+    const a2 = await assigned({ driverId: randy, fromPlaceId: placeId('Walworth Dolomite'), toPlaceId: placeId('J25008 Los Flamboyanes') });
+    await importCut('2026-11-16-cut-1620.json');
+
+    const log = await readLog(truckId);
+    const column = (id: string) => log.truckLog.columns.find((c) => c.id === id)!;
+    expect([column(a1.id).loads, column(a2.id).loads]).toEqual([4, 2]);
+    expect(column(a1.id).truckingHours).toBe(3.02);
+  });
+
+  it('with only At, counts the Trips there toward hours and Now / Done but leaves Loads blank, and takes the Job from At', async () => {
+    const { truckId, randy, placeId } = await setUpDay();
+    const job = ((await (await send('POST', '/api/jobs', { name: 'Los Flamboyanes', jobNumber: 'J25008' })).json()) as { job: { id: string } }).job;
+    expect((await send('PATCH', `/api/places/${placeId('J25008 Los Flamboyanes')}`, { jobId: job.id })).status).toBe(200);
+    const a1 = await assigned({ driverId: randy, atPlaceId: placeId('J25008 Los Flamboyanes') });
+    await importCut('2026-11-16-cut-1620.json');
+
+    const log = await readLog(truckId);
+    expect(log.truckLog.columns).toEqual([
+      expect.objectContaining({ id: a1.id, job: 'J25008 Los Flamboyanes', pickUp: null, dropOff: null, loads: null, tons: null }),
+    ]);
+    expect(log.truckLog.columns[0].truckingHours).toBeGreaterThan(0);
+    expect(log.assignments[0].trips).toMatchObject({ loads: null, status: 'done', lastLoadAt: null });
+    const atTrip = log.tripDay.trips.find((t) => easternTime(t.leftAt) === '08:24')!;
+    expect(atTrip.match).toMatchObject({ kind: 'at', assignmentId: a1.id, rule: 7, reason: 'Starts or ends at the Assignment’s At' });
+  });
+
+  it('takes the Job from To before At, and At before From', async () => {
+    const { truckId, randy, placeId } = await setUpDay();
+    const job = ((await (await send('POST', '/api/jobs', { name: 'Bishop Kearney', jobNumber: 'J611' })).json()) as { job: { id: string } }).job;
+    expect((await send('PATCH', `/api/places/${placeId('J611 Bishop Kearney')}`, { jobId: job.id })).status).toBe(200);
+    // From a plant to a plant, at Bishop Kearney: neither end has a Job, so At's.
+    await assigned({ driverId: randy, fromPlaceId: placeId('Walworth Dolomite'), toPlaceId: placeId('Villager'), atPlaceId: placeId('J611 Bishop Kearney') });
+    await importCut('2026-11-16-cut-1620.json');
+
+    expect((await readLog(truckId)).truckLog.columns.map((c) => c.job)).toEqual(['J611 Bishop Kearney']);
+  });
+
+  it('matches the morning against the At it had then: a new At at 11:20 does not re-match the Loads before it', async () => {
+    const { truckId, randy, placeId } = await setUpDay();
+    const a1 = await assigned({ driverId: randy, atPlaceId: placeId('J611 Bishop Kearney'), toPlaceId: placeId('Villager') });
+    const reAt = await send('PATCH', `/api/assignments/${a1.id}`, { atPlaceId: placeId('J25008 Los Flamboyanes') }, { NOW: '2026-11-16T16:20:00.000Z' });
+    expect(reAt.status).toBe(200);
+    await importCut('2026-11-16-cut-1620.json');
+
+    const log = await readLog(truckId);
+    // Its four J25008 → Villager Loads were all before 11:20, when its At was Bishop Kearney.
+    expect(log.truckLog.columns.find((c) => c.id === a1.id)?.loads).toBe(0);
+    expect(log.assignments.find((a) => a.id === a1.id)?.atPlaceName).toBe('J25008 Los Flamboyanes');
+  });
+
   it('names the Customer an Assignment is for', async () => {
     const { truckId, randy, placeId } = await setUpDay();
     const jaus = ((await (await send('POST', '/api/customers', { name: 'Sample Customer Jaus' })).json()) as { customer: { id: string } }).customer;

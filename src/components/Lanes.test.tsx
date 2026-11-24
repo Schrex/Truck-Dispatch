@@ -442,6 +442,12 @@ describe('The Trip part on a block', () => {
     );
   });
 
+  it('shows Loads blank, from Tickets, for an At-only Haul: the Truck cannot tell which way material went', () => {
+    expect(html({ fromPlaceName: null, toPlaceName: null, trips: part({ loads: null, status: 'done', since: '2026-11-16T13:24:26Z' }) }).text).toBe(
+      'First · Fill · Loads from Tickets · Done · since 08:24',
+    );
+  });
+
   it('looks exactly as it does without a Trip part while it has no Trips yet', () => {
     expect(html({ trips: part({}) }).html).toBe(html({}).html);
     expect(html({}).text).toBe('First · Sample Site North → Sample Plant · Fill');

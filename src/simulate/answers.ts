@@ -101,6 +101,7 @@ export function tripAnswers({
       label: `A${plannedCount + made.length + 1}`,
       fromPlaceId: answer.loadedAt,
       toPlaceId: dropOff(work, answer.loadedAt),
+      atPlaceId: null,
       cancelledAt: null,
       changes: [],
       unplannedId: answer.unplannedId,

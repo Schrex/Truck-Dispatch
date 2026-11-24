@@ -15,6 +15,9 @@ export function unplannedLine(work: TruckLogUnplanned): string {
   return `${work.places.join(' ⇄ ')} · ${times} · ${work.truckingHours.toFixed(2)} h`;
 }
 
+/** A blank the Tickets fill in (phase 4): tons, and the Loads of an At-only Haul. */
+const FROM_TICKETS = <span className="text-xs italic text-muted-foreground">from Tickets</span>;
+
 /**
  * The Truck log's body, below its header: one column per Assignment in Dave's
  * order, like the paper's Orders 1 to 5, then an amber box per piece of
@@ -45,8 +48,8 @@ export function TruckLogAssignments({
             ['Pick up', column.pickUp ?? ''],
             ['Drop off', column.dropOff ?? ''],
             ['Material', column.material ?? ''],
-            ['# of loads', String(column.loads)],
-            ['# of tons', column.tons === null ? <span className="text-xs italic text-muted-foreground">from Tickets</span> : column.tons.toFixed(2)],
+            ['# of loads', column.loads === null ? FROM_TICKETS : String(column.loads)],
+            ['# of tons', column.tons === null ? FROM_TICKETS : column.tons.toFixed(2)],
             ['Trucking hours', column.truckingHours === null ? '' : column.truckingHours.toFixed(2)],
           ];
           return (

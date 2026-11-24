@@ -15,8 +15,8 @@ export function shownTripPart(trips: AssignmentTripPart | undefined): (Assignmen
   return trips && trips.status !== 'none' ? { ...trips, status: trips.status } : null;
 }
 
-/** "1 Load", "4 Loads". */
-export const loadsText = (loads: number) => `${loads} ${loads === 1 ? 'Load' : 'Loads'}`;
+/** "1 Load", "4 Loads"; "Loads from Tickets" when the Truck cannot count them (an At-only Haul). */
+export const loadsText = (loads: number | null) => (loads === null ? 'Loads from Tickets' : `${loads} ${loads === 1 ? 'Load' : 'Loads'}`);
 
 /** How a cancelled Assignment's words look everywhere (its block, the open Assignment, the Driver's card): struck through and greyed. */
 export const cancelledText = 'text-muted-foreground line-through';
