@@ -774,32 +774,6 @@ const BACK_INTO_UNPLANNED: Match = {
 };
 
 /**
- * The drive back into an Other's own Places, as for Unplanned work: after
- * Trips that count on an Other (rule 8), a Trip back to where they went that
- * only "going to an Assignment's pickup" (rule 4) explains is the Other's too.
- */
-function backIntoOthers(trips: Trip[]): Trip[] {
-  let open: Match | null = null;
-  const visited = new Set<string>();
-  return trips.map((t) => {
-    if (t.match.rule === 8) {
-      if (open?.assignmentId !== t.match.assignmentId) visited.clear();
-      if (visited.size === 0) visited.add(t.fromCode.toLowerCase());
-      visited.add(t.toCode.toLowerCase());
-      open = t.match;
-      return t;
-    }
-    if (open && t.match.rule === 4 && !t.match.candidates && visited.has(t.toCode.toLowerCase())) {
-      visited.add(t.toCode.toLowerCase());
-      return { ...t, match: open };
-    }
-    open = null;
-    visited.clear();
-    return t;
-  });
-}
-
-/**
  * Each run of Trips nothing fits, with the drives back into it. Every Trip is
  * walked. Returns the Trips with their matches, and the runs as index lists
  * into them.
@@ -935,7 +909,7 @@ export function buildTripDay(input: TripDayInput): TripDay {
   const known = knownAt(input.visits, input.now);
   const { visits, dropped, merged } = clean(known, input.places, input.notConsidered);
   const matched = pair(visits).map((t) => ({ ...t, match: matchTrip(t, assignmentsAt(input, t.leftAt), input.places) }));
-  const grouped = unplannedRuns(backIntoOthers(matched));
+  const grouped = unplannedRuns(matched);
   const answers = input.answers ?? {};
   const runs = splitRuns(grouped.trips, grouped.runs, answers.splits ?? []);
   // A link can name a planned Assignment or one Dave made from another piece.

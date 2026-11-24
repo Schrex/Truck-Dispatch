@@ -419,14 +419,14 @@ describe('Other: Trips that fit nothing are not a haul', () => {
     const d = withAssignments([a1, a2, other('o1', 'Shop, on deck')]);
     expect(lines(d).slice(-3)).toEqual([
       '14:15 J1001 North → J1002 South not_a_haul o1',
-      '14:33 J1002 South → J1001 North not_a_haul o1',
+      '14:33 J1002 South → J1001 North empty a1',
       '15:41 J1001 North → SHOP empty -',
     ]);
-    expect(d.trips.at(-2)!.match).toEqual({ kind: 'not_a_haul', assignmentId: 'o1', rule: 8, reason: 'Other: Shop, on deck' });
+    expect(d.trips.at(-3)!.match).toEqual({ kind: 'not_a_haul', assignmentId: 'o1', rule: 8, reason: 'Other: Shop, on deck' });
     expect(NOTHING_FITS).toBe(9);
     expect(d.unplanned).toEqual([]);
-    // Leaving North at 14:15 to arriving back there at 14:43: its Trucking hours. Never Loads.
-    expect(d.assignments[2]).toMatchObject({ assignmentId: 'o1', loads: 0, empties: 0, status: 'done', since: '2026-11-16T19:15:43Z', truckingHours: 0.46 });
+    // Leaving North at 14:15 to arriving at South: its Trucking hours. The drive back fits A1, so it stays A1's.
+    expect(d.assignments[2]).toMatchObject({ assignmentId: 'o1', loads: 0, empties: 0, status: 'done', since: '2026-11-16T19:15:43Z', truckingHours: 0.14 });
   });
 
   it('leaves a Trip that fits a Haul or a Move on it', () => {

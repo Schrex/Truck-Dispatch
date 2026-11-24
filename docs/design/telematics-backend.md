@@ -161,9 +161,9 @@ An Assignment cancelled after `left_at` still matches; one cancelled before does
 
 **At fills the missing end.** Rules 1–6 read each Assignment's route with At standing in for an empty From or To: At + To is At → To, From + At is From → At. With From and To both set, At is used only for the Job. Rule 7 never fits a null At, and an At with no geofence code fits no Trip.
 
-**Move and Other.** A Move is matched by rules 1, 2 and 4 like a Haul with the same From and To, but rule 1 gives `move` (a Move Trip: Now / Done and Trucking hours, never Loads); a Move missing From or To fits nothing, and At never fills it. An Other fits no rule by Place; it only takes rule 8.
+**Move and Other.** A Move is matched by rules 1, 2 and 4 like a Haul with the same From and To, but rule 1 gives `move` (a Move Trip: Now / Done and Trucking hours, never Loads); a Move missing From or To fits nothing, and At never fills it. An Other fits no rule by Place; it only takes rule 8. A Trip that fits a Haul or a Move by any earlier rule still goes to it.
 
-**The way back from a Trip nothing explains goes with it.** When a rule 8 Trip A → B is followed straight away by B → A, and that drive back was only matched by rule 4 (an empty guess), the drive back is NULL too: one side trip for Dave to answer, not a drive to some Assignment's pickup. A drive back that fits an Assignment's route (rules 1, 2) or the shop (rule 3) keeps its match.
+**The way back from a Trip nothing explains goes with it.** When a rule 9 Trip A → B (nothing fits) is followed straight away by B → A, and that drive back was only matched by rule 4 (an empty guess), the drive back is NULL too: one side trip for Dave to answer, not a drive to some Assignment's pickup. A drive back that fits an Assignment's route (rules 1, 2) or the shop (rule 3) keeps its match. This is for Unplanned work only: after a rule 8 Trip on an Other, a drive back that fits a Haul or a Move (rule 4 included) stays with it.
 
 **Rule 3 is an assumption, not a measurement.** Fleet only records when the Truck entered and left each geofence, nothing about what it carried. A Trip to or from the shop or a yard is taken as empty because Trucks do not load there; a Ticket would be the only proof otherwise.
 
