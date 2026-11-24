@@ -24,7 +24,9 @@ const problem = (fields: Partial<TruckProblem>): TruckProblem => ({
  * first to last, the rest after.
  */
 type Entry = Record<string, unknown> & { id: string; active: boolean };
-const NAME: Record<string, string> = { drivers: 'name', trucks: 'number', jobs: 'name', places: 'shortName', materials: 'name', foremen: 'name', 'inspection-items': 'label' };
+const NAME: Record<string, string> = { drivers: 'name', trucks: 'number', jobs: 'name', places: 'shortName', materials: 'name', foremen: 'name', 'inspection-items': 'label', 'not-considered': 'code' };
+/** The response key for one entry, where it is not the list's name less its last letter. */
+const ONE: Record<string, string> = { 'not-considered': 'notConsidered' };
 let lists: Record<string, Entry[]>;
 const sent: { method: string; path: string; body: unknown }[] = [];
 /** A list whose GET fails, if any. */
@@ -55,7 +57,7 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     problems = [...problems.filter((p) => p.id !== closed.id && !p.fixedAt), closed, ...problems.filter((p) => p.id !== closed.id && p.fixedAt)];
     return answer({ problem: closed });
   }
-  const [, list, id] = /\/api\/(drivers|trucks|jobs|places|materials|foremen|inspection-items)(?:\/([^/]+))?$/.exec(url.pathname) ?? [];
+  const [, list, id] = /\/api\/(drivers|trucks|jobs|places|materials|foremen|inspection-items|not-considered)(?:\/([^/]+))?$/.exec(url.pathname) ?? [];
   if (!list) return answer({ error: 'not_found' }, 404);
   const method = init?.method ?? 'GET';
   if (method === 'GET' && list === failing) return answer({ error: 'oops' }, 500);
@@ -72,7 +74,7 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     return answer({ [list]: lists[list] });
   }
   const name = NAME[list];
-  const one = list.slice(0, -1);
+  const one = ONE[list] ?? list.slice(0, -1);
   // Like the Worker, a Place that stops being a job site loses its usual Foreman.
   const dropped = list === 'places' && 'kind' in body && body.kind !== 'job_site' ? { usualForemanId: null } : {};
   const named = name in body ? entries.find((e) => e.id !== id && String(e[name]).toLowerCase() === String(body[name]).toLowerCase()) : undefined;
@@ -142,6 +144,10 @@ beforeEach(() => {
       { id: 'insp-11', label: 'Air tank (drain)', optional: true, active: true },
       { id: 'insp-x', label: 'Sample Old Item', optional: false, active: false },
     ],
+    'not-considered': [
+      { id: 'nc-road', code: 'SAMPLE-ROAD', active: true },
+      { id: 'nc-old', code: 'SAMPLE-OLD-FUEL', active: false },
+    ],
   };
   sent.length = 0;
   failing = null;
@@ -162,7 +168,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-type Title = 'Drivers' | 'Trucks' | 'Places' | 'Materials' | 'Jobs' | 'Foremen' | 'Inspection checklist';
+type Title = 'Drivers' | 'Trucks' | 'Places' | 'Materials' | 'Jobs' | 'Foremen' | 'Inspection checklist' | 'Not considered';
 
 /** Opens Settings and waits until every section has its chips. */
 const settings = async () => {
@@ -208,6 +214,7 @@ describe('Settings', () => {
       'Jobs',
       'Foremen',
       'Inspection checklist',
+      'Not considered',
     ]);
     expect(screen.queryByRole('tab')).toBeNull();
   });
@@ -586,6 +593,36 @@ describe('Settings', () => {
       await closed();
       expect(chips('Trucks')).toEqual(['21', '24']);
       expect(lists.trucks.filter((t) => t.number === '24')).toHaveLength(1);
+    });
+  });
+
+  describe('the Not considered list', () => {
+    it('lists the geofence codes in use, and adds one trimmed', async () => {
+      await settings();
+      expect(chips('Not considered')).toEqual(['SAMPLE-ROAD']);
+      const panel = add('Not considered', 'geofence code');
+      type(panel, 'Geofence code', '  GAS STATION  ');
+      save(panel);
+      await closed();
+      expect(chips('Not considered')).toEqual(['SAMPLE-ROAD', 'GAS STATION']);
+      expect(sent).toEqual([{ method: 'POST', path: '/api/not-considered', body: { code: 'GAS STATION' } }]);
+    });
+
+    it('refuses a code already on the list, next to the field', async () => {
+      await settings();
+      const panel = add('Not considered', 'geofence code');
+      type(panel, 'Geofence code', 'sample-road');
+      save(panel);
+      expect(await within(panel).findByText('That one is already in the list.')).toBeTruthy();
+      expect(chips('Not considered')).toEqual(['SAMPLE-ROAD']);
+    });
+
+    it('takes a code off the list after asking', async () => {
+      await settings();
+      fireEvent.click(within(open('Not considered', 'SAMPLE-ROAD')).getByRole('button', { name: 'Remove' }));
+      fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Remove' }));
+      await waitFor(() => expect(chips('Not considered')).toEqual([]));
+      expect(sent).toEqual([{ method: 'PATCH', path: '/api/not-considered/nc-road', body: { active: false } }]);
     });
   });
 
