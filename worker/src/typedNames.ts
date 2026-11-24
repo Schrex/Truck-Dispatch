@@ -25,6 +25,7 @@ export interface TypedField<Key extends string = string, IdKey extends string = 
 export const TYPED_NAMES = [
   { key: 'fromPlaceName', noun: 'Place', lists: [{ list: 'places', idKey: 'fromPlaceId' }], addTo: 'places' },
   { key: 'toPlaceName', noun: 'Place', lists: [{ list: 'places', idKey: 'toPlaceId' }], addTo: 'places' },
+  { key: 'atPlaceName', noun: 'Place', lists: [{ list: 'places', idKey: 'atPlaceId' }], addTo: 'places' },
   { key: 'materialName', noun: 'Material', lists: [{ list: 'materials', idKey: 'materialId' }], addTo: 'materials' },
   {
     key: 'forName',

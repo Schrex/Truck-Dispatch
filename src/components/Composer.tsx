@@ -41,6 +41,8 @@ export interface Draft {
   alsoDriverIds: string[];
   from: Slot;
   to: Slot;
+  /** At: where the Truck works, usually the Job site. */
+  at: Slot;
   material: Slot;
   /** For as Dave set it; undefined until he picks or types one, so defaultForeman decides. */
   for?: ForSlot;
@@ -54,7 +56,7 @@ export interface Draft {
 const BLANK: Slot = { id: null, typed: null };
 
 /** A composer with nothing picked: the Truck on His own. */
-export const EMPTY_DRAFT: Draft = { alsoDriverIds: [], from: BLANK, to: BLANK, material: BLANK, truckId: null, note: '', more: false };
+export const EMPTY_DRAFT: Draft = { alsoDriverIds: [], from: BLANK, to: BLANK, at: BLANK, material: BLANK, truckId: null, note: '', more: false };
 
 /** The lists the composer offers as chips, each in the order the API gave it; null while loading. */
 export interface ComposerLists {
@@ -94,6 +96,24 @@ export function defaultForeman(draft: Draft, places: Place[] | null, foremen: Fo
   return usual;
 }
 
+/**
+ * The Place picking a For fills an empty At with: a Customer's usual Place,
+ * or the one job site a Foreman is the usual Foreman of; active Places only,
+ * and none when a Foreman is the usual Foreman of no job site or of several.
+ * The rule never runs the other way: an At that is a job site suggests no
+ * Foreman, so the two suggestions cannot feed each other.
+ */
+export function usualPlace(picked: Pick<ForSlot, 'foremanId' | 'customerId'>, lists: Pick<ComposerLists, 'places' | 'customers'>): string | null {
+  const active = (lists.places ?? []).filter((p) => p.active);
+  if (picked.customerId) {
+    const usual = lists.customers?.find((c) => c.id === picked.customerId)?.usualPlaceId;
+    return active.find((p) => p.id === usual)?.id ?? null;
+  }
+  if (!picked.foremanId) return null;
+  const sites = active.filter((p) => p.kind === 'job_site' && p.usualForemanId === picked.foremanId);
+  return sites.length === 1 ? sites[0].id : null;
+}
+
 /** For as the composer shows and saves it: what Dave set, or the default Foreman. */
 function forOf(draft: Draft, lists: Pick<ComposerLists, 'places' | 'foremen'>): ForSlot {
   return draft.for ?? { foremanId: defaultForeman(draft, lists.places, lists.foremen), customerId: null, typed: null };
@@ -128,13 +148,14 @@ export function sentence(drivers: string[], draft: Draft, lists: ComposerLists):
   const material = nameIn(draft.material, lists.materials, (m) => m.name);
   const from = nameIn(draft.from, lists.places, (p) => p.shortName);
   const to = nameIn(draft.to, lists.places, (p) => p.shortName);
+  const at = nameIn(draft.at, lists.places, (p) => p.shortName);
   const forWho = forName(forOf(draft, lists), lists);
   const truck = (!several && lists.trucks?.find((t) => t.id === draft.truckId)?.number) || null;
   const note = draft.note.trim();
-  if (!material && !from && !to && !forWho && !truck) return note ? `${who}: ${note}` : `${who}: just the day so far`;
-  const head = `${who} ${several ? 'haul' : 'hauls'}${forWho ? ` for ${forWho}` : ''}`;
+  if (!material && !from && !to && !at && !forWho && !truck) return note ? `${who}: ${note}` : `${who}: just the day so far`;
+  const head = `${who} ${several ? 'haul' : 'hauls'}${forWho ? ` for ${forWho}` : ''}${at ? ` at ${at}` : ''}`;
   const rest = [material, from && `from ${from}`, to && `to ${to}`, truck && `in Truck ${truck}`].filter(Boolean).join(' ');
-  return [head, rest].filter(Boolean).join(forWho ? ' · ' : ' ') + (note ? ` · ${note}` : '');
+  return [head, rest].filter(Boolean).join(forWho || at ? ' · ' : ' ') + (note ? ` · ${note}` : '');
 }
 
 /** One row's part of the request: the typed name when there is one, else the picked id (or none). */
@@ -163,6 +184,7 @@ function requestOf(date: string, driverIds: string[], draft: Draft, lists: Compo
     truckId: alsoDriverIds.length > 0 ? null : draft.truckId,
     ...slotFields(draft.from, 'fromPlaceId', 'fromPlaceName'),
     ...slotFields(draft.to, 'toPlaceId', 'toPlaceName'),
+    ...slotFields(draft.at, 'atPlaceId', 'atPlaceName'),
     ...slotFields(draft.material, 'materialId', 'materialName'),
     ...forFields(forOf(draft, lists)),
     note: draft.note.trim() || null,
@@ -177,6 +199,8 @@ const ROW_OF: Record<string, string> = {
   fromPlaceName: 'from',
   toPlaceId: 'to',
   toPlaceName: 'to',
+  atPlaceId: 'at',
+  atPlaceName: 'at',
   materialId: 'material',
   materialName: 'material',
   truckId: 'truck',
@@ -391,7 +415,7 @@ export function Composer({
     onDraft(update);
     setErrors((current) => Object.fromEntries(Object.entries(current).filter(([field]) => ROW_OF[field] !== row)));
   };
-  const slotRow = (row: 'from' | 'to' | 'material') => ({
+  const slotRow = (row: 'from' | 'to' | 'at' | 'material') => ({
     picked: draft[row].id,
     typed: draft[row].typed,
     onPick: (id: string | null) => change(row, (d) => ({ ...d, [row]: { ...d[row], id } })),
@@ -413,8 +437,18 @@ export function Composer({
   const forPicked = forNow.foremanId ? `foremen:${forNow.foremanId}` : forNow.customerId ? `customers:${forNow.customerId}` : null;
   const pickFor = (picked: string | null) => {
     const [list, id] = picked ? picked.split(':') : [null, null];
-    change('for', (d) => ({ ...d, for: { foremanId: list === 'foremen' ? id : null, customerId: list === 'customers' ? id : null, typed: null } }));
+    const slot = { foremanId: list === 'foremen' ? id : null, customerId: list === 'customers' ? id : null, typed: null };
+    // Picking a For fills an empty At with its usual Place; an At Dave chose stays.
+    const usual = usualPlace(slot, lists);
+    const atEmpty = !draft.at.id && !draft.at.typed?.trim();
+    if (usual && atEmpty) change('at', (d) => ({ ...d, at: { id: usual, typed: null } }));
+    change('for', (d) => ({ ...d, for: slot }));
   };
+  // Says what picking this For did, or would do, to At: only when it has a usual Place.
+  const forHint =
+    !forNow.typed && usualPlace(forNow, lists) && draft.for
+      ? `Picking ${forName(forNow, lists)} fills At with ${forNow.foremanId ? 'his' : 'their'} usual Place.`
+      : null;
   // His own is the lane's Driver's usual Truck, so it carries that Truck's mark.
   const marked = (chip: Chip, truckId: string | null) => {
     const open = openOn(truckId, problems);
@@ -465,9 +499,6 @@ export function Composer({
           error={errors.alsoDriverIds ?? errors.driverId}
         />
       )}
-      <ChipRow label="Pick up" chips={placeChips} {...slotRow('from')} />
-      <ChipRow label="Drop off" chips={placeChips} {...slotRow('to')} />
-      <ChipRow label="Hauling what?" chips={active(materials, (m) => m.name)} {...slotRow('material')} />
       <ChipRow
         label="For"
         groups={forGroups}
@@ -477,6 +508,11 @@ export function Composer({
         onTyped={(typed) => change('for', (d) => ({ ...d, for: { foremanId: null, customerId: null, typed } }))}
         error={Object.entries(errors).find(([field]) => ROW_OF[field] === 'for')?.[1]}
       />
+      {forHint && <p className="-mt-2 text-xs text-muted-foreground">{forHint}</p>}
+      <ChipRow label="At" chips={placeChips} {...slotRow('at')} />
+      <ChipRow label="Hauling what?" chips={active(materials, (m) => m.name)} {...slotRow('material')} />
+      <ChipRow label="Pick up" chips={placeChips} {...slotRow('from')} />
+      <ChipRow label="Drop off" chips={placeChips} {...slotRow('to')} />
 
       <Button
         type="button"

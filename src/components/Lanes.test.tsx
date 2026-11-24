@@ -18,6 +18,8 @@ const assignment = (fields: Partial<Assignment>): Assignment => ({
   fromPlaceName: null,
   toPlaceId: null,
   toPlaceName: null,
+  atPlaceId: null,
+  atPlaceName: null,
   materialId: null,
   materialName: null,
   foremanId: null,
@@ -319,10 +321,46 @@ describe('AssignmentBlock', () => {
       expect(tag.className).not.toContain('border');
     });
 
-    it('needs nothing else: For alone is details enough', () => {
-      expect(block({ ...a, ...jaus, note: 'Until someone else needs a truck' })).toBe('First · For Sample Customer Jaus · Customer · Until someone else needs a truck');
+    it('needs nothing else: For alone is details enough, with "No place yet" in grey', () => {
+      expect(block({ ...a, ...jaus, note: 'Until someone else needs a truck' })).toBe(
+        'First · For Sample Customer Jaus · Customer · No place yet · Until someone else needs a truck',
+      );
+      expect(screen.getByText('No place yet').className).toContain('text-muted-foreground');
       cleanup();
-      expect(block({ ...a, ...foreman })).toBe('First · For Sample Foreman A');
+      expect(block({ ...a, ...foreman })).toBe('First · For Sample Foreman A · No place yet');
+      cleanup();
+      expect(block({ ...a, ...foreman, ...minus })).toBe('First · For Sample Foreman A · No place yet · 2" minus');
+    });
+  });
+
+  describe('At', () => {
+    const cobblestone = { atPlaceId: 'plc-cobble', atPlaceName: 'Cobblestone' };
+
+    it('reads "at Cobblestone · CR2" under the For line', () => {
+      expect(block({ ...a, ...foreman, ...cobblestone, materialId: 'mat-cr2', materialName: 'CR2', note: 'Show up with CR2 on' })).toBe(
+        'First · For Sample Foreman A · at Cobblestone · CR2 · Show up with CR2 on',
+      );
+      expect(screen.queryByText('No place yet')).toBeNull();
+    });
+
+    it('reads "at TIUNY · Asphalt · → Villager", showing only the parts that are set', () => {
+      const tiuny = { atPlaceId: 'plc-tiuny', atPlaceName: 'TIUNY' };
+      const villager = { toPlaceId: 'plc-villager', toPlaceName: 'Villager' };
+      const asphalt = { materialId: 'mat-asphalt', materialName: 'Asphalt' };
+      expect(block({ ...a, ...foreman, ...tiuny, ...asphalt, ...villager, ...truck })).toBe('First · For Sample Foreman A · at TIUNY · Asphalt · → Villager · Truck 24');
+      cleanup();
+      expect(block({ ...a, ...tiuny, ...from })).toBe('First · at TIUNY · Sample Plant →');
+      cleanup();
+      expect(block({ ...a, ...tiuny, ...from, ...to })).toBe('First · at TIUNY · Sample Plant → Sample Site North');
+    });
+
+    it('names the At in the edit button', () => {
+      render(
+        <ul>
+          <AssignmentBlock assignment={assignment({ ...a, ...cobblestone })} first onEdit={vi.fn()} />
+        </ul>,
+      );
+      expect(screen.getByRole('button', { name: 'Edit at Cobblestone' })).toBeTruthy();
     });
   });
 });

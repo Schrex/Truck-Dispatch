@@ -206,6 +206,7 @@ const WAS_FIELDS = [
   ['truckId', 'truckNumber'],
   ['fromPlaceId', 'fromPlaceName'],
   ['toPlaceId', 'toPlaceName'],
+  ['atPlaceId', 'atPlaceName'],
   ['materialId', 'materialName'],
 ] as const satisfies readonly (readonly [keyof Assignment, keyof Was])[];
 
@@ -341,6 +342,7 @@ const COPIED = [
   { column: 'truck_id', table: 'trucks' },
   { column: 'from_place_id', table: 'places' },
   { column: 'to_place_id', table: 'places' },
+  { column: 'at_place_id', table: 'places' },
   { column: 'material_id', table: 'materials' },
   { column: 'foreman_id', table: 'foremen' },
   { column: 'customer_id', table: 'customers' },
@@ -538,11 +540,13 @@ async function changeAssignment(request: Request, env: Env, id: string): Promise
 const FIELDS_BEFORE = `SELECT json_object(
     'driverId', b.driver_id, 'driverName', d.name, 'truckId', b.truck_id, 'truckNumber', t.number,
     'fromPlaceId', b.from_place_id, 'fromPlaceName', pf.short_name, 'toPlaceId', b.to_place_id, 'toPlaceName', pt.short_name,
+    'atPlaceId', b.at_place_id, 'atPlaceName', pa.short_name,
     'materialId', b.material_id, 'materialName', m.name, 'foremanId', b.foreman_id, 'foremanName', f.name,
     'customerId', b.customer_id, 'customerName', c.name,
     ${plainBefore(PLAIN)}, 'position', b.position, 'cancelledAt', b.cancelled_at)
   FROM assignments b LEFT JOIN drivers d ON d.id = b.driver_id LEFT JOIN trucks t ON t.id = b.truck_id
   LEFT JOIN places pf ON pf.id = b.from_place_id LEFT JOIN places pt ON pt.id = b.to_place_id
+  LEFT JOIN places pa ON pa.id = b.at_place_id
   LEFT JOIN materials m ON m.id = b.material_id LEFT JOIN foremen f ON f.id = b.foreman_id
   LEFT JOIN customers c ON c.id = b.customer_id
   WHERE b.id = assignments.id`;
@@ -727,6 +731,7 @@ const REFERENCES = [
   { key: 'truckId', column: 'truck_id', list: 'trucks', message: 'Pick a Truck from the list.' },
   { key: 'fromPlaceId', column: 'from_place_id', list: 'places', message: PICK_PLACE },
   { key: 'toPlaceId', column: 'to_place_id', list: 'places', message: PICK_PLACE },
+  { key: 'atPlaceId', column: 'at_place_id', list: 'places', message: PICK_PLACE },
   { key: 'materialId', column: 'material_id', list: 'materials', message: 'Pick a Material from the list.' },
   { key: 'foremanId', column: 'foreman_id', list: 'foremen', message: 'Pick a Foreman from the list.' },
   { key: 'customerId', column: 'customer_id', list: 'customers', message: 'Pick a Customer from the list.' },

@@ -200,6 +200,14 @@ describe('Which Assignments a stored day matches', () => {
     expect((await readLog(truckId)).assignments.map((a) => a.id)).toEqual([own.id]);
   });
 
+  it('names the At an Assignment works at', async () => {
+    const { truckId, randy, placeId } = await setUpDay();
+    await assigned({ driverId: randy, atPlaceId: placeId('J25008 Los Flamboyanes'), toPlaceId: placeId('Villager') });
+    await importCut('2026-11-16-cut-1620.json');
+
+    expect((await readLog(truckId)).assignments.map((a) => [a.atPlaceId, a.atPlaceName])).toEqual([[placeId('J25008 Los Flamboyanes'), 'J25008 Los Flamboyanes']]);
+  });
+
   it('names the Customer an Assignment is for', async () => {
     const { truckId, randy, placeId } = await setUpDay();
     const jaus = ((await (await send('POST', '/api/customers', { name: 'Sample Customer Jaus' })).json()) as { customer: { id: string } }).customer;

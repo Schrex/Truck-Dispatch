@@ -18,7 +18,7 @@ These stories record what phase 1 had to do and why ("so that…"). They are kep
 5. As Dave, I want a lane's blocks in the order I set, marked First and Then (a cancelled one neither, as it is off the day), so that the Driver knows what to do first.
 6. As Dave, I want no Now, "since 7:05", Busy or Free on the board yet, so that the board never claims to know progress it cannot see.
 7. As Dave, I want an empty lane to say "Nothing planned yet", so that I can tell an empty day from one still loading.
-8. As Dave, I want a block to lead with whom the work is for, its Foreman or a Customer, as in "For Brody", so that I know who is running the work. (First built as "TIUNY (Brody)" beside the job site; spec #118 made it For.)
+8. As Dave, I want a block to lead with whom the work is for, its Foreman or a Customer, and where the Truck works, as in "For Brody" over "at TIUNY · Asphalt · → Villager", so that I know who is running the work and where. (First built as "TIUNY (Brody)" beside the job site; spec #118 made it For and At.)
 9. As Dave, I want a cancelled Assignment to stay in its place, struck through and greyed, so that I see what the Driver sees and can put it back.
 10. As Dave, I want the board to fit an iPad in portrait and a phone, so that I can plan from either.
 

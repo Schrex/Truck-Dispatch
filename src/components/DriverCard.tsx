@@ -58,7 +58,7 @@ function TripLine({ part }: { part: AssignmentTripPart | undefined }) {
 /**
  * One of a Driver's Assignments, large enough to read from the cab: whom it is
  * for first, "Haul for Ed" (with "Customer" under it for a Customer; none when
- * For is blank), then the Material, Pick up and Drop off, the note, which Truck when it is not his
+ * For is blank), then At (only when set), the Material, Pick up and Drop off, the note, which Truck when it is not his
  * own, and Dave's changes since Assigning it: Changed (with what it was), Added,
  * or cancelled (struck through). When the Assignment has a Trip part, its Loads,
  * the last one's time and Now. With onDismiss a cancelled card has Dismiss in its bottom right corner,
@@ -75,7 +75,7 @@ export function DriverCard({
   /** Clears a cancelled card off his day; settles once the Worker has answered. */
   onDismiss?: (assignment: DriverAssignment) => Promise<void>;
 }) {
-  const { materialName, fromPlaceName, toPlaceName, note, cancelledAt, sinceSent, was } = assignment;
+  const { materialName, fromPlaceName, toPlaceName, atPlaceName, note, cancelledAt, sinceSent, was } = assignment;
   const forWho = forLine(assignment);
   const mark = cancelledAt ? CANCELLED : sinceSent && MARKS[sinceSent];
   const truck = truckLine(assignment);
@@ -111,6 +111,13 @@ export function DriverCard({
             {forWho?.customer && <span className={cn('mt-1 inline-block', CUSTOMER_TAG.className)}>{CUSTOMER_TAG.word}</span>}
             <Was value={was.forName} />
           </div>
+        )}
+        {(atPlaceName || 'atPlaceName' in was) && (
+          <dl className="grid grid-cols-[6rem_1fr] gap-x-4 gap-y-2 text-lg">
+            <dt className="text-muted-foreground">At</dt>
+            <dd className={cn('font-medium', struck)}>{atPlaceName ?? '–'}</dd>
+            {'atPlaceName' in was && <dd className="col-start-2 -mt-2"><Was value={was.atPlaceName} /></dd>}
+          </dl>
         )}
         <p className={cn('text-2xl font-semibold', struck)}>
           {materialName ?? 'No Material named'}

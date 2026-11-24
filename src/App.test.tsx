@@ -76,12 +76,14 @@ const resolve = (body: {
   truckId?: string | null;
   fromPlaceId?: string | null;
   toPlaceId?: string | null;
+  atPlaceId?: string | null;
   materialId?: string | null;
   foremanId?: string | null;
   customerId?: string | null;
   note?: string | null;
   fromPlaceName?: string | null;
   toPlaceName?: string | null;
+  atPlaceName?: string | null;
   materialName?: string | null;
   forName?: string | null;
 }) => {
@@ -92,6 +94,7 @@ const resolve = (body: {
     typed ? (entries.find((e) => name(e).toLowerCase() === typed.toLowerCase()) ?? ({ id: `new-${kind}-${typed}`, [kind === 'place' ? 'shortName' : 'name']: typed } as unknown as T)) : undefined;
   const from = named(places, (p) => p.shortName, body.fromPlaceName, 'place') ?? places.find((p) => p.id === body.fromPlaceId);
   const to = named(places, (p) => p.shortName, body.toPlaceName, 'place') ?? places.find((p) => p.id === body.toPlaceId);
+  const at = named(places, (p) => p.shortName, body.atPlaceName, 'place') ?? places.find((p) => p.id === body.atPlaceId);
   const material = named(materials, (m) => m.name, body.materialName, 'material') ?? materials.find((m) => m.id === body.materialId);
   // A typed For is a Foreman, else a Customer, else a new Customer, as the Worker does.
   const typedFor = body.forName?.toLowerCase();
@@ -111,6 +114,8 @@ const resolve = (body: {
     fromPlaceName: from?.shortName ?? null,
     toPlaceId: to?.id ?? null,
     toPlaceName: to?.shortName ?? null,
+    atPlaceId: at?.id ?? null,
+    atPlaceName: at?.shortName ?? null,
     materialId: material?.id ?? null,
     materialName: material?.name ?? null,
     foremanId: foreman?.id ?? null,
@@ -255,7 +260,7 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const index = assignments.findIndex((a) => a.id === one[1]);
     const before = assignments[index];
     // The names it had are answers, not typed names: only a name the change sends is typed.
-    const { fromPlaceName: _from, toPlaceName: _to, materialName: _material, foremanName: _foreman, customerName: _customer, ...ids } = before;
+    const { fromPlaceName: _from, toPlaceName: _to, atPlaceName: _at, materialName: _material, foremanName: _foreman, customerName: _customer, ...ids } = before;
     const body = JSON.parse(String(init.body));
     // For is one of the two: setting either, by id or by name, clears the other.
     const forSet = body.foremanId || body.customerId || body.forName ? { foremanId: null, customerId: null } : {};
@@ -733,6 +738,7 @@ describe('the composer', () => {
     expect(chips(composer, 'Pick up')).toEqual(['Sample Plant', 'Sample Site North', 'Or type it']);
     expect(chips(composer, 'Drop off')).toEqual(['Sample Plant', 'Sample Site North', 'Or type it']);
     expect(chips(composer, 'Hauling what?')).toEqual(['2" minus', 'Sample Dirt', 'Or type it']);
+    expect(chips(composer, 'At')).toEqual(['Sample Plant', 'Sample Site North', 'Or type it']);
     expect(chips(composer, 'For')).toEqual(['Sample Foreman A', 'Sample Customer Jaus', 'Or type it']);
     expect(chips(composer, 'Foremen')).toEqual(['Sample Foreman A']);
     expect(chips(composer, 'Customers')).toEqual(['Sample Customer Jaus']);
@@ -766,7 +772,7 @@ describe('the composer', () => {
 
     expect(await screen.findByText('Assignment saved')).toBeTruthy();
     expect(sent).toEqual([
-      { date: '2026-11-20', driverId: 'drv-a', truckId: null, fromPlaceId: 'plc-plant', toPlaceId: 'plc-north', materialId: 'mat-minus', foremanId: 'frm-a', customerId: null, note: null },
+      { date: '2026-11-20', driverId: 'drv-a', truckId: null, fromPlaceId: 'plc-plant', toPlaceId: 'plc-north', atPlaceId: null, materialId: 'mat-minus', foremanId: 'frm-a', customerId: null, note: null },
     ]);
     await waitFor(() =>
       expect(blocks('Sample Driver A')).toEqual([
@@ -787,7 +793,7 @@ describe('the composer', () => {
       save(composer);
       expect(await screen.findByText('Assignment saved')).toBeTruthy();
       expect(sent).toEqual([expect.objectContaining({ foremanId: null, customerId: 'cus-jaus' })]);
-      await waitFor(() => expect(blocks('Sample Driver A')).toEqual(['First · Draft · For Sample Customer Jaus · Customer · Truck 21 (his own)']));
+      await waitFor(() => expect(blocks('Sample Driver A')).toEqual(['First · Draft · For Sample Customer Jaus · Customer · No place yet · Truck 21 (his own)']));
     });
 
     it('types a For not in either list, saved by name', async () => {
@@ -797,8 +803,8 @@ describe('the composer', () => {
       expect(preview(composer)).toBe('Someone hauls for Sample Customer Empire');
       save(composer);
       expect(await screen.findByText('Assignment saved')).toBeTruthy();
-      expect(sent).toEqual([{ date: '2026-11-20', driverId: null, truckId: null, fromPlaceId: null, toPlaceId: null, materialId: null, forName: 'Sample Customer Empire', note: null }]);
-      await waitFor(() => expect(blocks('Unassigned')).toEqual(['First · Draft · For Sample Customer Empire · Customer']));
+      expect(sent).toEqual([{ date: '2026-11-20', driverId: null, truckId: null, fromPlaceId: null, toPlaceId: null, atPlaceId: null, materialId: null, forName: 'Sample Customer Empire', note: null }]);
+      await waitFor(() => expect(blocks('Unassigned')).toEqual(['First · Draft · For Sample Customer Empire · Customer · No place yet']));
     });
 
     it("shows a refusal of For on its row", async () => {
@@ -822,7 +828,7 @@ describe('the composer', () => {
 
     expect(await screen.findByText('Assignment saved')).toBeTruthy();
     expect(sent).toEqual([
-      { date: '2026-11-20', driverId: null, truckId: null, fromPlaceName: 'Sample New Pit', toPlaceId: 'plc-north', materialName: 'sample dirt', foremanId: null, customerId: null, note: null },
+      { date: '2026-11-20', driverId: null, truckId: null, fromPlaceName: 'Sample New Pit', toPlaceId: 'plc-north', atPlaceId: null, materialName: 'sample dirt', foremanId: null, customerId: null, note: null },
     ]);
     await waitFor(() => expect(blocks('Unassigned')).toEqual(['First · Draft · Sample New Pit → Sample Site North · Sample Dirt']));
   });
@@ -921,6 +927,116 @@ describe('the composer', () => {
     expect(pressed(composer, 'Who?')).toEqual(['Sample Driver B']);
   });
 
+  describe('At', () => {
+    it('picks where the Truck works, previewed after For, and the block reads "at …"', async () => {
+      await day();
+      const composer = await compose('Sample Driver A');
+      tap(composer, 'For', 'Sample Customer Jaus');
+      tap(composer, 'At', 'Sample Site North');
+      tap(composer, 'Hauling what?', '2" minus');
+      tap(composer, 'Drop off', 'Sample Plant');
+      expect(preview(composer)).toBe('Sample Driver A hauls for Sample Customer Jaus at Sample Site North · 2" minus to Sample Plant');
+      save(composer);
+      expect(await screen.findByText('Assignment saved')).toBeTruthy();
+      expect(sent).toEqual([expect.objectContaining({ atPlaceId: 'plc-north', toPlaceId: 'plc-plant', customerId: 'cus-jaus' })]);
+      await waitFor(() =>
+        expect(blocks('Sample Driver A')).toEqual(['First · Draft · For Sample Customer Jaus · Customer · at Sample Site North · 2" minus · → Sample Plant · Truck 21 (his own)']),
+      );
+    });
+
+    it('types an At not in the list, saved by name', async () => {
+      await day();
+      const composer = await compose('Unassigned');
+      type(composer, 'At', '10 Flint St');
+      expect(preview(composer)).toBe('Someone hauls at 10 Flint St');
+      save(composer);
+      expect(await screen.findByText('Assignment saved')).toBeTruthy();
+      expect(sent).toEqual([expect.objectContaining({ atPlaceName: '10 Flint St' })]);
+      expect(sent[0]).not.toHaveProperty('atPlaceId');
+    });
+  });
+
+  describe('At from For', () => {
+    // Sample Site South is a job site whose usual Foreman is Sample Foreman B.
+    const south = { id: 'plc-south', shortName: 'Sample Site South', fullName: null, kind: 'job_site', jobId: null, usualForemanId: 'frm-b', active: true };
+    const brody = { id: 'frm-b', name: 'Sample Foreman B', active: true };
+    const jaus = customers[0];
+    beforeEach(() => {
+      places.push(south);
+      foremen.push(brody);
+    });
+    afterEach(() => {
+      places.splice(places.indexOf(south), 1);
+      foremen.splice(foremen.indexOf(brody), 1);
+      jaus.usualPlaceId = null;
+    });
+
+    it("fills an empty At with a Customer's usual Place, and says so", async () => {
+      (jaus as { usualPlaceId: string | null }).usualPlaceId = 'plc-north';
+      await day();
+      const composer = await compose('Sample Driver A');
+      tap(composer, 'For', 'Sample Customer Jaus');
+      expect(pressed(composer, 'At')).toEqual(['Sample Site North']);
+      expect(within(composer).getByText('Picking Sample Customer Jaus fills At with their usual Place.')).toBeTruthy();
+      save(composer);
+      expect(await screen.findByText('Assignment saved')).toBeTruthy();
+      expect(sent).toEqual([expect.objectContaining({ customerId: 'cus-jaus', atPlaceId: 'plc-north' })]);
+    });
+
+    it("fills nothing from a Customer whose usual Place was removed", async () => {
+      (jaus as { usualPlaceId: string | null }).usualPlaceId = 'plc-x';
+      await day();
+      const composer = await compose('Sample Driver A');
+      tap(composer, 'For', 'Sample Customer Jaus');
+      expect(pressed(composer, 'At')).toEqual([]);
+    });
+
+    it('fills an empty At with the one active job site the Foreman is the usual Foreman of', async () => {
+      places.push({ ...south, id: 'plc-old', shortName: 'Sample Old Site', active: false });
+      try {
+        await day();
+        const composer = await compose('Sample Driver A');
+        tap(composer, 'For', 'Sample Foreman B');
+        expect(pressed(composer, 'At')).toEqual(['Sample Site South']);
+        expect(within(composer).getByText('Picking Sample Foreman B fills At with his usual Place.')).toBeTruthy();
+      } finally {
+        places.splice(places.findIndex((p) => p.id === 'plc-old'), 1);
+      }
+    });
+
+    it('fills nothing from a Foreman of no job site, or of several', async () => {
+      places.push({ ...south, id: 'plc-east', shortName: 'Sample Site East' });
+      try {
+        await day();
+        const composer = await compose('Sample Driver A');
+        tap(composer, 'For', 'Sample Foreman B');
+        expect(pressed(composer, 'At')).toEqual([]);
+        tap(composer, 'For', 'Sample Foreman A');
+        expect(pressed(composer, 'At')).toEqual([]);
+      } finally {
+        places.splice(places.findIndex((p) => p.id === 'plc-east'), 1);
+      }
+    });
+
+    it('never overwrites an At already chosen', async () => {
+      (jaus as { usualPlaceId: string | null }).usualPlaceId = 'plc-north';
+      await day();
+      const composer = await compose('Sample Driver A');
+      tap(composer, 'At', 'Sample Plant');
+      tap(composer, 'For', 'Sample Customer Jaus');
+      expect(pressed(composer, 'At')).toEqual(['Sample Plant']);
+      tap(composer, 'For', 'Sample Foreman B');
+      expect(pressed(composer, 'At')).toEqual(['Sample Plant']);
+    });
+
+    it('suggests no Foreman from a job-site At', async () => {
+      await day();
+      const composer = await compose('Sample Driver A');
+      tap(composer, 'At', 'Sample Site South');
+      expect(pressed(composer, 'For')).toEqual([]);
+    });
+  });
+
   describe('Who?', () => {
     it("offers the active Drivers, the lane's own pressed and not to be dropped", async () => {
       await day();
@@ -949,7 +1065,7 @@ describe('the composer', () => {
 
       expect(await screen.findByText('2 Assignments saved')).toBeTruthy();
       expect(sent).toEqual([
-        { date: '2026-11-20', driverId: 'drv-b', alsoDriverIds: ['drv-a'], truckId: null, fromPlaceId: 'plc-plant', toPlaceId: null, materialId: 'mat-dirt', foremanId: null, customerId: null, note: null },
+        { date: '2026-11-20', driverId: 'drv-b', alsoDriverIds: ['drv-a'], truckId: null, fromPlaceId: 'plc-plant', toPlaceId: null, atPlaceId: null, materialId: 'mat-dirt', foremanId: null, customerId: null, note: null },
       ]);
       await waitFor(() => expect(blocks('Sample Driver A')).toEqual(['First · Draft · Sample Plant · Sample Dirt · Truck 21 (his own)']));
       expect(blocks('Sample Driver B')).toEqual(['First · Draft · Sample Plant · Sample Dirt · Truck 24 (his own)']);
@@ -1122,7 +1238,7 @@ describe('opening an Assignment', () => {
   };
   /** The sentence's chips as they read: each part and its value. */
   const sentenceOf = (opened: HTMLElement) =>
-    within(opened).getAllByRole('button', { name: /^(Driver|Material|From|To|Truck|For):/ }).map((chip) => chip.getAttribute('aria-label'));
+    within(opened).getAllByRole('button', { name: /^(Driver|Material|From|To|Truck|For|At):/ }).map((chip) => chip.getAttribute('aria-label'));
   /** Taps a part of the sentence, and answers the row of choices it offers. */
   const tapPart = (opened: HTMLElement, part: string) => {
     fireEvent.click(within(opened).getByRole('button', { name: new RegExp(`^${part}:`) }));
@@ -1138,7 +1254,7 @@ describe('opening an Assignment', () => {
     const opened = await openBlock('Sample Plant · 2" minus · Haul stone · Draft');
     expect(within(lane('Sample Driver A')).getByRole('region', { name: 'Open Assignment' })).toBe(opened);
     expect(sentenceOf(opened)).toEqual([
-      'Driver: Sample Driver A', 'Material: 2" minus', 'From: Sample Plant', 'To: no Place', 'Truck: His own', 'For: no one',
+      'Driver: Sample Driver A', 'Material: 2" minus', 'From: Sample Plant', 'To: no Place', 'Truck: His own', 'For: no one', 'At: no Place',
     ]);
     expect((within(opened).getByRole('textbox', { name: 'Note' }) as HTMLTextAreaElement).value).toBe('Haul stone');
 
@@ -1269,7 +1385,7 @@ describe('opening an Assignment', () => {
     expect(within(row).getAllByRole('group').map((group) => group.getAttribute('aria-label'))).toEqual(['Foremen', 'Customers']);
     fireEvent.click(within(within(row).getByRole('group', { name: 'Customers' })).getByRole('button', { name: 'Sample Customer Jaus' }));
     await waitFor(() => expect(sentenceOf(opened)[5]).toBe('For: Sample Customer Jaus'));
-    expect(blocks('Sample Driver A')).toEqual(['First · Draft · For Sample Customer Jaus · Customer · Haul stone · Truck 21 (his own)']);
+    expect(blocks('Sample Driver A')).toEqual(['First · Draft · For Sample Customer Jaus · Customer · No place yet · Haul stone · Truck 21 (his own)']);
 
     fireEvent.click(within(tapPart(opened, 'For')).getByRole('button', { name: 'Or type it' }));
     const typed = within(opened).getByRole('textbox', { name: 'For, typed' });
@@ -1280,6 +1396,27 @@ describe('opening an Assignment', () => {
     pick(opened, 'For', 'Leave blank');
     await waitFor(() => expect(sentenceOf(opened)[5]).toBe('For: no one'));
     expect(sent).toEqual([{ customerId: 'cus-jaus' }, { forName: 'Sample Foreman A' }, { foremanId: null, customerId: null }]);
+  });
+
+  it('offers At from the Places, and saves the one picked, typed or left blank', async () => {
+    assignments = [planned()];
+    open('/?date=2026-11-20');
+    const opened = await openBlock('Haul stone · Draft');
+    const row = tapPart(opened, 'At');
+    expect(choicesIn(row)).toEqual(['Sample Plant', 'Sample Site North', 'Leave blank', 'Or type it']);
+    fireEvent.click(within(row).getByRole('button', { name: 'Sample Site North' }));
+    await waitFor(() => expect(sentenceOf(opened)[6]).toBe('At: Sample Site North'));
+    expect(blocks('Sample Driver A')).toEqual(['First · Draft · at Sample Site North · Haul stone · Truck 21 (his own)']);
+
+    fireEvent.click(within(tapPart(opened, 'At')).getByRole('button', { name: 'Or type it' }));
+    const typed = within(opened).getByRole('textbox', { name: 'At, typed' });
+    fireEvent.change(typed, { target: { value: '10 Flint St' } });
+    fireEvent.keyDown(typed, { key: 'Enter' });
+    await waitFor(() => expect(sentenceOf(opened)[6]).toBe('At: 10 Flint St'));
+
+    pick(opened, 'At', 'Leave blank');
+    await waitFor(() => expect(sentenceOf(opened)[6]).toBe('At: no Place'));
+    expect(sent).toEqual([{ atPlaceId: 'plc-north' }, { atPlaceName: '10 Flint St' }, { atPlaceId: null }]);
   });
 
   it('moves it to the end of another Driver\'s lane when the Driver changes, still open', async () => {

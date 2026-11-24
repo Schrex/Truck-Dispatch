@@ -42,8 +42,12 @@ _Avoid_: project lead, super
 Whose work an Assignment is: a Foreman or a Customer, one field picked from both lists ("Nate hauling for Jaus"), or typed. A typed For is a Foreman if one has that name, else a Customer, else a new Customer. Blank is allowed. A Customer is tagged "Customer" wherever For is shown.
 _Avoid_: client, owner, foreman (for a Customer)
 
+**At**:
+The Place an Assignment's Truck works at, usually the Job site, when Dave says where without planning a route ("hauling for Brody at TIUNY"). Optional, picked from the Places or typed (a typed one is found, brought back or added, as a From or To is), and usable beside From and To ("at TIUNY, asphalt to Villager"). Picking a For fills an empty At with its usual Place: a Customer's usual Place, or the one active job site a Foreman is the usual Foreman of. An At Dave chose is never overwritten, and an At never suggests a For.
+_Avoid_: site, location, job
+
 **Customer**:
-Someone outside the company we haul for, e.g. Jaus; never a Foreman. Kept in Settings beside Foremen, each with an optional usual Place where their work usually is. No name is both a Foreman's and a Customer's (ignoring case, removed ones included).
+Someone outside the company we haul for, e.g. Jaus; never a Foreman. Kept in Settings beside Foremen, each with an optional usual Place where their work usually is, which picking them fills in as At. No name is both a Foreman's and a Customer's (ignoring case, removed ones included).
 _Avoid_: client, contractor
 
 ## Trucks

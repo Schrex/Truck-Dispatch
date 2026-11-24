@@ -53,6 +53,8 @@ function asAssignment(planned: PlannedAssignment | PlannedMadeAssignment, positi
     fromPlaceName: placeName(route.fromPlaceId),
     toPlaceId: route.toPlaceId,
     toPlaceName: placeName(route.toPlaceId),
+    atPlaceId: null,
+    atPlaceName: null,
     materialId: null,
     materialName: planned.materialName,
     foremanId: null,

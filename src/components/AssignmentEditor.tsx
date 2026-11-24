@@ -19,7 +19,7 @@ export interface EditorLists {
 }
 
 /** A part of the sentence that is picked from a list: For from two, Foremen and Customers. */
-type PartKey = 'driverId' | 'materialId' | 'fromPlaceId' | 'toPlaceId' | 'truckId' | 'for';
+type PartKey = 'driverId' | 'materialId' | 'fromPlaceId' | 'toPlaceId' | 'truckId' | 'for' | 'atPlaceId';
 
 interface Choice {
   id: string;
@@ -64,6 +64,7 @@ function partsOf(assignment: Assignment, lists: EditorLists): Part[] {
     { key: 'toPlaceId', name: 'To', lead: 'to', choices: places, blankWords: 'no Place', blankChoice: 'Leave blank', saved: assignment.toPlaceName, typedKey: 'toPlaceName', ...one('toPlaceId') },
     { key: 'truckId', name: 'Truck', lead: 'in', choices: choices(lists.trucks, (t) => t.number), blankWords: 'His own', blankChoice: 'His own', blankFirst: true, saved: assignment.truckNumber, ...one('truckId') },
     { key: 'for', name: 'For', lead: 'for', blankWords: 'no one', blankChoice: 'Leave blank', typedKey: 'forName', ...forPart(assignment, lists) },
+    { key: 'atPlaceId', name: 'At', lead: 'at', choices: places, blankWords: 'no Place', blankChoice: 'Leave blank', saved: assignment.atPlaceName, typedKey: 'atPlaceName', ...one('atPlaceId') },
   ];
 }
 
@@ -105,12 +106,12 @@ function messageOf(error: unknown, key: string | null, fallback: string): string
 
 /**
  * An Assignment opened in its lane (F2): a sentence of chips, "Driver hauls
- * Material from From to To in Truck for For", and its note. Tapping a chip
+ * Material from From to To in Truck for For at At", and its note. Tapping a chip
  * offers that part's list as a row of chips (one row at a time): active
  * entries, plus the one the Assignment uses if it was removed since, and a
  * choice that leaves it blank (Unassigned for the Driver, His own for the
  * Truck, "Leave blank" for the rest); For offers Foremen, then Customers;
- * From, To, Material and For also offer "Or type it", as the composer does, sending the name typed. Each pick saves only that part, and the
+ * From, To, At, Material and For also offer "Or type it", as the composer does, sending the name typed. Each pick saves only that part, and the
  * note saves on its own when Dave leaves it, so nothing waits on a Save and a
  * change made on another device to another part stays. The chips show the
  * Assignment as saved: a save that fails says so and the old value stays.

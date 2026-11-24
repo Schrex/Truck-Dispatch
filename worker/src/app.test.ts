@@ -110,7 +110,7 @@ describe('Assignments', () => {
     const response = await post('/api/assignments', { date: '2026-11-20', startTime: '07:30', job: 'Sample Job' });
     expect(response.status).toBe(201);
     expect(Object.keys(((await response.json()) as { assignment: object }).assignment).sort()).toEqual(
-      ['assignedAt', 'cancelledAt', 'changedAt', 'createdAt', 'customerId', 'customerName', 'date', 'driverId', 'driverName', 'foremanId', 'foremanName', 'fromPlaceId', 'fromPlaceName', 'handedFromId', 'id', 'materialId', 'materialName', 'note', 'position', 'sinceSent', 'toPlaceId', 'toPlaceName', 'truckId', 'truckNumber', 'updatedAt'],
+      ['assignedAt', 'atPlaceId', 'atPlaceName', 'cancelledAt', 'changedAt', 'createdAt', 'customerId', 'customerName', 'date', 'driverId', 'driverName', 'foremanId', 'foremanName', 'fromPlaceId', 'fromPlaceName', 'handedFromId', 'id', 'materialId', 'materialName', 'note', 'position', 'sinceSent', 'toPlaceId', 'toPlaceName', 'truckId', 'truckNumber', 'updatedAt'],
     );
   });
 
@@ -1242,6 +1242,78 @@ describe('Assignments and Places', () => {
   });
 });
 
+describe('At: where the Truck works', () => {
+  const atOf = (a: Assignment) => [a.atPlaceId, a.atPlaceName];
+
+  it('saves an At beside From and To, and the day read names it by its short name; with none it is empty', async () => {
+    const tiuny = await add({ date: '2026-11-20', driverId: 'drv-a', atPlaceId: 'plc-north', materialId: 'mat-stone', toPlaceId: 'plc-yard' });
+    expect(tiuny).toMatchObject({ atPlaceId: 'plc-north', atPlaceName: 'Sample Site North', toPlaceId: 'plc-yard', fromPlaceId: null });
+    await add({ date: '2026-11-20', driverId: 'drv-b' });
+    expect((await day('2026-11-20')).map(atOf)).toEqual([
+      ['plc-north', 'Sample Site North'],
+      [null, null],
+    ]);
+  });
+
+  it('refuses an unknown At, on add and on change', async () => {
+    expect(Object.keys(await refusal(await post('/api/assignments', { date: '2026-11-20', atPlaceId: 'nowhere' })))).toEqual(['atPlaceId']);
+    const { id } = await add({ date: '2026-11-20' });
+    expect(Object.keys(await refusal(await change(id, { atPlaceId: 'nowhere' })))).toEqual(['atPlaceId']);
+  });
+
+  it('changes and clears the At', async () => {
+    const { id } = await add({ date: '2026-11-20', atPlaceId: 'plc-north' });
+    const moved = (await (await change(id, { atPlaceId: 'plc-yard' })).json()) as { assignment: Assignment };
+    expect(atOf(moved.assignment)).toEqual(['plc-yard', 'Sample Yard']);
+    const cleared = (await (await change(id, { atPlaceId: null })).json()) as { assignment: Assignment };
+    expect(atOf(cleared.assignment)).toEqual([null, null]);
+  });
+
+  describe('typed', () => {
+    it('finds the active Place with that name, ignoring case, adding nothing', async () => {
+      const places = await list('/api/places?include=inactive');
+      expect(atOf(await add({ date: '2026-11-20', atPlaceName: 'sample site north' }))).toEqual(['plc-north', 'Sample Site North']);
+      expect(await list('/api/places?include=inactive')).toEqual(places);
+    });
+
+    it('brings back a removed Place with that name', async () => {
+      await send('PATCH', '/api/places/plc-yard', { active: false });
+      expect(atOf(await add({ date: '2026-11-20', atPlaceName: 'Sample Yard' }))).toEqual(['plc-yard', 'Sample Yard']);
+      expect(await list('/api/places')).toContainEqual(expect.objectContaining({ id: 'plc-yard', active: true }));
+    });
+
+    it('adds a new name as a Place with no kind, on add and on change, one Place when To types it too', async () => {
+      const added = await add({ date: '2026-11-20', atPlaceName: ' 10 Flint St ', toPlaceName: '10 Flint St' });
+      expect(added).toMatchObject({ atPlaceName: '10 Flint St', toPlaceId: added.atPlaceId });
+      expect(await list('/api/places')).toContainEqual(expect.objectContaining({ id: added.atPlaceId, shortName: '10 Flint St', kind: null }));
+      const changed = (await (await change(added.id, { atPlaceName: 'Sample Pit' })).json()) as { assignment: Assignment };
+      expect(changed.assignment.atPlaceName).toBe('Sample Pit');
+    });
+
+    it('refuses a blank name, or one beside a picked At, on At', async () => {
+      expect(await refusal(await post('/api/assignments', { date: '2026-11-20', atPlaceName: ' ' }))).toEqual({ atPlaceName: 'Write the Place\'s name.' });
+      expect(await refusal(await post('/api/assignments', { date: '2026-11-20', atPlaceId: 'plc-north', atPlaceName: 'Sample Pit' }))).toEqual({
+        atPlaceName: 'Pick a Place from the list or write its name, not both.',
+      });
+    });
+  });
+
+  it('gives each Driver of "Who?" the At', async () => {
+    const created = await post('/api/assignments', { date: '2026-11-20', driverId: 'drv-a', alsoDriverIds: ['drv-b'], atPlaceId: 'plc-north' });
+    expect(((await created.json()) as { assignments: Assignment[] }).assignments.map((a) => [a.driverId, a.atPlaceName])).toEqual([
+      ['drv-a', 'Sample Site North'],
+      ['drv-b', 'Sample Site North'],
+    ]);
+  });
+
+  it('carries the At to the copy when an Assigned one is handed to another Driver', async () => {
+    const tiuny = await add({ date: '2026-11-20', driverId: 'drv-a', atPlaceId: 'plc-north' });
+    await assign(tiuny.id);
+    const { assignment } = (await (await change(tiuny.id, { driverId: 'drv-b' }, { NOW: '2026-11-19T20:30:00.000Z' })).json()) as { assignment: Assignment };
+    expect([assignment.driverId, assignment.atPlaceId, assignment.handedFromId]).toEqual(['drv-b', 'plc-north', tiuny.id]);
+  });
+});
+
 describe('one Assignment for several Drivers', () => {
   it('makes one for each Driver, the same but for the Driver, last in his lane', async () => {
     await add({ date: '2026-11-20', driverId: 'drv-b', note: 'Already his' });
@@ -1709,6 +1781,7 @@ describe('Assigning an Assignment', () => {
         before: {
           driverId: 'drv-a', driverName: 'Sample Driver A', truckId: 'trk-24', truckNumber: '24',
           fromPlaceId: 'plc-plant', fromPlaceName: 'Sample Plant', toPlaceId: 'plc-north', toPlaceName: 'Sample Site North',
+          atPlaceId: null, atPlaceName: null,
           materialId: 'mat-stone', materialName: 'Sample Stone', foremanId: 'frm-a', foremanName: 'Sample Foreman A',
           customerId: null, customerName: null, note: 'Haul stone', position: 0, cancelledAt: null,
         },
@@ -2076,6 +2149,24 @@ describe('the Driver view read', () => {
     expect(card.was).toEqual({ forName: 'Sample Foreman A' });
   });
 
+  it('says what At was when it changes, by its short name', async () => {
+    const stone = await assigned({ ...FULL, atPlaceId: 'plc-north' });
+    await change(stone.id, { atPlaceId: 'plc-yard' }, LATER);
+    const [card] = await cards('drv-a', '2026-11-20');
+    expect(card).toMatchObject({ sinceSent: 'changed', atPlaceId: 'plc-yard', atPlaceName: 'Sample Yard' });
+    expect(card.was).toEqual({ atPlaceName: 'Sample Site North' });
+  });
+
+  it('shows no At changed from fields kept before there was At', async () => {
+    const stone = await assigned(FULL);
+    await change(stone.id, { note: 'Haul stone, two loads' }, LATER);
+    const kept = await d1.database().prepare('SELECT rowid, before FROM assignment_changes WHERE assignment_id = ?').bind(stone.id).first<{ rowid: number; before: string }>();
+    const { atPlaceId: _id, atPlaceName: _name, ...older } = JSON.parse(kept!.before) as Record<string, unknown>;
+    await d1.database().prepare('UPDATE assignment_changes SET before = ? WHERE rowid = ?').bind(JSON.stringify(older), kept!.rowid).run();
+    const [card] = await cards('drv-a', '2026-11-20');
+    expect(card.was).toEqual({ note: 'Haul stone' });
+  });
+
   it('shows no For changed from fields kept before Customers, when For is as it was', async () => {
     const stone = await assigned(FULL);
     await change(stone.id, { note: 'Haul stone, two loads' }, LATER);
@@ -2441,6 +2532,19 @@ describe('Start from', () => {
     ]);
   });
 
+  it('copies the At, and leaves out an At removed since', async () => {
+    await add({ date: '2026-11-19', driverId: 'drv-a', atPlaceId: 'plc-north' });
+    await add({ date: '2026-11-19', driverId: 'drv-a', atPlaceId: 'plc-yard', materialId: 'mat-dirt' });
+    expect((await send('PATCH', '/api/places/plc-yard', { active: false })).status).toBe(200);
+
+    const created = await copied(await startFrom('2026-11-23'));
+
+    expect(created.map((a) => [a.atPlaceId, a.atPlaceName, a.materialId])).toEqual([
+      ['plc-north', 'Sample Site North', null],
+      [null, null, 'mat-dirt'],
+    ]);
+  });
+
   it('copies the Customer, and leaves out a Customer removed since', async () => {
     await addCustomers();
     await send('POST', '/api/customers', { name: 'Sample Customer Empire' });
@@ -2560,7 +2664,7 @@ describe('Start from', () => {
    */
   it('copies only the named columns: Driver, Truck, Places, Material and Foreman; the rest are as on a new Assignment', async () => {
     const first = await add({
-      date: '2026-11-19', driverId: 'drv-a', truckId: 'trk-24', fromPlaceId: 'plc-plant', toPlaceId: 'plc-north',
+      date: '2026-11-19', driverId: 'drv-a', truckId: 'trk-24', fromPlaceId: 'plc-plant', toPlaceId: 'plc-north', atPlaceId: 'plc-yard',
       materialId: 'mat-minus', foremanId: 'frm-a', note: 'Haul stone',
     });
     await assign(first.id);
@@ -2580,7 +2684,7 @@ describe('Start from', () => {
     const unfilled = Object.keys(from).filter((column) => from[column] == null && !['cancelled_at', 'customer_id'].includes(column));
     expect(unfilled, 'fill these columns in this test\'s source Assignment').toEqual([]);
 
-    const copiedColumns = ['driver_id', 'truck_id', 'from_place_id', 'to_place_id', 'material_id', 'foreman_id', 'customer_id'];
+    const copiedColumns = ['driver_id', 'truck_id', 'from_place_id', 'to_place_id', 'at_place_id', 'material_id', 'foreman_id', 'customer_id'];
     const only = (r: Record<string, unknown>, keep: (column: string) => boolean) => Object.fromEntries(Object.entries(r).filter(([c]) => keep(c)));
     expect(only(to, (c) => copiedColumns.includes(c))).toEqual(only(from, (c) => copiedColumns.includes(c)));
     // Its own: a new id and day, made now, first in its lane.

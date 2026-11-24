@@ -151,6 +151,8 @@ export interface NewAssignment {
   truckId?: string | null;
   fromPlaceId?: string | null;
   toPlaceId?: string | null;
+  /** At: the Place the Truck works at, usually the Job site; optional, beside From and To. */
+  atPlaceId?: string | null;
   materialId?: string | null;
   /** For, when it is a Foreman: at most one of foremanId and customerId; setting one clears the other. */
   foremanId?: string | null;
@@ -181,6 +183,7 @@ export type AssignmentChange = Partial<Omit<NewAssignment, 'date'> & TypedNames>
 export interface TypedNames {
   fromPlaceName?: string | null;
   toPlaceName?: string | null;
+  atPlaceName?: string | null;
   materialName?: string | null;
   /**
    * For, typed: a Foreman (active, then removed, brought back), else a
@@ -203,6 +206,9 @@ export interface Assignment {
   toPlaceId: string | null;
   /** The To Place's short name. */
   toPlaceName: string | null;
+  /** At: where the Truck works, by the Place's short name. */
+  atPlaceId: string | null;
+  atPlaceName: string | null;
   materialId: string | null;
   materialName: string | null;
   /** For, when it is a Foreman; then customerId is null. */
@@ -365,7 +371,7 @@ export interface CopiedDay {
  * name it had then; null when it was empty (for the Truck, his own).
  */
 export type Was = Partial<
-  Pick<Assignment, 'truckNumber' | 'fromPlaceName' | 'toPlaceName' | 'materialName' | 'note'> & {
+  Pick<Assignment, 'truckNumber' | 'fromPlaceName' | 'toPlaceName' | 'atPlaceName' | 'materialName' | 'note'> & {
     /** For, one field across Foremen and Customers: the name of whichever it was (a Foreman's or a Customer's). */
     forName: string | null;
   }

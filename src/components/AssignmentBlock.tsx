@@ -112,9 +112,11 @@ const DRAFT = { word: 'Draft', className: 'border border-dashed border-muted-for
 /**
  * One Assignment as a block in its lane, marked First (the first in the lane that is not cancelled)
  * or Then. It leads with whom it is for, "For Jaus" in bold, with a grey
- * Customer tag when For is a Customer (nothing when For is blank). Then it
- * reads "From → To" (or the one Place set), or its note when it
- * has no Places; under that, the Material, the note when it is
+ * Customer tag when For is a Customer (nothing when For is blank). With an
+ * At it then reads like Dave's message, only the parts that are set: "at
+ * TIUNY · Asphalt · → Villager"; without one, "From → To" (or the one Place
+ * set), or its note when it has no Places, and "No place yet" in grey under
+ * a For with no At, From or To. Under that, the Material (unless At's line has it), the note when it is
  * not already the title, and the Truck. A
  * Truck the Assignment names (the work needs a certain one) shows plainly;
  * with none named the Driver takes his own, so his usual Truck shows in grey, read aloud as "(his own)", or
@@ -155,16 +157,18 @@ export function AssignmentBlock({
   open?: boolean;
 }) {
   const forWho = forLine(assignment);
-  const places = [assignment.fromPlaceName, assignment.toPlaceName].filter(Boolean).join(' → ');
-  const parts: Detail[] = [
-    assignment.materialName,
-    places && assignment.note,
-  ]
+  const { atPlaceName: at, fromPlaceName: from, toPlaceName: to, materialName: material, note } = assignment;
+  const places = [from, to].filter(Boolean).join(' → ');
+  // With an At, the line reads like Dave's message, "at TIUNY · Asphalt · → Villager": the Material joins it and the route keeps its arrow.
+  const atLine = at && [`at ${at}`, material, from || to ? `${from ?? ''} → ${to ?? ''}`.trim() : null].filter(Boolean).join(' · ');
+  const parts: Detail[] = [atLine ? null : material, (atLine || places) && note]
     .filter((part): part is string => Boolean(part))
     .map((part) => ({ words: part, shown: part }));
   const truck = truckOf(assignment.truckNumber, usualTruck);
   const details = truck ? [...parts, truck] : parts;
-  const headline = places || assignment.note;
+  const headline = atLine || places || note;
+  // Whom it is for is known, but not where yet.
+  const noPlace = Boolean(forWho && !at && !from && !to);
   // His own Truck is never the title: an Assignment with nothing else set still has no details yet.
   const title: Detail | null = headline ? { words: headline, shown: headline } : details[0]?.hisOwn ? null : (details.shift() ?? null);
   const forWords = forWho && [`For ${forWho.name}`, forWho.customer && CUSTOMER_TAG.word].filter(Boolean).join(' · ');
@@ -208,6 +212,12 @@ export function AssignmentBlock({
               </>
             )}
           </span>
+        </>
+      )}
+      {noPlace && (
+        <>
+          {SEPARATOR}
+          <span className={cn('block text-muted-foreground', assignment.cancelledAt && cancelledText)}>No place yet</span>
         </>
       )}
       {/* With For set, a block with nothing else is not "No details yet". */}

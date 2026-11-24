@@ -164,7 +164,7 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 function card(fields: Partial<DriverAssignment>): DriverAssignment {
   return {
     id: crypto.randomUUID(), date: '2026-11-19', driverId: 'drv-a', driverName: 'Sample Driver A',
-    truckId: null, truckNumber: null, fromPlaceId: null, fromPlaceName: null, toPlaceId: null, toPlaceName: null,
+    truckId: null, truckNumber: null, fromPlaceId: null, fromPlaceName: null, toPlaceId: null, toPlaceName: null, atPlaceId: null, atPlaceName: null,
     materialId: null, materialName: null, foremanId: null, foremanName: null, customerId: null, customerName: null, note: null, position: 0,
     createdAt: '2026-11-18T20:00:00.000Z', updatedAt: '2026-11-18T20:00:00.000Z', changedAt: null, cancelledAt: null,
     assignedAt: ASSIGNED_AT, handedFromId: null, sinceSent: null, was: {}, ...fields,
@@ -350,6 +350,21 @@ describe('a Driver\'s yesterday, today and tomorrow', () => {
     expect(within(withForeman).getByText('was Sample Foreman A')).toBeTruthy();
     expect(within(withForeman).queryByText('Customer')).toBeNull();
     expect(within(without).queryByText(/Haul for/)).toBeNull();
+  });
+
+  it('shows an At line above the Material only when At is set, and what it was when Dave changed it', async () => {
+    sentDays['drv-a 2026-11-19'] = [
+      card({ foremanName: 'Ed', foremanId: 'frm-ed', atPlaceId: 'plc-los', atPlaceName: 'Los Flamboyanes', materialName: 'CR2', sinceSent: 'changed', changedAt: '2026-11-19T12:00:00.000Z', was: { atPlaceName: 'BK' } }),
+      card({ materialName: 'Sample Dirt', position: 1 }),
+    ];
+    open('/');
+    const [withAt, without] = cardsIn(await day('Today, Thu, Nov 19'));
+    const at = within(withAt).getByText('At');
+    expect(at.nextSibling?.textContent).toBe('Los Flamboyanes');
+    expect(within(withAt).getByText('was BK')).toBeTruthy();
+    // Above the Material: the At line comes first in the card.
+    expect(at.compareDocumentPosition(within(withAt).getByText('CR2')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(without).queryByText('At')).toBeNull();
   });
 
   it('says "Customer" under the For line when the work is for a Customer', async () => {
