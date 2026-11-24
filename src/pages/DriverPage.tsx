@@ -53,8 +53,8 @@ export function DriverPage() {
   const [refreshes, setRefreshes] = useState(0);
   /** Every Truck, removed ones too, so a suggested Truck since removed still shows; null until read. */
   const [trucks, setTrucks] = useState<Truck[] | null>(null);
-  /** The Truck he checked in to on a past day shown: loading (undefined), none (null), or its id. */
-  const [pastCheckIn, setPastCheckIn] = useState<{ date: string; truckId: string | null } | undefined>(undefined);
+  /** The Truck a Driver checked in to on a past day shown: loading (undefined), none (null), or its id. */
+  const [pastCheckIn, setPastCheckIn] = useState<{ driverId: string; date: string; truckId: string | null } | undefined>(undefined);
 
   useEffect(() => {
     fetchList('drivers').then(setDrivers, () => setDriversFailed(true));
@@ -119,6 +119,7 @@ export function DriverPage() {
     setNextAssigned(null);
     setCheckIn(undefined);
     setShown(undefined);
+    setPastCheckIn(undefined);
   };
   const today = businessDay?.today ?? null;
   const date = picked ?? today;
@@ -129,16 +130,17 @@ export function DriverPage() {
     if (!driverId || !pastDay) return;
     let stale = false;
     fetchCheckIns(pastDay).then(
-      (all) => !stale && setPastCheckIn({ date: pastDay, truckId: all.find((c) => c.driverId === driverId)?.truckId ?? null }),
-      () => !stale && setPastCheckIn({ date: pastDay, truckId: null }),
+      (all) => !stale && setPastCheckIn({ driverId, date: pastDay, truckId: all.find((c) => c.driverId === driverId)?.truckId ?? null }),
+      () => !stale && setPastCheckIn({ driverId, date: pastDay, truckId: null }),
     );
     return () => {
       stale = true;
     };
   }, [driverId, pastDay]);
 
-  /** That day's check-in Truck, else his usual Truck, else none. */
-  const dayCheckInTruck = date === today ? (checkIn?.truckId ?? null) : pastCheckIn?.date === date ? pastCheckIn.truckId : null;
+  /** That day's check-in Truck (his own, never the Driver's before a Change), else his usual Truck, else none. */
+  const pastCheckInShown = pastCheckIn?.driverId === driverId && pastCheckIn.date === date ? pastCheckIn : undefined;
+  const dayCheckInTruck = date === today ? (checkIn?.truckId ?? null) : (pastCheckInShown?.truckId ?? null);
   const suggestedTruckId = dayCheckInTruck ?? driver?.defaultTruckId ?? null;
   const paperLogTrucks = trucks?.filter((t) => t.active || t.id === suggestedTruckId) ?? [];
   const show = (next: string) => {

@@ -55,6 +55,8 @@ const checklist = [
 /** Each Driver's check-in by date, as the Worker would answer it: his latest Inspection that day. */
 let checkIns: Record<string, CheckIn[]> = {};
 let failCheckIns = false;
+/** Holds the check-ins read of these days until released. */
+let heldCheckIns: Record<string, Promise<void>> = {};
 /** Every Finish the phone sent, and how many to fail before one is saved. */
 const finished: NewInspection[] = [];
 let failFinishes = 0;
@@ -81,6 +83,7 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   if (path.endsWith('/api/check-ins')) {
     if (failCheckIns) return answer({ error: 'oops' }, 500);
     const date = url.searchParams.get('date')!;
+    await heldCheckIns[date];
     return answer({ date, checkIns: checkIns[date] ?? [] });
   }
   if (path.endsWith('/api/inspections') && init?.method === 'POST') {
@@ -222,6 +225,7 @@ beforeEach(() => {
   trucks = trucks.map((t) => ({ ...t, active: t.id !== 'trk-30' }));
   checkIns = {};
   failCheckIns = false;
+  heldCheckIns = {};
   finished.length = 0;
   failFinishes = 0;
   problems = [];
@@ -954,6 +958,25 @@ describe('his Paper log', () => {
     await pick('Tomorrow');
     await day('Tomorrow, Fri, Nov 20');
     expect(screen.queryByRole('region', { name: 'Paper log' })).toBeNull();
+  });
+
+  it('never suggests the previous Driver\'s check-in Truck after Change, while the new one\'s is read', async () => {
+    checkIns['2026-11-18'] = [{ driverId: 'drv-a', driverName: 'Sample Driver A', truckId: 'trk-27', truckNumber: '27', inspectionId: 'i-1', doneAt: '2026-11-18T11:00:00.000Z', needsRepair: false }];
+    open('/');
+    await pick('Yesterday');
+    await day('Yesterday, Wed, Nov 18');
+    await waitFor(async () => expect(pressed(await paperLog())).toEqual(['Truck 27']));
+    let release = () => {};
+    heldCheckIns['2026-11-18'] = new Promise<void>((resolve) => (release = resolve));
+    fireEvent.click(screen.getByRole('button', { name: 'Change Driver' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Sample Driver B' }));
+    await day('Today, Thu, Nov 19');
+    await pick('Yesterday');
+    await day('Yesterday, Wed, Nov 18');
+    expect(pressed(await paperLog())).toEqual(['Truck 24']);
+    release();
+    await waitFor(() => expect(read).toContain('drv-b 2026-11-18'));
+    expect(pressed(await paperLog())).toEqual(['Truck 24']);
   });
 
   it('waits for a Truck to be tapped when he has no usual Truck and no check-in that day', async () => {
