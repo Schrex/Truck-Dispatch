@@ -7,7 +7,7 @@ import { handleFleetImports } from './fleetImports';
 import { handleGeofences } from './geofences';
 import { driverTruck, handleTruckLogs, storedDay } from './truckLogs';
 import { exists, handleList, isActive, isList } from './lists';
-import { checkTyped, saveLinked, typedIn, type Typed } from './typedNames';
+import { checkTyped, idKeysOf, saveLinked, typedIn, type Typed } from './typedNames';
 import { DAY_ORDER, SELECT_ASSIGNMENT, marked, type AssignmentRow } from './assignmentQueries';
 import { addDays, dayState, draftsOn, holidayName, isCalendarDate, mondayOf, weekDates } from '../../shared/days';
 import { NOTE_LIMIT, type Assignment, type BusinessDay, type CopiedDay, type Day, type DriverAssignment, type DriverDay, type ListName, type NewAssignment, type TypedNames, type Was, type Week } from '../../shared/types';
@@ -442,7 +442,7 @@ async function changeAssignment(request: Request, env: Env, id: string): Promise
   if (read instanceof Response) return read;
 
   const changes = { ...read.changes };
-  for (const { field } of read.typed) changes[field.idKey] = null; // Linked when saved.
+  for (const idKey of idKeysOf(read.typed)) changes[idKey] = null; // Linked when saved.
   const keys = Object.keys(changes) as ChangeKey[];
   if (keys.length === 0) return json({ assignment: existing });
 
