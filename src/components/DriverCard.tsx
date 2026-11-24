@@ -1,6 +1,6 @@
 import { useState, type CSSProperties } from 'react';
 import { Loader2, X } from 'lucide-react';
-import { WORK_FIELDS, type AssignmentTripPart, type DriverAssignment, type SinceSent, type Was, type Work } from '../../shared/types';
+import { WORK_FIELD_WORDS, WORK_FIELDS, WORK_WORDS, type AssignmentTripPart, type DriverAssignment, type SinceSent, type Was, type Work, type WorkField } from '../../shared/types';
 import { easternTime } from '../../shared/days';
 import { Button } from '@/components/ui/button';
 import { CUSTOMER_TAG, forLine, KIND_PILL, WORK_PILL } from '@/components/AssignmentBlock';
@@ -26,13 +26,16 @@ function Was({ value }: { value: string | null | undefined }) {
 
 /** Each field only some kinds show, by its "was" and the word for it in the Changed line. */
 const HIDDEN_WAS = [
-  { field: 'for', key: 'forName', word: 'For' },
-  { field: 'at', key: 'atPlaceName', word: 'At' },
-  { field: 'material', key: 'materialName', word: 'Material' },
-  { field: 'machine', key: 'machine', word: 'Machine' },
-  { field: 'from', key: 'fromPlaceName', word: 'From' },
-  { field: 'to', key: 'toPlaceName', word: 'To' },
-] as const satisfies readonly { field: string; key: keyof Was; word: string }[];
+  { field: 'for', key: 'forName' },
+  { field: 'at', key: 'atPlaceName' },
+  { field: 'material', key: 'materialName' },
+  { field: 'machine', key: 'machine' },
+  { field: 'from', key: 'fromPlaceName' },
+  { field: 'to', key: 'toPlaceName' },
+] as const satisfies readonly { field: WorkField; key: keyof Was }[];
+
+/** A field's word at the start of a part: "Machine was D6". */
+const leading = (field: WorkField) => `${WORK_FIELD_WORDS[field].charAt(0).toUpperCase()}${WORK_FIELD_WORDS[field].slice(1)}`;
 
 /**
  * What Dave changed that the card no longer shows, for the Changed line: the
@@ -42,8 +45,8 @@ const HIDDEN_WAS = [
 function hiddenWas(work: Work, was: Was): string | null {
   const shown: readonly string[] = WORK_FIELDS[work];
   const parts = [
-    was.work !== undefined && was.work !== work ? `was ${WORK_PILL[was.work ?? 'haul'].word}` : null,
-    ...HIDDEN_WAS.filter(({ field, key }) => !shown.includes(field) && key in was).map(({ key, word }) => `${word} was ${was[key] ?? 'empty'}`),
+    was.work !== undefined && was.work !== work ? `was ${WORK_WORDS[was.work ?? 'haul']}` : null,
+    ...HIDDEN_WAS.filter(({ field, key }) => !shown.includes(field) && key in was).map(({ field, key }) => `${leading(field)} was ${was[key] ?? 'empty'}`),
   ].filter(Boolean);
   return parts.length > 0 ? parts.join(' · ') : null;
 }
@@ -138,7 +141,7 @@ export function DriverCard({
       {/* Its place in his day and its kind: the kind is the pill only, never the edge. */}
       <p className="mb-2 flex items-center gap-1.5 text-sm font-bold text-muted-foreground">
         <span>{index + 1} ·</span>
-        <span className={cn(KIND_PILL, 'text-[11px]', WORK_PILL[work].className)}>{WORK_PILL[work].word}</span>
+        <span className={cn(KIND_PILL, 'text-[11px]', WORK_PILL[work])}>{WORK_WORDS[work]}</span>
       </p>
       {mark && (
         <div className="mb-3">

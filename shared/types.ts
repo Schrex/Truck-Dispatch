@@ -173,6 +173,9 @@ export interface NewAssignment {
 export const WORKS = ['haul', 'move', 'other'] as const;
 export type Work = (typeof WORKS)[number];
 
+/** Each kind's word, wherever it is shown or said: its pill, the Kind toggle, "Switch to Move?", a refusal. */
+export const WORK_WORDS: Record<Work, string> = { haul: 'Haul', move: 'Move', other: 'Other' };
+
 /** The fields that only some kinds use. The Driver, Truck and note are every kind's. */
 export type WorkField = 'for' | 'at' | 'material' | 'from' | 'to' | 'machine';
 
@@ -185,6 +188,13 @@ export const WORK_FIELDS: Record<Work, readonly WorkField[]> = {
   move: ['machine', 'from', 'to'],
   other: [],
 };
+
+/**
+ * Each of those fields' word, as a sentence says it ("A Move has no Material",
+ * "machine was D6"): the glossary's word, the machine in lower case as it is
+ * no glossary word.
+ */
+export const WORK_FIELD_WORDS: Record<WorkField, string> = { for: 'For', at: 'At', material: 'Material', from: 'From', to: 'To', machine: 'machine' };
 
 /**
  * What the page sends to add an Assignment. With `alsoDriverIds` the same

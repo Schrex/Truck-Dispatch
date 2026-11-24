@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { Loader2, Trash2, UserCheck } from 'lucide-react';
-import type { Assignment, AssignmentTripPart, SinceSent, Work } from '../../shared/types';
+import { WORK_WORDS, type Assignment, type AssignmentTripPart, type SinceSent, type Work } from '../../shared/types';
 import { easternTime } from '../../shared/days';
 import { Button } from '@/components/ui/button';
 import { cancelledText, cn, loadsText, shownTripPart } from '@/lib/utils';
@@ -71,14 +71,14 @@ export function forLine({ foremanName, customerName }: Pick<Assignment, 'foreman
 }
 
 /**
- * The kind pill that starts every block and Driver card: HAUL black, MOVE
+ * The kind pill's colours, on every block and Driver card (its word is WORK_WORDS): HAUL black, MOVE
  * blue, OTHER grey. It says only the kind: it never takes the place of a state colour
  * (the outline, the edge and the marks keep those). Shared with the Driver card.
  */
-export const WORK_PILL: Record<Work, { word: string; className: string }> = {
-  haul: { word: 'Haul', className: 'bg-foreground text-background' },
-  move: { word: 'Move', className: 'bg-move text-move-foreground' },
-  other: { word: 'Other', className: 'bg-foreground/10 text-foreground' },
+export const WORK_PILL: Record<Work, string> = {
+  haul: 'bg-foreground text-background',
+  move: 'bg-move text-move-foreground',
+  other: 'bg-foreground/10 text-foreground',
 };
 
 /** A kind pill's shape: small capitals in a filled pill. */
@@ -224,7 +224,7 @@ export function AssignmentBlock({
   const forWords = forWho && [`For ${forWho.name}`, forWho.customer && CUSTOMER_TAG.word].filter(Boolean).join(' · ');
   // The edit button is named by what the Assignment itself says: his own Truck is not part of it, and his lane already names it.
   const words =
-    [(move || other) && WORK_PILL[assignment.work].word, machine, forWords, ...[title, ...details].filter((part) => part && !part.hisOwn).map((part) => part?.words)]
+    [(move || other) && WORK_WORDS[assignment.work], machine, forWords, ...[title, ...details].filter((part) => part && !part.hisOwn).map((part) => part?.words)]
       .filter(Boolean)
       .join(' · ') || 'No details yet';
   const draft = assignment.assignedAt === null && !assignment.cancelledAt;
@@ -242,7 +242,7 @@ export function AssignmentBlock({
             {SEPARATOR}
           </>
         )}
-        <span className={cn(KIND_PILL, WORK_PILL[assignment.work].className)}>{WORK_PILL[assignment.work].word}</span>
+        <span className={cn(KIND_PILL, WORK_PILL[assignment.work])}>{WORK_WORDS[assignment.work]}</span>
         {mark && (
           <>
             {SEPARATOR}

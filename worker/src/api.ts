@@ -11,7 +11,7 @@ import { checkTyped, idKeysOf, saveLinked, typedIn, type Typed } from './typedNa
 import { DAY_ORDER, SELECT_ASSIGNMENT, marked, type AssignmentRow } from './assignmentQueries';
 import { copiedPlain, plainBefore, plainWas, type PlainColumn } from './plainColumns';
 import { addDays, dayState, draftsOn, holidayName, isCalendarDate, mondayOf, weekDates } from '../../shared/days';
-import { NOTE_LIMIT, type Assignment, type BusinessDay, type CopiedDay, type Day, type DriverAssignment, type DriverDay, type ListName, type NewAssignment, type TypedNames, type Was, type Week, type Work, type WorkField, WORK_FIELDS, WORKS } from '../../shared/types';
+import { NOTE_LIMIT, type Assignment, type BusinessDay, type CopiedDay, type Day, type DriverAssignment, type DriverDay, type ListName, type NewAssignment, type TypedNames, type Was, type Week, type Work, type WorkField, WORK_FIELD_WORDS, WORK_FIELDS, WORK_WORDS, WORKS } from '../../shared/types';
 
 /** The JSON API under /api/ (or /truck-dispatch/api/). */
 export async function handleApi(request: Request, env: Env, route: string, query: URLSearchParams): Promise<Response> {
@@ -823,20 +823,20 @@ async function readChange(request: Request, env: Env, existing: Assignment): Pro
 }
 
 /**
- * Each field only some kinds use (WORK_FIELDS): the request keys that set it,
- * the fields a change of kind clears, and its name in a refusal.
+ * Each field only some kinds use (WORK_FIELDS): the request keys that set it
+ * and the fields a change of kind clears. A refusal names it by WORK_FIELD_WORDS.
  */
-const WORK_FIELD_KEYS: Record<WorkField, { keys: readonly (keyof NewAssignment | keyof TypedNames)[]; clears: readonly ChangeKey[]; name: string }> = {
-  for: { keys: ['foremanId', 'customerId', 'forName'], clears: ['foremanId', 'customerId'], name: 'For' },
-  at: { keys: ['atPlaceId', 'atPlaceName'], clears: ['atPlaceId'], name: 'At' },
-  material: { keys: ['materialId', 'materialName'], clears: ['materialId'], name: 'Material' },
-  from: { keys: ['fromPlaceId', 'fromPlaceName'], clears: ['fromPlaceId'], name: 'From' },
-  to: { keys: ['toPlaceId', 'toPlaceName'], clears: ['toPlaceId'], name: 'To' },
-  machine: { keys: ['machine'], clears: ['machine'], name: 'machine' },
+const WORK_FIELD_KEYS: Record<WorkField, { keys: readonly (keyof NewAssignment | keyof TypedNames)[]; clears: readonly ChangeKey[] }> = {
+  for: { keys: ['foremanId', 'customerId', 'forName'], clears: ['foremanId', 'customerId'] },
+  at: { keys: ['atPlaceId', 'atPlaceName'], clears: ['atPlaceId'] },
+  material: { keys: ['materialId', 'materialName'], clears: ['materialId'] },
+  from: { keys: ['fromPlaceId', 'fromPlaceName'], clears: ['fromPlaceId'] },
+  to: { keys: ['toPlaceId', 'toPlaceName'], clears: ['toPlaceId'] },
+  machine: { keys: ['machine'], clears: ['machine'] },
 };
 
-/** Each kind as a refusal names it: "A Move has no Material." */
-const WORK_SUBJECT: Record<Work, string> = { haul: 'A Haul', move: 'A Move', other: 'Other' };
+/** A kind as a refusal names it: "A Move has no Material."; Other takes no article. */
+const workSubject = (work: Work) => (work === 'other' ? WORK_WORDS.other : `A ${WORK_WORDS[work]}`);
 
 /** The fields a kind does not use. */
 function unusedFields(work: Work): WorkField[] {
@@ -858,7 +858,7 @@ function unusedSent(body: Record<string, unknown>, work: Work): Record<string, s
   for (const field of unusedFields(work)) {
     for (const key of WORK_FIELD_KEYS[field].keys) {
       const value = body[key];
-      if (value != null && !(typeof value === 'string' && value.trim() === '')) errors[key] = `${WORK_SUBJECT[work]} has no ${WORK_FIELD_KEYS[field].name}.`;
+      if (value != null && !(typeof value === 'string' && value.trim() === '')) errors[key] = `${workSubject(work)} has no ${WORK_FIELD_WORDS[field]}.`;
     }
   }
   return errors;

@@ -1,12 +1,11 @@
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import { ArrowDown, ArrowUp, Loader2, X } from 'lucide-react';
-import { NOTE_LIMIT, WORK_FIELDS, type Work, type WorkField, type Assignment, type AssignmentChange, type ChangedAssignment, type Customer, type Driver, type Foreman, type Material, type Place, type Truck, type TypedNames } from '../../shared/types';
+import { NOTE_LIMIT, WORK_FIELD_WORDS, WORK_FIELDS, WORK_WORDS, type Work, type WorkField, type Assignment, type AssignmentChange, type ChangedAssignment, type Customer, type Driver, type Foreman, type Material, type Place, type Truck, type TypedNames } from '../../shared/types';
 import { chipClass, OrTypeIt, TypedBox } from '@/components/TypedName';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { SegmentedToggle } from '@/components/SegmentedToggle';
 import { WORK_OPTIONS } from '@/components/Composer';
-import { WORK_PILL } from '@/components/AssignmentBlock';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { changeAssignment, FieldErrors, moveAssignment, Refused } from '@/lib/api';
@@ -111,21 +110,14 @@ function forPart(assignment: Assignment, lists: EditorLists): Pick<Part, 'choice
   return { choices, saved: assignment.foremanName ?? assignment.customerName, value, changeTo };
 }
 
-/** Each field only some kinds use, as the question before a change of kind names it, in the order it names them. */
-const CLEARED_WORDS: [WorkField, string][] = [
-  ['material', 'Material'],
-  ['for', 'For'],
-  ['at', 'At'],
-  ['from', 'From'],
-  ['to', 'To'],
-  ['machine', 'the machine'],
-];
+/** Each field only some kinds use, in the order the question before a change of kind names them. */
+const CLEARED_ORDER: readonly WorkField[] = ['material', 'for', 'at', 'from', 'to', 'machine'];
 
 /** What changing the kind clears, as the question says it: "Material, For and At will be cleared." */
 export function clearedBy(from: Work, to: Work): string {
   const used: readonly WorkField[] = WORK_FIELDS[to];
   const had: readonly WorkField[] = WORK_FIELDS[from];
-  const words = CLEARED_WORDS.filter(([field]) => had.includes(field) && !used.includes(field)).map(([, word]) => word);
+  const words = CLEARED_ORDER.filter((field) => had.includes(field) && !used.includes(field)).map((field) => WORK_FIELD_WORDS[field]);
   if (words.length === 0) return 'Nothing will be cleared.';
   const list = words.length === 1 ? words[0] : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
   return `${list.charAt(0).toUpperCase()}${list.slice(1)} will be cleared.`;
@@ -268,12 +260,12 @@ export function AssignmentEditor({
         <Dialog open onOpenChange={(open) => !open && setAsking(null)}>
           <DialogContent role="alertdialog">
             <DialogHeader>
-              <DialogTitle className="font-display text-xl uppercase tracking-wide">Switch to {WORK_PILL[asking].word}?</DialogTitle>
+              <DialogTitle className="font-display text-xl uppercase tracking-wide">Switch to {WORK_WORDS[asking]}?</DialogTitle>
               <DialogDescription>{clearedBy(assignment.work, asking)}</DialogDescription>
             </DialogHeader>
             <DialogFooter className="gap-2">
               <Button type="button" variant="outline" onClick={() => setAsking(null)}>
-                Keep {WORK_PILL[assignment.work].word}
+                Keep {WORK_WORDS[assignment.work]}
               </Button>
               <Button
                 type="button"
@@ -283,7 +275,7 @@ export function AssignmentEditor({
                   save('work', { work }, 'kind');
                 }}
               >
-                Switch to {WORK_PILL[asking].word}
+                Switch to {WORK_WORDS[asking]}
               </Button>
             </DialogFooter>
           </DialogContent>

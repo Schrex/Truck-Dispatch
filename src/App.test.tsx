@@ -1631,7 +1631,7 @@ describe('opening an Assignment', () => {
       expect(blocks('Sample Driver A')).toEqual(['First · Move · Draft · D6 · Haul stone · Truck 21 (his own)']);
 
       fireEvent.click(kindIn(opened, 'Haul'));
-      expect(within(screen.getByRole('alertdialog')).getByText('The machine will be cleared.')).toBeTruthy();
+      expect(within(screen.getByRole('alertdialog')).getByText('Machine will be cleared.')).toBeTruthy();
     });
 
     it('turns a Haul into Other after asking, leaving the Driver and Truck, with the note as its text', async () => {

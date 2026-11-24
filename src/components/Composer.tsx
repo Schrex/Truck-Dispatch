@@ -1,6 +1,6 @@
 import { Fragment, useId, useState, type FormEvent, type ReactNode } from 'react';
 import { ChevronDown, ChevronUp, Loader2, X } from 'lucide-react';
-import { NOTE_LIMIT, type AddAssignment, type Work, type Assignment, type Customer, type Driver, type Foreman, type Material, type Place, type Truck, type TruckProblem } from '../../shared/types';
+import { NOTE_LIMIT, WORK_WORDS, WORKS, type AddAssignment, type Work, type Assignment, type Customer, type Driver, type Foreman, type Material, type Place, type Truck, type TruckProblem } from '../../shared/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -224,11 +224,7 @@ function requestOf(date: string, driverIds: string[], draft: Draft, lists: Compo
 }
 
 /** The kinds the composer and the open Assignment offer. */
-export const WORK_OPTIONS: { value: Work; label: string }[] = [
-  { value: 'haul', label: 'Haul' },
-  { value: 'move', label: 'Move' },
-  { value: 'other', label: 'Other' },
-];
+export const WORK_OPTIONS: { value: Work; label: string }[] = WORKS.map((value) => ({ value, label: WORK_WORDS[value] }));
 
 /** The most characters a Move's machine may have, as the Worker allows. */
 const MACHINE_LIMIT = 100;
