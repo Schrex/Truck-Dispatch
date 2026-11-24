@@ -78,6 +78,15 @@ What the app does as built, page by page. Words in capitals are defined in [`GLO
 - **Report a problem**, at any time that day, asks "What is the problem?" (required: **Send to Dave** waits for a note) and reports a Truck problem on the Truck of his latest check-in today; **Cancel** puts it away. Once sent the line says "Sent to Dave: Hydraulics leaking". A failed send says so and keeps the note to send again. It is offered only on Today, once he has checked in; after Check in again to another Truck, reports go on that one.
 - An Inspection is never changed or deleted (ADR 0006). Until Drivers sign in through the Hub, whoever picked the name on the phone is trusted, so Inspections are tried on staging, not used as the real record.
 
+### Paper log (today and past days)
+- A **Paper log** is a photo of the paper Daily Truck Log for one Truck on one day, kept as a backup. Nobody types what is on the sheet. It is offered the same way for every Truck, with or without a tracker; where the Truck did record Trips, they stay the record.
+- Under the day's cards, on **Today and any past day** (never on a day to come), a **Paper log** section. No Check-in is needed, and attaching is not a Check-in or an Inspection.
+- **Truck**: every active Truck as a large button, that day's check-in Truck suggested, else his usual Truck; another is one tap. With neither, the buttons wait until he taps a Truck ("Tap the Truck this sheet is for.").
+- **Photograph Paper log** (large) opens the camera; **Choose a photo** opens the phone's photos. The phone shrinks the photo to about 2000 px on its longest side as a JPEG before sending (a browser that cannot keeps the original when it is a JPEG, PNG or WebP of 5 MB or less; otherwise "This photo could not be read. Take it again.").
+- His photos that day are listed oldest first, "Truck 24 · attached 16:05" (US Eastern, 24-hour clock; "· by Dave" on one Dave attached), each with a small picture; a tap opens it full size. Several photos for one Truck and day are fine (the back of the sheet, a clearer retake). They are read again when the page regains the focus.
+- A photo that fails to send stays as "Truck 24 · not sent" with **Try again**, which repeats the same attach (same id), so it is kept once. A refusal from the Worker is shown as its plain message.
+- The pictures are kept in a private R2 bucket and read only through the Worker. Where no bucket is bound, attaching is refused ("Photos cannot be kept here yet. Give the paper sheet to Dave.") and nothing is kept. A Driver cannot take a photo off; he can only add another.
+
 ## Simulation (`/simulate`)
 
 No page links to it: open it by its address. **Board** (top right) goes back to the Board, as from Settings.

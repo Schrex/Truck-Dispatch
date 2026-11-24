@@ -6,6 +6,7 @@
 | Worker | `truck-dispatch-preview`, one version per PR | `truck-dispatch-staging` |
 | Address | `https://pr-<n>-truck-dispatch-preview.schrex-dev.workers.dev/truck-dispatch/` | `https://truck-dispatch-staging.schrex-dev.workers.dev/truck-dispatch/` |
 | D1 | `truck-dispatch-preview`, shared by open PRs | `truck-dispatch-staging` |
+| R2 (photos, `PHOTOS`) | `truck-dispatch-photos-preview`, shared by open PRs | `truck-dispatch-photos-staging` |
 | Data | The Inspection checklist's starting items, synthetic drivers + orders added while reviewing | The Inspection checklist's starting items, synthetic drivers + orders added while testing (kept across deploys) |
 | Protection | Cloudflare Access: Schrex Dev members only | Cloudflare Access: Schrex Dev members, plus the CI service token |
 
@@ -21,7 +22,7 @@ Both run typecheck, tests and build as parallel jobs, build once, and then deplo
 
 Cloudflare API tokens can only be limited per account, not per Worker or database. That is why Truck Dispatch has its own account: its CI token cannot reach Daily Schedule.
 
-**GitHub secrets:** `CLOUDFLARE_API_TOKEN` (Schrex Dev only: Workers Scripts Edit, D1 Edit, Account Settings Read, 1-year expiry), `CLOUDFLARE_ACCOUNT_ID` (Schrex Dev), `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` (service token `github-smoke-test`).
+**GitHub secrets:** `CLOUDFLARE_API_TOKEN` (Schrex Dev only: Workers Scripts Edit, D1 Edit, Workers R2 Storage Edit, Account Settings Read, 1-year expiry), `CLOUDFLARE_ACCOUNT_ID` (Schrex Dev), `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` (service token `github-smoke-test`).
 
 ## One-time Cloudflare setup
 
@@ -32,14 +33,20 @@ Already done; kept here to rebuild it or to set up production later. Make sure t
    bunx wrangler d1 create truck-dispatch-preview
    bunx wrangler d1 create truck-dispatch-staging
    ```
-2. **API token** (My Profile → API Tokens → Create Token). Account Resources: **Schrex Dev** only, never "All accounts". Permissions: Workers Scripts Edit, D1 Edit, Account Settings Read. Remove the Zone row. Expiry: 1 year.
-3. **GitHub secrets** `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Until both are set, PR previews are skipped with a notice.
-4. **Cloudflare Access.** Workers & Pages → each Worker → Settings → Domains & Routes → **Enable Access**. Scope **All traffic**, policy **Cloudflare account** (members of Schrex Dev). To give someone access, invite them to Schrex Dev.
-5. **Smoke-test token.** Zero Trust → Access controls → Service credentials → Service Tokens → create `github-smoke-test`. On the **staging** application → Policies, add a policy with Action **Service Auth** (not Allow), Include → Service Token → `github-smoke-test`, then **Save** the application. Store the token as `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`.
+2. **Photo buckets** (R2, private: no public access, no custom domain; pictures are read only through the Worker). They must exist before a preview or staging deploy with the `PHOTOS` binding in `wrangler.jsonc`, or the deploy fails. Locally, `bun run dev`, the tests and the e2e journeys use a local bucket and need nothing.
+   ```bash
+   bunx wrangler r2 bucket create truck-dispatch-photos-preview
+   bunx wrangler r2 bucket create truck-dispatch-photos-staging
+   ```
+   To be confirmed for the first deploy ([#113](https://github.com/Schrex/Truck-Dispatch/issues/113)): both buckets exist under these names in Schrex Dev, and the CI token has **Workers R2 Storage: Edit**.
+3. **API token** (My Profile → API Tokens → Create Token). Account Resources: **Schrex Dev** only, never "All accounts". Permissions: Workers Scripts Edit, D1 Edit, **Workers R2 Storage: Edit** (the deploy binds the photo buckets), Account Settings Read. Remove the Zone row. An existing token without the R2 permission must be edited to add it, or preview and staging deploys with the photo bucket fail. Expiry: 1 year.
+4. **GitHub secrets** `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Until both are set, PR previews are skipped with a notice.
+5. **Cloudflare Access.** Workers & Pages → each Worker → Settings → Domains & Routes → **Enable Access**. Scope **All traffic**, policy **Cloudflare account** (members of Schrex Dev). To give someone access, invite them to Schrex Dev.
+6. **Smoke-test token.** Zero Trust → Access controls → Service credentials → Service Tokens → create `github-smoke-test`. On the **staging** application → Policies, add a policy with Action **Service Auth** (not Allow), Include → Service Token → `github-smoke-test`, then **Save** the application. Store the token as `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`.
    - Smoke test says **302 / redirected to sign-in**: the secrets are missing or empty.
    - **401**: Access does not know the token (wrong ID or secret).
    - **403**: the token is valid, but no policy on this application lets it in.
-6. **Protect `main`** (Settings → Rules → Rulesets → "Protect main"): pull request with 1 approval, checks `typecheck`, `test`, `e2e`, `build`, no force push or deletion; Repository admin may bypass.
+7. **Protect `main`** (Settings → Rules → Rulesets → "Protect main"): pull request with 1 approval, checks `typecheck`, `test`, `e2e`, `build`, no force push or deletion; Repository admin may bypass.
 
 ## Browser end-to-end job
 
@@ -47,7 +54,7 @@ The `e2e` job in `pr.yml` runs `bun run e2e` on every pull request: it builds th
 
 - **Chromium** is installed by `bunx playwright install --with-deps chromium`; the download is cached in `~/.cache/ms-playwright` (keyed on `bun.lock`, so a Playwright upgrade downloads afresh).
 - **No traces, screenshots or videos** are recorded. To look into a failure, run `bun run e2e` locally (add `--trace on` after `bunx playwright test` for a one-off trace, opened with `bunx playwright show-trace`).
-- **Required check:** a repo admin adds `e2e` to the "Protect main" ruleset (step 6 above). Code cannot do this; until then a failing journey does not block a merge.
+- **Required check:** a repo admin adds `e2e` to the "Protect main" ruleset (step 7 above). Code cannot do this; until then a failing journey does not block a merge.
 
 ## Seed files
 
