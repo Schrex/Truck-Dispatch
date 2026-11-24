@@ -48,8 +48,9 @@ export function TruckLogAssignments({
             ['Pick up', column.pickUp ?? ''],
             ['Drop off', column.dropOff ?? ''],
             ['Material', column.material ?? ''],
-            ['# of loads', column.loads === null ? FROM_TICKETS : String(column.loads)],
-            ['# of tons', column.tons === null ? FROM_TICKETS : column.tons.toFixed(2)],
+            // A Move or an Other hauls no Loads, so neither box has anything to say.
+            ['# of loads', column.work ? '' : column.loads === null ? FROM_TICKETS : String(column.loads)],
+            ['# of tons', column.work ? '' : column.tons === null ? FROM_TICKETS : column.tons.toFixed(2)],
             ['Trucking hours', column.truckingHours === null ? '' : column.truckingHours.toFixed(2)],
           ];
           return (

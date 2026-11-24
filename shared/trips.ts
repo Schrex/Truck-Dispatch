@@ -225,6 +225,8 @@ export interface TruckLogColumn {
   truckingHours: number | null;
   /** Made by Dave from Unplanned work: the column is marked "From the Truck". */
   fromTheTruck?: boolean;
+  /** Set for a Move or an Other, which haul no Loads: its # of loads and # of tons are blank. Absent for a Haul. */
+  work?: Exclude<Work, 'haul'>;
 }
 
 /**

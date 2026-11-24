@@ -209,6 +209,7 @@ async function storedTruckDay(env: Env, truck: StoredTruck, date: string, at: st
         toPlaceName: placeName(route.toPlaceId),
         atPlaceId: route.atPlaceId,
         atPlaceName: placeName(route.atPlaceId),
+        work: route.work,
       };
     });
   const { assignments, ...log } = truckLog({ tripDay, places: tripPlaces, assignments: shown, labels });

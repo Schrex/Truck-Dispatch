@@ -47,15 +47,15 @@ The Place an Assignment's Truck works at, usually the Job site, when Dave says w
 _Avoid_: site, location, job
 
 **Haul**:
-The usual kind of Assignment: hauling material, with a For, At, Material, From and To, each optional. Every Assignment is a Haul unless Dave picks another kind; every one made before there were kinds is a Haul. Its block and card carry a black HAUL pill.
+The usual kind of Assignment: hauling material, with a For, At, Material, From and To, each optional. Every Assignment is a Haul unless Dave picks another kind; every one made before there were kinds is a Haul.
 _Avoid_: load (a Load is one trip's worth), job
 
 **Move**:
-An Assignment that moves a piece of equipment, typically on a lowboy: a machine typed as Dave writes it ("the 260 + big bucket"), with From and To, and no Material, For or At. Never counted as Loads. Its block and card carry a blue MOVE pill. Changing an Assignment from one kind to another clears what the new kind does not use, after Dave confirms. Its From → To Trips are Move Trips.
+An Assignment that moves a piece of equipment, typically on a lowboy: a machine typed as Dave writes it ("the 260 + big bucket"), with From and To, and no Material, For or At. Never counted as Loads. Changing an Assignment from one kind to another clears what the new kind does not use, after Dave confirms. Its From → To Trips are Move Trips.
 _Avoid_: lowboy (the trailer, not the work), transfer, haul (for a Move)
 
 **Other**:
-An Assignment that is not a haul or a move, such as a shop day, standby, water truck or vac truck work: the Driver, a named Truck if any, and a line of text (its note), e.g. "Shop, on deck". No For, At, Material, From, To or machine. Start from and Copy to keep its text, as it is its whole content. Its block and card carry a grey OTHER pill. Its Trips count as not a haul: while it is live, the Driver's Trips that fit no other Assignment count on it, toward its Now / Done and Trucking hours, never Loads.
+An Assignment that is not a haul or a move, such as a shop day, standby, water truck or vac truck work: the Driver, a named Truck if any, and a line of text (its note), e.g. "Shop, on deck". No For, At, Material, From, To or machine. Start from and Copy to keep its text, as it is its whole content. Its Trips count as not a haul: while it is live, the Driver's Trips that fit no other Assignment count on it, toward its Now / Done and Trucking hours, never Loads.
 _Avoid_: note (for the Assignment itself), misc, non-haul
 
 **Customer**:

@@ -39,6 +39,19 @@ describe('Truck log column: # of loads', () => {
     expect(loadsBox()).toBe('2');
   });
 
+  it('is blank, with no tons either, for a Move or an Other: neither hauls Loads', () => {
+    render(
+      <TruckLogAssignments
+        log={{ columns: [column({ id: 'a1', loads: 0, work: 'move' }), column({ id: 'o1', loads: 0, work: 'other' })], unplanned: [], whichAssignment: [], shopTrips: [] }}
+      />,
+    );
+    for (const name of ['Assignment 1', 'Assignment 2']) {
+      const box = within(screen.getByRole('group', { name }));
+      expect(box.getByText('# of loads').nextElementSibling?.textContent).toBe('');
+      expect(box.getByText('# of tons').nextElementSibling?.textContent).toBe('');
+    }
+  });
+
   it('is blank, marked "from Tickets", for an At-only Haul', () => {
     render(<TruckLogAssignments log={{ columns: [column({ loads: null, pickUp: null, dropOff: null })], unplanned: [], whichAssignment: [], shopTrips: [] }} />);
     expect(loadsBox()).toBe('from Tickets');

@@ -8,7 +8,10 @@ import type { Assignment, DayLanes } from './types';
 import { driverAt, type TripDay, type TripJob, type TripPlace, type TruckDayInput, type TruckLogColumn, type TruckLogTrip, type TruckLogUnplanned, type TruckLogWhichAssignment } from './trips';
 
 /** An Assignment as the Truck log needs it: its route at the log's time, by Place name. */
-export type TruckLogAssignment = Pick<Assignment, 'id' | 'fromPlaceName' | 'toPlaceName' | 'materialName' | 'fromTheTruck'>;
+export type TruckLogAssignment = Pick<Assignment, 'id' | 'fromPlaceName' | 'toPlaceName' | 'materialName' | 'fromTheTruck'> & {
+  /** Its kind; a Haul when left out. */
+  work?: Assignment['work'];
+};
 
 export interface TruckLogInput<A extends TruckLogAssignment> {
   tripDay: TripDay;
@@ -60,6 +63,7 @@ export function truckLog<A extends TruckLogAssignment>({ tripDay, places, assign
       tons: trips?.tons ?? null,
       truckingHours: trips?.truckingHours ?? null,
       ...(a.fromTheTruck && { fromTheTruck: true }),
+      ...(a.work && a.work !== 'haul' && { work: a.work }),
     };
   });
   // The Unplanned work: its Places and times only. Which way material went, Dave says.
