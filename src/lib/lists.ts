@@ -52,10 +52,9 @@ export function choicesOf<L extends ListName>(list: L, entries: Lists[L][] | nul
 }
 
 /**
- * Which of an Assignment's Places its Foreman is named beside, as in
- * "TIUNY (Brody)": the drop-off if it is a job site, otherwise the pick-up if
- * that is one, the same rule that fills in the usual Foreman; null when
- * neither is a job site.
+ * Which of an Assignment's Places gives the usual Foreman the composer fills
+ * in as For: the drop-off if it is a job site, otherwise the pick-up if that
+ * is one; null when neither is a job site.
  */
 export function foremanSite(fromIsJobSite: boolean, toIsJobSite: boolean): 'from' | 'to' | null {
   return toIsJobSite ? 'to' : fromIsJobSite ? 'from' : null;

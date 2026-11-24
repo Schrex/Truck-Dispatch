@@ -199,15 +199,26 @@ type PlainKey = (typeof PLAIN)[number]['key'];
 /**
  * The fields a Driver reads that can be shown as "was …": each by the id that
  * says whether it really changed (a rename is not a change) and the name the
- * Driver is shown. Plain columns (PLAIN) are compared as they are.
+ * Driver is shown. Plain columns (PLAIN) are compared as they are, and For
+ * as one field across its two lists (see forWas).
  */
 const WAS_FIELDS = [
   ['truckId', 'truckNumber'],
   ['fromPlaceId', 'fromPlaceName'],
   ['toPlaceId', 'toPlaceName'],
   ['materialId', 'materialName'],
-  ['foremanId', 'foremanName'],
 ] as const satisfies readonly (readonly [keyof Assignment, keyof Was])[];
+
+/**
+ * For, its Foreman or its Customer, as one value: which entry (so a rename is
+ * not a change, and a switch from Foreman Ed to Customer Jaus is one change)
+ * and its name. Values kept before there were Customers have no Customer.
+ */
+function forOf(values: Partial<Assignment>): { id: string | null; name: string | null } {
+  if (values.foremanId) return { id: `foremen:${values.foremanId}`, name: values.foremanName ?? null };
+  if (values.customerId) return { id: `customers:${values.customerId}`, name: values.customerName ?? null };
+  return { id: null, name: null };
+}
 
 /**
  * One Driver's Assignments on a day, for the Driver view: only those Dave has
@@ -251,6 +262,8 @@ async function readDriverDay(env: Env, driverId: string, date: string): Promise<
 function wasWhenAssigned(now: Assignment, before: Partial<Assignment>): Was {
   const was = plainWas(now, before, PLAIN) as Was;
   for (const [id, name] of WAS_FIELDS) if ((before[id] ?? null) !== now[id]) was[name] = (before[name] ?? null) as string | null;
+  const forThen = forOf(before);
+  if (forThen.id !== forOf(now).id) was.forName = forThen.name;
   return was;
 }
 
@@ -330,6 +343,7 @@ const COPIED = [
   { column: 'to_place_id', table: 'places' },
   { column: 'material_id', table: 'materials' },
   { column: 'foreman_id', table: 'foremen' },
+  { column: 'customer_id', table: 'customers' },
 ] as const;
 
 /**
@@ -525,10 +539,12 @@ const FIELDS_BEFORE = `SELECT json_object(
     'driverId', b.driver_id, 'driverName', d.name, 'truckId', b.truck_id, 'truckNumber', t.number,
     'fromPlaceId', b.from_place_id, 'fromPlaceName', pf.short_name, 'toPlaceId', b.to_place_id, 'toPlaceName', pt.short_name,
     'materialId', b.material_id, 'materialName', m.name, 'foremanId', b.foreman_id, 'foremanName', f.name,
+    'customerId', b.customer_id, 'customerName', c.name,
     ${plainBefore(PLAIN)}, 'position', b.position, 'cancelledAt', b.cancelled_at)
   FROM assignments b LEFT JOIN drivers d ON d.id = b.driver_id LEFT JOIN trucks t ON t.id = b.truck_id
   LEFT JOIN places pf ON pf.id = b.from_place_id LEFT JOIN places pt ON pt.id = b.to_place_id
   LEFT JOIN materials m ON m.id = b.material_id LEFT JOIN foremen f ON f.id = b.foreman_id
+  LEFT JOIN customers c ON c.id = b.customer_id
   WHERE b.id = assignments.id`;
 
 /**
@@ -713,6 +729,7 @@ const REFERENCES = [
   { key: 'toPlaceId', column: 'to_place_id', list: 'places', message: PICK_PLACE },
   { key: 'materialId', column: 'material_id', list: 'materials', message: 'Pick a Material from the list.' },
   { key: 'foremanId', column: 'foreman_id', list: 'foremen', message: 'Pick a Foreman from the list.' },
+  { key: 'customerId', column: 'customer_id', list: 'customers', message: 'Pick a Customer from the list.' },
 ] as const satisfies readonly { key: keyof NewAssignment; column: string; list: ListName; message: string }[];
 
 type ReferenceKey = (typeof REFERENCES)[number]['key'];
@@ -788,16 +805,22 @@ async function readChange(request: Request, env: Env, date: string): Promise<Rea
   if (Object.keys(errors).length > 0) return refuse(errors);
   const changes: ReadChange['changes'] = {};
   for (const key of Object.keys(COLUMN_OF) as ChangeKey[]) if (key in body) changes[key] = text(body[key]) || null;
+  // For is one of the two: picking a Foreman clears the Customer, and the other way round.
+  if (changes.foremanId) changes.customerId = null;
+  if (changes.customerId) changes.foremanId = null;
   return { changes, typed: typedIn(body) };
 }
 
 /**
  * Field name to a plain message, for each field sent that is wrong, the day
  * aside: references not text or not in their list (checked all at once),
- * typed names, and the note. Fields it does not know are ignored.
+ * typed names, the note, and For given as both a Foreman and a Customer
+ * (on For, which the page shows under the Customer's field). Fields it does
+ * not know are ignored.
  */
 async function checkFields(env: Env, body: Partial<NewAssignment & TypedNames>): Promise<Record<string, string>> {
   const errors = { ...validate(body), ...checkTyped(body) };
+  if (text(body.foremanId) && text(body.customerId) && !errors.customerId) errors.customerId = 'Pick a Foreman or a Customer, not both.';
   const found = await Promise.all(REFERENCES.map((r) => {
     const id = text(body[r.key]);
     return !id || errors[r.key] !== undefined || exists(env, r.list, id);

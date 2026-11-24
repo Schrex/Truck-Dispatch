@@ -110,7 +110,7 @@ describe('Assignments', () => {
     const response = await post('/api/assignments', { date: '2026-11-20', startTime: '07:30', job: 'Sample Job' });
     expect(response.status).toBe(201);
     expect(Object.keys(((await response.json()) as { assignment: object }).assignment).sort()).toEqual(
-      ['assignedAt', 'cancelledAt', 'changedAt', 'createdAt', 'date', 'driverId', 'driverName', 'foremanId', 'foremanName', 'fromPlaceId', 'fromPlaceName', 'handedFromId', 'id', 'materialId', 'materialName', 'note', 'position', 'sinceSent', 'toPlaceId', 'toPlaceName', 'truckId', 'truckNumber', 'updatedAt'],
+      ['assignedAt', 'cancelledAt', 'changedAt', 'createdAt', 'customerId', 'customerName', 'date', 'driverId', 'driverName', 'foremanId', 'foremanName', 'fromPlaceId', 'fromPlaceName', 'handedFromId', 'id', 'materialId', 'materialName', 'note', 'position', 'sinceSent', 'toPlaceId', 'toPlaceName', 'truckId', 'truckNumber', 'updatedAt'],
     );
   });
 
@@ -1093,6 +1093,106 @@ describe('Assignments with a Material and a Foreman', () => {
   });
 });
 
+/** Two Customers for the For tests: Jaus, and Garden Grove, removed. */
+const addCustomers = () =>
+  d1.database().batch([
+    d1.database().prepare("INSERT INTO customers (id, name) VALUES ('cus-jaus', 'Sample Customer Jaus')"),
+    d1.database().prepare("INSERT INTO customers (id, name, active) VALUES ('cus-grove', 'Sample Customer Grove', 0)"),
+  ]);
+
+describe('For: a Foreman or a Customer', () => {
+  beforeEach(addCustomers);
+  const forOf = (a: Assignment) => [a.foremanId, a.foremanName, a.customerId, a.customerName];
+
+  it('saves a Customer, and the day read names him; with none For is empty', async () => {
+    const jaus = await add({ date: '2026-11-20', driverId: 'drv-a', customerId: 'cus-jaus' });
+    expect(forOf(jaus)).toEqual([null, null, 'cus-jaus', 'Sample Customer Jaus']);
+    await add({ date: '2026-11-20', driverId: 'drv-b' });
+    expect((await day('2026-11-20')).map(forOf)).toEqual([
+      [null, null, 'cus-jaus', 'Sample Customer Jaus'],
+      [null, null, null, null],
+    ]);
+  });
+
+  it('refuses a Customer that does not exist', async () => {
+    expect(await refusal(await post('/api/assignments', { date: '2026-11-20', customerId: 'nobody' }))).toEqual({ customerId: 'Pick a Customer from the list.' });
+  });
+
+  it('refuses a Foreman and a Customer together, with the message on For, on add and on change', async () => {
+    const BOTH = { customerId: 'Pick a Foreman or a Customer, not both.' };
+    expect(await refusal(await post('/api/assignments', { date: '2026-11-20', foremanId: 'frm-a', customerId: 'cus-jaus' }))).toEqual(BOTH);
+    expect(await day('2026-11-20')).toEqual([]);
+    const { id } = await add({ date: '2026-11-20' });
+    expect(await refusal(await change(id, { foremanId: 'frm-a', customerId: 'cus-jaus' }))).toEqual(BOTH);
+  });
+
+  it('clears the Foreman when a Customer is picked, and the Customer when a Foreman is', async () => {
+    const { id } = await add({ date: '2026-11-20', foremanId: 'frm-a' });
+    const toCustomer = (await (await change(id, { customerId: 'cus-jaus' })).json()) as { assignment: Assignment };
+    expect(forOf(toCustomer.assignment)).toEqual([null, null, 'cus-jaus', 'Sample Customer Jaus']);
+    const toForeman = (await (await change(id, { foremanId: 'frm-b' })).json()) as { assignment: Assignment };
+    expect(forOf(toForeman.assignment)).toEqual(['frm-b', 'Sample Foreman B', null, null]);
+    // Clearing one leaves the other as it is.
+    const cleared = (await (await change(id, { customerId: null })).json()) as { assignment: Assignment };
+    expect(forOf(cleared.assignment)).toEqual(['frm-b', 'Sample Foreman B', null, null]);
+  });
+
+  describe('typed', () => {
+    it('finds an active Foreman first, then an active Customer, ignoring case, adding nothing', async () => {
+      const before = { foremen: await list('/api/foremen?include=inactive'), customers: await list('/api/customers?include=inactive') };
+      expect(forOf(await add({ date: '2026-11-20', forName: 'sample foreman a' }))).toEqual(['frm-a', 'Sample Foreman A', null, null]);
+      expect(forOf(await add({ date: '2026-11-20', forName: 'SAMPLE CUSTOMER JAUS' }))).toEqual([null, null, 'cus-jaus', 'Sample Customer Jaus']);
+      expect(await list('/api/foremen?include=inactive')).toEqual(before.foremen);
+      expect(await list('/api/customers?include=inactive')).toEqual(before.customers);
+    });
+
+    it('brings back a removed Foreman or Customer with that name', async () => {
+      await send('PATCH', '/api/foremen/frm-c', { active: false });
+      expect(forOf(await add({ date: '2026-11-20', forName: 'Sample Foreman C' }))).toEqual(['frm-c', 'Sample Foreman C', null, null]);
+      expect(forOf(await add({ date: '2026-11-20', forName: 'sample customer grove' }))).toEqual([null, null, 'cus-grove', 'Sample Customer Grove']);
+      expect(await list('/api/foremen')).toContainEqual(expect.objectContaining({ id: 'frm-c', active: true }));
+      expect(await list('/api/customers')).toContainEqual(expect.objectContaining({ id: 'cus-grove', active: true }));
+    });
+
+    it('adds a new name as a Customer, never a Foreman', async () => {
+      const foremen = await list('/api/foremen?include=inactive');
+      const empire = await add({ date: '2026-11-20', forName: ' Sample Customer Empire ' });
+      expect(forOf(empire)).toEqual([null, null, empire.customerId, 'Sample Customer Empire']);
+      expect(await list('/api/customers')).toContainEqual({ id: empire.customerId, name: 'Sample Customer Empire', usualPlaceId: null, active: true });
+      expect(await list('/api/foremen?include=inactive')).toEqual(foremen);
+    });
+
+    it('clears the other of Foreman and Customer when changed', async () => {
+      const { id } = await add({ date: '2026-11-20', foremanId: 'frm-a' });
+      const toCustomer = (await (await change(id, { forName: 'Sample Customer Jaus' })).json()) as { assignment: Assignment };
+      expect(forOf(toCustomer.assignment)).toEqual([null, null, 'cus-jaus', 'Sample Customer Jaus']);
+      const toForeman = (await (await change(id, { forName: 'Sample Foreman B' })).json()) as { assignment: Assignment };
+      expect(forOf(toForeman.assignment)).toEqual(['frm-b', 'Sample Foreman B', null, null]);
+    });
+
+    it('refuses a name typed beside a picked Foreman or Customer, on For', async () => {
+      expect(await refusal(await post('/api/assignments', { date: '2026-11-20', customerId: 'cus-jaus', forName: 'Sample Foreman A' }))).toEqual({
+        forName: 'Pick a Foreman or Customer from the list or write its name, not both.',
+      });
+    });
+  });
+
+  it('gives each Driver of "Who?" the Customer', async () => {
+    const created = await post('/api/assignments', { date: '2026-11-20', driverId: 'drv-a', alsoDriverIds: ['drv-b'], customerId: 'cus-jaus' });
+    expect(((await created.json()) as { assignments: Assignment[] }).assignments.map((a) => [a.driverId, a.customerName])).toEqual([
+      ['drv-a', 'Sample Customer Jaus'],
+      ['drv-b', 'Sample Customer Jaus'],
+    ]);
+  });
+
+  it('carries the Customer to the copy when an Assigned one is handed to another Driver', async () => {
+    const jaus = await add({ date: '2026-11-20', driverId: 'drv-a', customerId: 'cus-jaus' });
+    await assign(jaus.id);
+    const { assignment } = (await (await change(jaus.id, { driverId: 'drv-b' }, { NOW: '2026-11-19T20:30:00.000Z' })).json()) as { assignment: Assignment };
+    expect([assignment.driverId, assignment.customerId, assignment.handedFromId]).toEqual(['drv-b', 'cus-jaus', jaus.id]);
+  });
+});
+
 
 describe('Assignments and Places', () => {
   it('save a From and To Place and return their short names alongside their ids; with none they come back empty', async () => {
@@ -1610,7 +1710,7 @@ describe('Assigning an Assignment', () => {
           driverId: 'drv-a', driverName: 'Sample Driver A', truckId: 'trk-24', truckNumber: '24',
           fromPlaceId: 'plc-plant', fromPlaceName: 'Sample Plant', toPlaceId: 'plc-north', toPlaceName: 'Sample Site North',
           materialId: 'mat-stone', materialName: 'Sample Stone', foremanId: 'frm-a', foremanName: 'Sample Foreman A',
-          note: 'Haul stone', position: 0, cancelledAt: null,
+          customerId: null, customerName: null, note: 'Haul stone', position: 0, cancelledAt: null,
         },
       },
       {
@@ -1964,7 +2064,27 @@ describe('the Driver view read', () => {
     await change(stone.id, { foremanId: 'frm-b' }, LATER);
     const [card] = await cards('drv-a', '2026-11-20');
     expect(card).toMatchObject({ sinceSent: 'changed', foremanName: 'Sample Foreman B' });
-    expect(card.was).toEqual({ foremanName: 'Sample Foreman A' });
+    expect(card.was).toEqual({ forName: 'Sample Foreman A' });
+  });
+
+  it('says what For was once, by name, when it changes from a Foreman to a Customer', async () => {
+    await addCustomers();
+    const stone = await assigned(FULL);
+    await change(stone.id, { customerId: 'cus-jaus' }, LATER);
+    const [card] = await cards('drv-a', '2026-11-20');
+    expect(card).toMatchObject({ sinceSent: 'changed', foremanName: null, customerName: 'Sample Customer Jaus' });
+    expect(card.was).toEqual({ forName: 'Sample Foreman A' });
+  });
+
+  it('shows no For changed from fields kept before Customers, when For is as it was', async () => {
+    const stone = await assigned(FULL);
+    await change(stone.id, { note: 'Haul stone, two loads' }, LATER);
+    // Fields kept before there were Customers have no customerId or customerName.
+    const kept = await d1.database().prepare('SELECT rowid, before FROM assignment_changes WHERE assignment_id = ?').bind(stone.id).first<{ rowid: number; before: string }>();
+    const { customerId: _id, customerName: _name, ...older } = JSON.parse(kept!.before) as Record<string, unknown>;
+    await d1.database().prepare('UPDATE assignment_changes SET before = ? WHERE rowid = ?').bind(JSON.stringify(older), kept!.rowid).run();
+    const [card] = await cards('drv-a', '2026-11-20');
+    expect(card.was).toEqual({ note: 'Haul stone' });
   });
 
   it('shows Changed with nothing it was when only its place in his order changed, or it was changed back', async () => {
@@ -2321,6 +2441,22 @@ describe('Start from', () => {
     ]);
   });
 
+  it('copies the Customer, and leaves out a Customer removed since', async () => {
+    await addCustomers();
+    await send('POST', '/api/customers', { name: 'Sample Customer Empire' });
+    const empire = (await list('/api/customers')).find((c) => c.name === 'Sample Customer Empire')!;
+    await add({ date: '2026-11-19', driverId: 'drv-a', customerId: 'cus-jaus' });
+    await add({ date: '2026-11-19', driverId: 'drv-a', customerId: empire.id, materialId: 'mat-dirt' });
+    expect((await send('PATCH', `/api/customers/${empire.id}`, { active: false })).status).toBe(200);
+
+    const created = await copied(await startFrom('2026-11-23'));
+
+    expect(created.map((a) => [a.customerId, a.customerName, a.materialId])).toEqual([
+      ['cus-jaus', 'Sample Customer Jaus', null],
+      [null, null, 'mat-dirt'],
+    ]);
+  });
+
   it('puts an Assignment whose Driver was removed in Unassigned, after the lane\'s own copies are numbered', async () => {
     await add({ date: '2026-11-19', driverId: 'drv-b', materialId: 'mat-dirt' });
     await add({ date: '2026-11-19', driverId: 'drv-b', materialId: 'mat-stone' });
@@ -2440,10 +2576,11 @@ describe('Start from', () => {
     const row = async (id: string) => (await d1.database().prepare('SELECT * FROM assignments WHERE id = ?').bind(id).first<Record<string, unknown>>())!;
     const [from, to, added] = [await row(source.id), await row(copy.id), await row(fresh.id)];
     // Only an Assignment that is not cancelled is copied, so its cancelled time is always empty.
-    const unfilled = Object.keys(from).filter((column) => from[column] == null && column !== 'cancelled_at');
+    // For is a Foreman or a Customer, never both, so the source names a Foreman and its Customer stays empty.
+    const unfilled = Object.keys(from).filter((column) => from[column] == null && !['cancelled_at', 'customer_id'].includes(column));
     expect(unfilled, 'fill these columns in this test\'s source Assignment').toEqual([]);
 
-    const copiedColumns = ['driver_id', 'truck_id', 'from_place_id', 'to_place_id', 'material_id', 'foreman_id'];
+    const copiedColumns = ['driver_id', 'truck_id', 'from_place_id', 'to_place_id', 'material_id', 'foreman_id', 'customer_id'];
     const only = (r: Record<string, unknown>, keep: (column: string) => boolean) => Object.fromEntries(Object.entries(r).filter(([c]) => keep(c)));
     expect(only(to, (c) => copiedColumns.includes(c))).toEqual(only(from, (c) => copiedColumns.includes(c)));
     // Its own: a new id and day, made now, first in its lane.

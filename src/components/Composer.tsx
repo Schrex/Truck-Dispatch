@@ -1,6 +1,6 @@
 import { useId, useState, type FormEvent, type ReactNode } from 'react';
 import { ChevronDown, ChevronUp, Loader2, X } from 'lucide-react';
-import { NOTE_LIMIT, type AddAssignment, type Assignment, type Driver, type Foreman, type Material, type Place, type Truck, type TruckProblem } from '../../shared/types';
+import { NOTE_LIMIT, type AddAssignment, type Assignment, type Customer, type Driver, type Foreman, type Material, type Place, type Truck, type TruckProblem } from '../../shared/types';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -22,6 +22,17 @@ export interface Slot {
 }
 
 /**
+ * For as Dave set it: a Foreman or a Customer picked (at most one of the two
+ * ids), or a name typed with "Or type it" (typed is not null while the box is
+ * open), or none.
+ */
+export interface ForSlot {
+  foremanId: string | null;
+  customerId: string | null;
+  typed: string | null;
+}
+
+/**
  * What the composer holds before it is saved. The Board keeps it and starts a
  * blank one each time a + opens the composer.
  */
@@ -31,8 +42,8 @@ export interface Draft {
   from: Slot;
   to: Slot;
   material: Slot;
-  /** The Foreman Dave picked (null: none); undefined until he picks, so defaultForeman decides. */
-  foremanId?: string | null;
+  /** For as Dave set it; undefined until he picks or types one, so defaultForeman decides. */
+  for?: ForSlot;
   /** A certain Truck; null is "His own". */
   truckId: string | null;
   note: string;
@@ -52,6 +63,7 @@ export interface ComposerLists {
   materials: Material[] | null;
   trucks: Truck[] | null;
   foremen: Foreman[] | null;
+  customers: Customer[] | null;
 }
 
 /**
@@ -65,7 +77,9 @@ function placeIn(slot: Slot, places: Place[] | null): Place | null {
 }
 
 /**
- * The Foreman a new Assignment gets until Dave picks one. Every rule for
+ * The Foreman a new Assignment gets until Dave picks or types a For (a
+ * Foreman or a Customer), so a Customer he picked is never joined by a
+ * Foreman. Every rule for
  * filling him in lives here, so it can grow without touching the composer:
  * the drop-off's usual Foreman if it is a job site, otherwise the pick-up's
  * if that is one (so hauling out of TIUNY still names Brody). A usual Foreman
@@ -80,9 +94,17 @@ export function defaultForeman(draft: Draft, places: Place[] | null, foremen: Fo
   return usual;
 }
 
-/** The Foreman the composer shows and saves: Dave's pick, or the default. */
-function foremanOf(draft: Draft, lists: Pick<ComposerLists, 'places' | 'foremen'>): string | null {
-  return draft.foremanId !== undefined ? draft.foremanId : defaultForeman(draft, lists.places, lists.foremen);
+/** For as the composer shows and saves it: what Dave set, or the default Foreman. */
+function forOf(draft: Draft, lists: Pick<ComposerLists, 'places' | 'foremen'>): ForSlot {
+  return draft.for ?? { foremanId: defaultForeman(draft, lists.places, lists.foremen), customerId: null, typed: null };
+}
+
+/** For's name as it reads: the typed name, or the picked Foreman's or Customer's. */
+function forName(slot: ForSlot, lists: Pick<ComposerLists, 'foremen' | 'customers'>): string | null {
+  const typed = slot.typed?.trim();
+  if (typed) return typed;
+  if (slot.foremanId) return lists.foremen?.find((f) => f.id === slot.foremanId)?.name ?? null;
+  return (slot.customerId && lists.customers?.find((c) => c.id === slot.customerId)?.name) || null;
 }
 
 /** A row's name as it reads: the typed name, or the picked entry's. */
@@ -94,11 +116,11 @@ function nameIn<T extends { id: string }>(slot: Slot, entries: T[] | null, name:
 }
 
 /**
- * The Assignment as a sentence, to check before saving: "Randy hauls 2" minus
- * from Villager to TIUNY (Brody)". The Foreman follows the job site he runs
- * (the drop-off, else the pick-up), or with no job site the drop-off, else the
- * pick-up; a named Truck and the note come last. With nothing but the day, it
- * says so. Several Drivers read "Randy and Mike haul", each in his own Truck.
+ * The Assignment as a sentence, to check before saving: "Randy hauls for
+ * Brody · 2" minus from Villager to TIUNY"; with For blank, "Randy hauls 2"
+ * minus from Villager to TIUNY". A named Truck and the note come last. With
+ * nothing but the day, it says so. Several Drivers read "Randy and Mike
+ * haul", each in his own Truck.
  */
 export function sentence(drivers: string[], draft: Draft, lists: ComposerLists): string {
   const who = drivers.length === 0 ? 'Someone' : drivers.length === 1 ? drivers[0] : `${drivers.slice(0, -1).join(', ')} and ${drivers[drivers.length - 1]}`;
@@ -106,29 +128,25 @@ export function sentence(drivers: string[], draft: Draft, lists: ComposerLists):
   const material = nameIn(draft.material, lists.materials, (m) => m.name);
   const from = nameIn(draft.from, lists.places, (p) => p.shortName);
   const to = nameIn(draft.to, lists.places, (p) => p.shortName);
-  const foremanId = foremanOf(draft, lists);
-  const foreman = lists.foremen?.find((f) => f.id === foremanId)?.name ?? null;
+  const forWho = forName(forOf(draft, lists), lists);
   const truck = (!several && lists.trucks?.find((t) => t.id === draft.truckId)?.number) || null;
   const note = draft.note.trim();
-  if (!material && !from && !to && !foreman && !truck) return note ? `${who}: ${note}` : `${who}: just the day so far`;
-  const jobSite = (slot: Slot) => placeIn(slot, lists.places)?.kind === 'job_site';
-  const site = foremanSite(jobSite(draft.from), jobSite(draft.to)) ?? (to ? 'to' : 'from');
-  const at = (place: string | null, here: boolean) => (place ? `${place}${here && foreman ? ` (${foreman})` : ''}` : null);
-  const words = [
-    `${who} ${several ? 'haul' : 'hauls'}`,
-    material,
-    from && `from ${at(from, site === 'from')}`,
-    to && `to ${at(to, site === 'to')}`,
-    !from && !to && foreman && `(${foreman})`,
-    truck && `in Truck ${truck}`,
-  ].filter(Boolean);
-  return words.join(' ') + (note ? ` · ${note}` : '');
+  if (!material && !from && !to && !forWho && !truck) return note ? `${who}: ${note}` : `${who}: just the day so far`;
+  const head = `${who} ${several ? 'haul' : 'hauls'}${forWho ? ` for ${forWho}` : ''}`;
+  const rest = [material, from && `from ${from}`, to && `to ${to}`, truck && `in Truck ${truck}`].filter(Boolean).join(' ');
+  return [head, rest].filter(Boolean).join(forWho ? ' · ' : ' ') + (note ? ` · ${note}` : '');
 }
 
 /** One row's part of the request: the typed name when there is one, else the picked id (or none). */
 function slotFields<I extends string, N extends string>(slot: Slot, idKey: I, nameKey: N): Partial<Record<I | N, string | null>> {
   const typed = slot.typed?.trim();
   return (typed ? { [nameKey]: typed } : { [idKey]: slot.id }) as Partial<Record<I | N, string | null>>;
+}
+
+/** For's part of the request: the typed name when there is one, else both ids (one of them, or neither, set). */
+function forFields(slot: ForSlot): Pick<AddAssignment, 'foremanId' | 'customerId' | 'forName'> {
+  const typed = slot.typed?.trim();
+  return typed ? { forName: typed } : { foremanId: slot.foremanId, customerId: slot.customerId };
 }
 
 /**
@@ -146,7 +164,7 @@ function requestOf(date: string, driverIds: string[], draft: Draft, lists: Compo
     ...slotFields(draft.from, 'fromPlaceId', 'fromPlaceName'),
     ...slotFields(draft.to, 'toPlaceId', 'toPlaceName'),
     ...slotFields(draft.material, 'materialId', 'materialName'),
-    foremanId: foremanOf(draft, lists),
+    ...forFields(forOf(draft, lists)),
     note: draft.note.trim() || null,
   };
 }
@@ -162,7 +180,9 @@ const ROW_OF: Record<string, string> = {
   materialId: 'material',
   materialName: 'material',
   truckId: 'truck',
-  foremanId: 'foreman',
+  foremanId: 'for',
+  customerId: 'for',
+  forName: 'for',
   note: 'note',
 };
 
@@ -173,15 +193,23 @@ interface Chip {
   mark?: ReactNode;
 }
 
+/** A named group of chips in one row, such as For's Foremen and Customers. */
+interface ChipGroup {
+  name: string;
+  chips: Chip[];
+}
+
 /**
  * A labelled row of large chips; the picked one is pressed. Tapping it again
  * leaves the row blank unless `required` (the Truck is always His own or one).
  * With onTyped, "Or type it" opens a box for a name not in the list, which a
- * picked chip closes again.
+ * picked chip closes again. With groups, the chips come in named groups
+ * (null while any loads), one after another, "Or type it" last.
  */
 function ChipRow({
   label,
   chips,
+  groups,
   picked,
   onPick,
   typed,
@@ -190,7 +218,8 @@ function ChipRow({
   error,
 }: {
   label: string;
-  chips: Chip[] | null;
+  chips?: Chip[] | null;
+  groups?: ChipGroup[] | null;
   picked: string | null;
   onPick: (id: string | null) => void;
   typed?: string | null;
@@ -200,32 +229,41 @@ function ChipRow({
 }) {
   const labelId = useId();
   const typing = typed != null;
+  const chip = ({ id, label: words, mark }: Chip) => {
+    const pressed = !typing && picked === id;
+    return (
+      <Button
+        key={id ?? 'none'}
+        type="button"
+        variant={pressed ? 'default' : 'outline'}
+        aria-pressed={pressed}
+        className={chipClass(pressed)}
+        onClick={() => {
+          onTyped?.(null);
+          onPick(pressed && !required ? null : id);
+        }}
+      >
+        {words}
+        {mark}
+      </Button>
+    );
+  };
   return (
     <div role="group" aria-labelledby={labelId} className="space-y-2">
       <p id={labelId} className="text-sm font-medium">
         {label}
       </p>
       <div className="flex flex-wrap gap-2">
-        {chips === null && <Loading className="py-2" />}
-        {chips?.map(({ id, label: words, mark }) => {
-          const pressed = !typing && picked === id;
-          return (
-            <Button
-              key={id ?? 'none'}
-              type="button"
-              variant={pressed ? 'default' : 'outline'}
-              aria-pressed={pressed}
-              className={chipClass(pressed)}
-              onClick={() => {
-                onTyped?.(null);
-                onPick(pressed && !required ? null : id);
-              }}
-            >
-              {words}
-              {mark}
-            </Button>
-          );
-        })}
+        {(chips === null || groups === null) && <Loading className="py-2" />}
+        {chips?.map(chip)}
+        {groups?.map((group) => (
+          <div key={group.name} role="group" aria-label={group.name} className="w-full space-y-1.5">
+            <p aria-hidden className="text-xs font-semibold text-muted-foreground">
+              {group.name}
+            </p>
+            <div className="flex flex-wrap gap-2">{group.chips.map(chip)}</div>
+          </div>
+        ))}
         {onTyped && (
           <OrTypeIt
             typing={typing}
@@ -341,7 +379,7 @@ export function Composer({
   const [failed, setFailed] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const noteId = useId();
-  const { places, materials, trucks, foremen } = lists;
+  const { places, materials, trucks, foremen, customers } = lists;
   // The lane's own Driver first (the Assignment is his), then the others picked, in the list's order.
   const offered = (lists.drivers ?? []).filter((d) => d.active);
   const others = offered.filter((d) => d.id !== driverId && draft.alsoDriverIds.includes(d.id));
@@ -363,6 +401,20 @@ export function Composer({
   const active = <T extends { id: string; active: boolean }>(entries: T[] | null, label: (entry: T) => string): Chip[] | null =>
     entries && entries.filter((e) => e.active).map((e) => ({ id: e.id, label: label(e) }));
   const placeChips = active(places, (p) => p.shortName);
+  // For's chips name their list in their id, as Foremen and Customers are two lists.
+  const forGroups =
+    foremen && customers
+      ? [
+          { name: 'Foremen', chips: (active(foremen, (f) => f.name) ?? []).map((c) => ({ ...c, id: `foremen:${c.id}` })) },
+          { name: 'Customers', chips: (active(customers, (c) => c.name) ?? []).map((c) => ({ ...c, id: `customers:${c.id}` })) },
+        ]
+      : null;
+  const forNow = forOf(draft, lists);
+  const forPicked = forNow.foremanId ? `foremen:${forNow.foremanId}` : forNow.customerId ? `customers:${forNow.customerId}` : null;
+  const pickFor = (picked: string | null) => {
+    const [list, id] = picked ? picked.split(':') : [null, null];
+    change('for', (d) => ({ ...d, for: { foremanId: list === 'foremen' ? id : null, customerId: list === 'customers' ? id : null, typed: null } }));
+  };
   // His own is the lane's Driver's usual Truck, so it carries that Truck's mark.
   const marked = (chip: Chip, truckId: string | null) => {
     const open = openOn(truckId, problems);
@@ -417,11 +469,13 @@ export function Composer({
       <ChipRow label="Drop off" chips={placeChips} {...slotRow('to')} />
       <ChipRow label="Hauling what?" chips={active(materials, (m) => m.name)} {...slotRow('material')} />
       <ChipRow
-        label="Foreman"
-        chips={active(foremen, (f) => f.name)}
-        picked={foremanOf(draft, lists)}
-        onPick={(foremanId) => change('foreman', (d) => ({ ...d, foremanId }))}
-        error={errors.foremanId}
+        label="For"
+        groups={forGroups}
+        picked={forPicked}
+        onPick={pickFor}
+        typed={forNow.typed}
+        onTyped={(typed) => change('for', (d) => ({ ...d, for: { foremanId: null, customerId: null, typed } }))}
+        error={Object.entries(errors).find(([field]) => ROW_OF[field] === 'for')?.[1]}
       />
 
       <Button

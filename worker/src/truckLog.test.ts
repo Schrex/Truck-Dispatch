@@ -199,6 +199,15 @@ describe('Which Assignments a stored day matches', () => {
 
     expect((await readLog(truckId)).assignments.map((a) => a.id)).toEqual([own.id]);
   });
+
+  it('names the Customer an Assignment is for', async () => {
+    const { truckId, randy, placeId } = await setUpDay();
+    const jaus = ((await (await send('POST', '/api/customers', { name: 'Sample Customer Jaus' })).json()) as { customer: { id: string } }).customer;
+    await assigned({ driverId: randy, customerId: jaus.id, fromPlaceId: placeId('J25008 Los Flamboyanes'), toPlaceId: placeId('Villager') });
+    await importCut('2026-11-16-cut-1620.json');
+
+    expect((await readLog(truckId)).assignments.map((a) => [a.foremanId, a.customerId, a.customerName])).toEqual([[null, jaus.id, 'Sample Customer Jaus']]);
+  });
 });
 
 describe('Codes with no Place on a stored day', () => {

@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { CircleHelp, Plus, UserX } from 'lucide-react';
-import type { Assignment, CheckIn, DayTruck, Driver, Place, StoredUnplanned, StoredWhichAssignment, Truck, TruckProblem } from '../../shared/types';
+import type { Assignment, CheckIn, DayTruck, Driver, StoredUnplanned, StoredWhichAssignment, Truck, TruckProblem } from '../../shared/types';
 import { clockTime, easternTime } from '../../shared/days';
 import { AssignmentBlock } from '@/components/AssignmentBlock';
 import { LaneProblems, openOn } from '@/components/ProblemMark';
@@ -202,7 +202,6 @@ export function Lanes({
   assignments,
   drivers,
   trucks,
-  places = null,
   checkIns,
   problems,
   onEdit,
@@ -220,8 +219,6 @@ export function Lanes({
   assignments: Assignment[];
   drivers: Driver[] | null;
   trucks: Truck[] | null;
-  /** The Places, so each block names its Foreman beside the job site; null while they load. */
-  places?: Place[] | null;
   /** Each Driver's check-in on today, given only while today is on screen; without it each lane shows its usual Truck. */
   checkIns?: CheckIn[];
   /** The open Truck problems, given only while today is on screen: a lane whose Driver's Truck today has one gets a red mark. */
@@ -246,7 +243,6 @@ export function Lanes({
   /** Each Truck's Unplanned work and ties from its stored Trips that day; none without stored visits. */
   stored?: DayTruck[];
 }) {
-  const jobSites = new Set((places ?? []).filter((p) => p.kind === 'job_site').map((p) => p.id));
   return (
     <div className="space-y-3">
       {lanesOf(assignments, drivers, trucks, stored).map((lane, laneIndex) => {
@@ -275,7 +271,6 @@ export function Lanes({
                 assignment={assignment}
                 first={i === firstAt}
                 usualTruck={lane.usualTruck?.number ?? null}
-                jobSites={jobSites}
                 onEdit={onEdit}
                 onAssign={lane.removed ? undefined : onAssign}
                 onDiscard={onDiscard}

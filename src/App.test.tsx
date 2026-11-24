@@ -65,7 +65,11 @@ const foremen = [
   { id: 'frm-a', name: 'Sample Foreman A', active: true },
   { id: 'frm-x', name: 'Sample Foreman X', active: false },
 ];
-/** The saved fields of an Assignment, with the names of its Driver, Truck, Places, Material and Foreman resolved. */
+const customers = [
+  { id: 'cus-jaus', name: 'Sample Customer Jaus', usualPlaceId: null, active: true },
+  { id: 'cus-x', name: 'Sample Customer X', usualPlaceId: null, active: false },
+];
+/** The saved fields of an Assignment, with the names of its Driver, Truck, Places, Material and For resolved. */
 const resolve = (body: {
   date: string;
   driverId?: string | null;
@@ -74,10 +78,12 @@ const resolve = (body: {
   toPlaceId?: string | null;
   materialId?: string | null;
   foremanId?: string | null;
+  customerId?: string | null;
   note?: string | null;
   fromPlaceName?: string | null;
   toPlaceName?: string | null;
   materialName?: string | null;
+  forName?: string | null;
 }) => {
   const driver = drivers.find((d) => d.id === body.driverId);
   const truck = trucks.find((t) => t.id === body.truckId);
@@ -87,7 +93,14 @@ const resolve = (body: {
   const from = named(places, (p) => p.shortName, body.fromPlaceName, 'place') ?? places.find((p) => p.id === body.fromPlaceId);
   const to = named(places, (p) => p.shortName, body.toPlaceName, 'place') ?? places.find((p) => p.id === body.toPlaceId);
   const material = named(materials, (m) => m.name, body.materialName, 'material') ?? materials.find((m) => m.id === body.materialId);
-  const foreman = foremen.find((f) => f.id === body.foremanId);
+  // A typed For is a Foreman, else a Customer, else a new Customer, as the Worker does.
+  const typedFor = body.forName?.toLowerCase();
+  const foreman = typedFor ? foremen.find((f) => f.name.toLowerCase() === typedFor) : foremen.find((f) => f.id === body.foremanId);
+  const customer = typedFor
+    ? foreman
+      ? undefined
+      : (customers.find((c) => c.name.toLowerCase() === typedFor) ?? { id: `new-customer-${body.forName}`, name: body.forName! })
+    : customers.find((c) => c.id === body.customerId);
   return {
     date: body.date,
     driverId: driver?.id ?? null,
@@ -102,6 +115,8 @@ const resolve = (body: {
     materialName: material?.name ?? null,
     foremanId: foreman?.id ?? null,
     foremanName: foreman?.name ?? null,
+    customerId: customer?.id ?? null,
+    customerName: customer?.name ?? null,
     note: body.note || null,
   };
 };
@@ -128,12 +143,13 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = new URL(String(input), 'https://td.example');
   const answer = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
   if (url.pathname.endsWith('/api/today')) return answer(businessDay);
-  if (failLists && /\/api\/(drivers|trucks|places|materials|foremen)$/.test(url.pathname)) return answer({ error: 'oops' }, 500);
+  if (failLists && /\/api\/(drivers|trucks|places|materials|foremen|customers)$/.test(url.pathname)) return answer({ error: 'oops' }, 500);
   if (url.pathname.endsWith('/api/drivers')) return answer({ drivers });
   if (url.pathname.endsWith('/api/trucks')) return answer({ trucks });
   if (url.pathname.endsWith('/api/places')) return answer({ places });
   if (url.pathname.endsWith('/api/materials')) return answer({ materials });
   if (url.pathname.endsWith('/api/foremen')) return answer({ foremen });
+  if (url.pathname.endsWith('/api/customers')) return answer({ customers });
   if (url.pathname.endsWith('/api/check-ins')) {
     sent.push({ checkIns: url.searchParams.get('date') });
     return answer({ date: url.searchParams.get('date'), checkIns });
@@ -239,8 +255,11 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const index = assignments.findIndex((a) => a.id === one[1]);
     const before = assignments[index];
     // The names it had are answers, not typed names: only a name the change sends is typed.
-    const { fromPlaceName: _from, toPlaceName: _to, materialName: _material, ...ids } = before;
-    const fields = resolve({ ...ids, ...JSON.parse(String(init.body)) } as Parameters<typeof resolve>[0]);
+    const { fromPlaceName: _from, toPlaceName: _to, materialName: _material, foremanName: _foreman, customerName: _customer, ...ids } = before;
+    const body = JSON.parse(String(init.body));
+    // For is one of the two: setting either, by id or by name, clears the other.
+    const forSet = body.foremanId || body.customerId || body.forName ? { foremanId: null, customerId: null } : {};
+    const fields = resolve({ ...ids, ...forSet, ...body } as Parameters<typeof resolve>[0]);
     const sameLane = (before.driverId ?? null) === fields.driverId;
     // Once it is Assigned a new Driver cancels it for the first one and adds a copy, last in the new lane:
     // Assigned at once to a Driver (handed over, so Added), a Draft in Unassigned.
@@ -503,6 +522,7 @@ describe.each([
     await waitFor(() => expect(api.mock.calls.some(([url]) => String(url).includes('/start-from'))).toBe(true));
     expect([...new Set(api.mock.calls.map(([url]) => String(url)))].sort()).toEqual([
       `${prefix}/api/assignments?date=2026-11-20`,
+      `${prefix}/api/customers?include=inactive`,
       `${prefix}/api/days/2026-11-20/start-from`,
       `${prefix}/api/drivers?include=inactive`,
       `${prefix}/api/foremen?include=inactive`,
@@ -528,7 +548,7 @@ describe('Board', () => {
     failLists = true;
     assignments = [{ id: 'a1', date: '2026-11-20', driverId: 'drv-a', driverName: 'Sample Driver A', note: 'Haul stone' }];
     open('/?date=2026-11-20');
-    expect(await screen.findByText('Could not load the Drivers, Trucks, Places, Materials and Foremen to pick from. Reload the page to try again.')).toBeTruthy();
+    expect(await screen.findByText('Could not load the Drivers, Trucks, Places, Materials, Foremen and Customers to pick from. Reload the page to try again.')).toBeTruthy();
     expect(within(lane('Sample Driver A')).getByText('Haul stone')).toBeTruthy();
   });
 });
@@ -713,7 +733,9 @@ describe('the composer', () => {
     expect(chips(composer, 'Pick up')).toEqual(['Sample Plant', 'Sample Site North', 'Or type it']);
     expect(chips(composer, 'Drop off')).toEqual(['Sample Plant', 'Sample Site North', 'Or type it']);
     expect(chips(composer, 'Hauling what?')).toEqual(['2" minus', 'Sample Dirt', 'Or type it']);
-    expect(chips(composer, 'Foreman')).toEqual(['Sample Foreman A']);
+    expect(chips(composer, 'For')).toEqual(['Sample Foreman A', 'Sample Customer Jaus', 'Or type it']);
+    expect(chips(composer, 'Foremen')).toEqual(['Sample Foreman A']);
+    expect(chips(composer, 'Customers')).toEqual(['Sample Customer Jaus']);
   });
 
   it('offers the chips in Dave\'s own order of Places and Materials as the lists give it, not by name', async () => {
@@ -738,20 +760,55 @@ describe('the composer', () => {
     tap(composer, 'Pick up', 'Sample Plant');
     tap(composer, 'Drop off', 'Sample Site North');
     tap(composer, 'Hauling what?', '2" minus');
-    tap(composer, 'Foreman', 'Sample Foreman A');
-    expect(preview(composer)).toBe('Sample Driver A hauls 2" minus from Sample Plant to Sample Site North (Sample Foreman A)');
+    tap(composer, 'For', 'Sample Foreman A');
+    expect(preview(composer)).toBe('Sample Driver A hauls for Sample Foreman A · 2" minus from Sample Plant to Sample Site North');
     save(composer);
 
     expect(await screen.findByText('Assignment saved')).toBeTruthy();
     expect(sent).toEqual([
-      { date: '2026-11-20', driverId: 'drv-a', truckId: null, fromPlaceId: 'plc-plant', toPlaceId: 'plc-north', materialId: 'mat-minus', foremanId: 'frm-a', note: null },
+      { date: '2026-11-20', driverId: 'drv-a', truckId: null, fromPlaceId: 'plc-plant', toPlaceId: 'plc-north', materialId: 'mat-minus', foremanId: 'frm-a', customerId: null, note: null },
     ]);
     await waitFor(() =>
       expect(blocks('Sample Driver A')).toEqual([
         'First · Draft · Haul stone · Truck 21 (his own)',
-        'Then · Draft · Sample Plant → Sample Site North (Sample Foreman A) · 2" minus · Truck 21 (his own)',
+        'Then · Draft · For Sample Foreman A · Sample Plant → Sample Site North · 2" minus · Truck 21 (his own)',
       ]),
     );
+  });
+
+  describe('For', () => {
+    it('picks a Customer, the chip yellow, and the block tags him Customer', async () => {
+      await day();
+      const composer = await compose('Sample Driver A');
+      tap(composer, 'For', 'Sample Customer Jaus');
+      expect(pressed(composer, 'For')).toEqual(['Sample Customer Jaus']);
+      expect(within(composer).getByRole('button', { name: 'Sample Customer Jaus' }).className).toContain('border-primary');
+      expect(preview(composer)).toBe('Sample Driver A hauls for Sample Customer Jaus');
+      save(composer);
+      expect(await screen.findByText('Assignment saved')).toBeTruthy();
+      expect(sent).toEqual([expect.objectContaining({ foremanId: null, customerId: 'cus-jaus' })]);
+      await waitFor(() => expect(blocks('Sample Driver A')).toEqual(['First · Draft · For Sample Customer Jaus · Customer · Truck 21 (his own)']));
+    });
+
+    it('types a For not in either list, saved by name', async () => {
+      await day();
+      const composer = await compose('Unassigned');
+      type(composer, 'For', 'Sample Customer Empire');
+      expect(preview(composer)).toBe('Someone hauls for Sample Customer Empire');
+      save(composer);
+      expect(await screen.findByText('Assignment saved')).toBeTruthy();
+      expect(sent).toEqual([{ date: '2026-11-20', driverId: null, truckId: null, fromPlaceId: null, toPlaceId: null, materialId: null, forName: 'Sample Customer Empire', note: null }]);
+      await waitFor(() => expect(blocks('Unassigned')).toEqual(['First · Draft · For Sample Customer Empire · Customer']));
+    });
+
+    it("shows a refusal of For on its row", async () => {
+      refuse = { customerId: 'Pick a Foreman or a Customer, not both.' };
+      await day();
+      const composer = await compose('Sample Driver A');
+      tap(composer, 'For', 'Sample Customer Jaus');
+      save(composer);
+      expect(await within(within(composer).getByRole('group', { name: 'For' })).findByText('Pick a Foreman or a Customer, not both.')).toBeTruthy();
+    });
   });
 
   it('adds an Assignment to Unassigned with typed names, saved by name', async () => {
@@ -765,7 +822,7 @@ describe('the composer', () => {
 
     expect(await screen.findByText('Assignment saved')).toBeTruthy();
     expect(sent).toEqual([
-      { date: '2026-11-20', driverId: null, truckId: null, fromPlaceName: 'Sample New Pit', toPlaceId: 'plc-north', materialName: 'sample dirt', foremanId: null, note: null },
+      { date: '2026-11-20', driverId: null, truckId: null, fromPlaceName: 'Sample New Pit', toPlaceId: 'plc-north', materialName: 'sample dirt', foremanId: null, customerId: null, note: null },
     ]);
     await waitFor(() => expect(blocks('Unassigned')).toEqual(['First · Draft · Sample New Pit → Sample Site North · Sample Dirt']));
   });
@@ -892,7 +949,7 @@ describe('the composer', () => {
 
       expect(await screen.findByText('2 Assignments saved')).toBeTruthy();
       expect(sent).toEqual([
-        { date: '2026-11-20', driverId: 'drv-b', alsoDriverIds: ['drv-a'], truckId: null, fromPlaceId: 'plc-plant', toPlaceId: null, materialId: 'mat-dirt', foremanId: null, note: null },
+        { date: '2026-11-20', driverId: 'drv-b', alsoDriverIds: ['drv-a'], truckId: null, fromPlaceId: 'plc-plant', toPlaceId: null, materialId: 'mat-dirt', foremanId: null, customerId: null, note: null },
       ]);
       await waitFor(() => expect(blocks('Sample Driver A')).toEqual(['First · Draft · Sample Plant · Sample Dirt · Truck 21 (his own)']));
       expect(blocks('Sample Driver B')).toEqual(['First · Draft · Sample Plant · Sample Dirt · Truck 24 (his own)']);
@@ -961,8 +1018,8 @@ describe('the composer', () => {
       const composer = await compose('Sample Driver A');
       tap(composer, 'Pick up', 'Sample Plant');
       tap(composer, 'Drop off', 'Sample Site South');
-      expect(pressed(composer, 'Foreman')).toEqual(['Sample Foreman B']);
-      expect(preview(composer)).toBe('Sample Driver A hauls from Sample Plant to Sample Site South (Sample Foreman B)');
+      expect(pressed(composer, 'For')).toEqual(['Sample Foreman B']);
+      expect(preview(composer)).toBe('Sample Driver A hauls for Sample Foreman B · from Sample Plant to Sample Site South');
       save(composer);
       expect(await screen.findByText('Assignment saved')).toBeTruthy();
       expect(sent).toEqual([expect.objectContaining({ fromPlaceId: 'plc-plant', toPlaceId: 'plc-south', foremanId: 'frm-b' })]);
@@ -972,10 +1029,10 @@ describe('the composer', () => {
       await day();
       const composer = await compose('Sample Driver A');
       tap(composer, 'Pick up', 'Sample Site South');
-      expect(pressed(composer, 'Foreman')).toEqual(['Sample Foreman B']);
+      expect(pressed(composer, 'For')).toEqual(['Sample Foreman B']);
       tap(composer, 'Drop off', 'Sample Plant');
-      expect(pressed(composer, 'Foreman')).toEqual(['Sample Foreman B']);
-      expect(preview(composer)).toBe('Sample Driver A hauls from Sample Site South (Sample Foreman B) to Sample Plant');
+      expect(pressed(composer, 'For')).toEqual(['Sample Foreman B']);
+      expect(preview(composer)).toBe('Sample Driver A hauls for Sample Foreman B · from Sample Site South to Sample Plant');
     });
 
     it("takes the drop-off's job site over the pick-up's, even when it has no usual Foreman", async () => {
@@ -983,30 +1040,47 @@ describe('the composer', () => {
       const composer = await compose('Sample Driver A');
       tap(composer, 'Pick up', 'Sample Site South');
       tap(composer, 'Drop off', 'Sample Site North');
-      expect(pressed(composer, 'Foreman')).toEqual([]);
+      expect(pressed(composer, 'For')).toEqual([]);
     });
 
     it('fills it in for a job site typed by its name', async () => {
       await day();
       const composer = await compose('Unassigned');
       type(composer, 'Drop off', 'sample site south');
-      expect(pressed(composer, 'Foreman')).toEqual(['Sample Foreman B']);
+      expect(pressed(composer, 'For')).toEqual(['Sample Foreman B']);
     });
 
     it('lets Dave change or clear it, and keeps his pick when the Places change', async () => {
       await day();
       const composer = await compose('Sample Driver A');
       tap(composer, 'Drop off', 'Sample Site South');
-      tap(composer, 'Foreman', 'Sample Foreman A');
-      expect(pressed(composer, 'Foreman')).toEqual(['Sample Foreman A']);
+      tap(composer, 'For', 'Sample Foreman A');
+      expect(pressed(composer, 'For')).toEqual(['Sample Foreman A']);
       tap(composer, 'Drop off', 'Sample Plant');
       tap(composer, 'Drop off', 'Sample Site South');
-      expect(pressed(composer, 'Foreman')).toEqual(['Sample Foreman A']);
-      tap(composer, 'Foreman', 'Sample Foreman A');
-      expect(pressed(composer, 'Foreman')).toEqual([]);
+      expect(pressed(composer, 'For')).toEqual(['Sample Foreman A']);
+      tap(composer, 'For', 'Sample Foreman A');
+      expect(pressed(composer, 'For')).toEqual([]);
       save(composer);
       expect(await screen.findByText('Assignment saved')).toBeTruthy();
       expect(sent).toEqual([expect.objectContaining({ toPlaceId: 'plc-south', foremanId: null })]);
+    });
+
+    it('fills in no usual Foreman once Dave has picked a Customer, or typed a For', async () => {
+      await day();
+      let composer = await compose('Sample Driver A');
+      tap(composer, 'For', 'Sample Customer Jaus');
+      tap(composer, 'Drop off', 'Sample Site South');
+      expect(pressed(composer, 'For')).toEqual(['Sample Customer Jaus']);
+      save(composer);
+      expect(await screen.findByText('Assignment saved')).toBeTruthy();
+      expect(sent).toEqual([expect.objectContaining({ toPlaceId: 'plc-south', foremanId: null, customerId: 'cus-jaus' })]);
+
+      composer = await compose('Sample Driver B');
+      tap(composer, 'Drop off', 'Sample Site South');
+      type(composer, 'For', 'Sample Customer Empire');
+      expect(pressed(composer, 'For')).toEqual(['Or type it']);
+      expect(preview(composer)).toBe('Sample Driver B hauls for Sample Customer Empire · to Sample Site South');
     });
 
     it('leaves out a usual Foreman who has been removed since', async () => {
@@ -1048,7 +1122,7 @@ describe('opening an Assignment', () => {
   };
   /** The sentence's chips as they read: each part and its value. */
   const sentenceOf = (opened: HTMLElement) =>
-    within(opened).getAllByRole('button', { name: /^(Driver|Material|From|To|Truck|Foreman):/ }).map((chip) => chip.getAttribute('aria-label'));
+    within(opened).getAllByRole('button', { name: /^(Driver|Material|From|To|Truck|For):/ }).map((chip) => chip.getAttribute('aria-label'));
   /** Taps a part of the sentence, and answers the row of choices it offers. */
   const tapPart = (opened: HTMLElement, part: string) => {
     fireEvent.click(within(opened).getByRole('button', { name: new RegExp(`^${part}:`) }));
@@ -1064,7 +1138,7 @@ describe('opening an Assignment', () => {
     const opened = await openBlock('Sample Plant · 2" minus · Haul stone · Draft');
     expect(within(lane('Sample Driver A')).getByRole('region', { name: 'Open Assignment' })).toBe(opened);
     expect(sentenceOf(opened)).toEqual([
-      'Driver: Sample Driver A', 'Material: 2" minus', 'From: Sample Plant', 'To: no Place', 'Truck: His own', 'Foreman: no Foreman',
+      'Driver: Sample Driver A', 'Material: 2" minus', 'From: Sample Plant', 'To: no Place', 'Truck: His own', 'For: no one',
     ]);
     expect((within(opened).getByRole('textbox', { name: 'Note' }) as HTMLTextAreaElement).value).toBe('Haul stone');
 
@@ -1089,8 +1163,8 @@ describe('opening an Assignment', () => {
     expect(choicesIn(tapPart(opened, 'Material'))).toEqual(['2" minus', 'Sample Dirt', 'Leave blank', 'Or type it']);
     expect(choicesIn(tapPart(opened, 'From'))).toEqual(['Sample Plant', 'Sample Site North', 'Leave blank', 'Or type it']);
     expect(choicesIn(tapPart(opened, 'To'))).toEqual(['Sample Plant', 'Sample Site North', 'Leave blank', 'Or type it']);
+    expect(choicesIn(tapPart(opened, 'For'))).toEqual(['Sample Foreman A', 'Sample Customer Jaus', 'Leave blank', 'Or type it']);
     expect(choicesIn(tapPart(opened, 'Truck'))).toEqual(['His own', '21', '24']);
-    expect(choicesIn(tapPart(opened, 'Foreman'))).toEqual(['Sample Foreman A', 'Leave blank']);
     // One row of choices at a time.
     expect(within(opened).getAllByRole('group')).toHaveLength(1);
   });
@@ -1182,9 +1256,30 @@ describe('opening an Assignment', () => {
     api.mockImplementationOnce(async () =>
       new Response(JSON.stringify({ error: 'past_day', message: 'This Assignment is on a day before today, which is read-only.' }), { status: 409 }),
     );
-    pick(opened, 'Foreman', 'Sample Foreman A');
+    pick(opened, 'For', 'Sample Foreman A');
     expect(await within(opened).findByText('This Assignment is on a day before today, which is read-only.')).toBeTruthy();
-    expect(sentenceOf(opened)[5]).toBe('Foreman: no Foreman');
+    expect(sentenceOf(opened)[5]).toBe('For: no one');
+  });
+
+  it('offers For as Foremen then Customers, and saves the one picked, typed or left blank', async () => {
+    assignments = [planned({ foremanId: 'frm-a', foremanName: 'Sample Foreman A' })];
+    open('/?date=2026-11-20');
+    const opened = await openBlock('For Sample Foreman A · Haul stone · Draft');
+    const row = tapPart(opened, 'For');
+    expect(within(row).getAllByRole('group').map((group) => group.getAttribute('aria-label'))).toEqual(['Foremen', 'Customers']);
+    fireEvent.click(within(within(row).getByRole('group', { name: 'Customers' })).getByRole('button', { name: 'Sample Customer Jaus' }));
+    await waitFor(() => expect(sentenceOf(opened)[5]).toBe('For: Sample Customer Jaus'));
+    expect(blocks('Sample Driver A')).toEqual(['First · Draft · For Sample Customer Jaus · Customer · Haul stone · Truck 21 (his own)']);
+
+    fireEvent.click(within(tapPart(opened, 'For')).getByRole('button', { name: 'Or type it' }));
+    const typed = within(opened).getByRole('textbox', { name: 'For, typed' });
+    fireEvent.change(typed, { target: { value: 'Sample Foreman A' } });
+    fireEvent.keyDown(typed, { key: 'Enter' });
+    await waitFor(() => expect(sentenceOf(opened)[5]).toBe('For: Sample Foreman A'));
+
+    pick(opened, 'For', 'Leave blank');
+    await waitFor(() => expect(sentenceOf(opened)[5]).toBe('For: no one'));
+    expect(sent).toEqual([{ customerId: 'cus-jaus' }, { forName: 'Sample Foreman A' }, { foremanId: null, customerId: null }]);
   });
 
   it('moves it to the end of another Driver\'s lane when the Driver changes, still open', async () => {

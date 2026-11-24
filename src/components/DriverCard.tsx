@@ -3,6 +3,7 @@ import { Loader2, X } from 'lucide-react';
 import type { AssignmentTripPart, DriverAssignment, SinceSent } from '../../shared/types';
 import { easternTime } from '../../shared/days';
 import { Button } from '@/components/ui/button';
+import { CUSTOMER_TAG, forLine } from '@/components/AssignmentBlock';
 import { cn, loadsText, shownTripPart } from '@/lib/utils';
 
 /** Whose changes the Driver is told about: the dispatcher, by name, as he knows him. */
@@ -55,8 +56,9 @@ function TripLine({ part }: { part: AssignmentTripPart | undefined }) {
 }
 
 /**
- * One of a Driver's Assignments, large enough to read from the cab: the
- * Material, Pick up and Drop off, the Foreman (when there is one), the note, which Truck when it is not his
+ * One of a Driver's Assignments, large enough to read from the cab: whom it is
+ * for first, "Haul for Ed" (with "Customer" under it for a Customer; none when
+ * For is blank), then the Material, Pick up and Drop off, the note, which Truck when it is not his
  * own, and Dave's changes since Assigning it: Changed (with what it was), Added,
  * or cancelled (struck through). When the Assignment has a Trip part, its Loads,
  * the last one's time and Now. With onDismiss a cancelled card has Dismiss in its bottom right corner,
@@ -73,7 +75,8 @@ export function DriverCard({
   /** Clears a cancelled card off his day; settles once the Worker has answered. */
   onDismiss?: (assignment: DriverAssignment) => Promise<void>;
 }) {
-  const { materialName, fromPlaceName, toPlaceName, foremanName, note, cancelledAt, sinceSent, was } = assignment;
+  const { materialName, fromPlaceName, toPlaceName, note, cancelledAt, sinceSent, was } = assignment;
+  const forWho = forLine(assignment);
   const mark = cancelledAt ? CANCELLED : sinceSent && MARKS[sinceSent];
   const truck = truckLine(assignment);
   const struck = cancelledAt && 'line-through';
@@ -102,6 +105,13 @@ export function DriverCard({
       {/* On a cancelled card the values are struck through, not the labels beside them. */}
       <div className={cn('space-y-3', cancelledAt && 'text-muted-foreground')}>
         <TripLine part={assignment.trips} />
+        {(forWho || 'forName' in was) && (
+          <div>
+            <p className={cn('text-2xl font-bold', struck)}>Haul for {forWho?.name ?? 'no one named'}</p>
+            {forWho?.customer && <span className={cn('mt-1 inline-block', CUSTOMER_TAG.className)}>{CUSTOMER_TAG.word}</span>}
+            <Was value={was.forName} />
+          </div>
+        )}
         <p className={cn('text-2xl font-semibold', struck)}>
           {materialName ?? 'No Material named'}
           <Was value={was.materialName} />
@@ -113,13 +123,6 @@ export function DriverCard({
           <dt className="text-muted-foreground">Drop off</dt>
           <dd className={cn('font-medium', struck)}>{toPlaceName ?? '–'}</dd>
           {'toPlaceName' in was && <dd className="col-start-2 -mt-2"><Was value={was.toPlaceName} /></dd>}
-          {(foremanName || 'foremanName' in was) && (
-            <>
-              <dt className="text-muted-foreground">Foreman</dt>
-              <dd className={cn('font-medium', struck)}>{foremanName ?? '–'}</dd>
-              {'foremanName' in was && <dd className="col-start-2 -mt-2"><Was value={was.foremanName} /></dd>}
-            </>
-          )}
         </dl>
         {(note || 'note' in was) && (
           <p className={cn('whitespace-pre-line text-lg', struck)}>

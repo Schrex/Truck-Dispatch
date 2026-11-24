@@ -35,8 +35,12 @@ A weekday that is not one of the six Holidays (New Year's Day, Memorial Day, Ind
 A person who drives a company Truck and receives Assignments. Each has a usual Truck; an Assignment names a Truck only when the work needs a certain one, otherwise it names none ("His own") and the Driver takes his usual Truck.
 
 **Foreman**:
-The person running a Job on a given day. Changes from day to day, so an Assignment names one, not a Place. A job-site Place can have a usual Foreman, who is suggested for new Assignments that drop off there, or pick up there when the drop-off is not a job site.
+The person running a Job on a given day. Changes from day to day, so an Assignment names one as its For, not a Place. An Assignment names a Foreman or a Customer as its For, never both. A job-site Place can have a usual Foreman, who is suggested as the For of a new Assignment that drops off there, or picks up there when the drop-off is not a job site, until Dave picks or types a For himself. New Foremen are added only in Settings.
 _Avoid_: project lead, super
+
+**For**:
+Whose work an Assignment is: a Foreman or a Customer, one field picked from both lists ("Nate hauling for Jaus"), or typed. A typed For is a Foreman if one has that name, else a Customer, else a new Customer. Blank is allowed. A Customer is tagged "Customer" wherever For is shown.
+_Avoid_: client, owner, foreman (for a Customer)
 
 **Customer**:
 Someone outside the company we haul for, e.g. Jaus; never a Foreman. Kept in Settings beside Foremen, each with an optional usual Place where their work usually is. No name is both a Foreman's and a Customer's (ignoring case, removed ones included).

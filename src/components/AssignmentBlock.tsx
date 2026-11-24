@@ -3,7 +3,6 @@ import { Loader2, Trash2, UserCheck } from 'lucide-react';
 import type { Assignment, AssignmentTripPart, SinceSent } from '../../shared/types';
 import { easternTime } from '../../shared/days';
 import { Button } from '@/components/ui/button';
-import { foremanSite } from '@/lib/lists';
 import { cancelledText, cn, loadsText, shownTripPart } from '@/lib/utils';
 
 /**
@@ -55,6 +54,22 @@ export const FROM_THE_TRUCK = { word: 'From the Truck', className: 'border borde
 /** A mark's pill: Changed, Added, Cancelled, From the Truck. */
 export const MARK_PILL = 'rounded-full px-2 py-0.5 text-[11px] font-semibold leading-4';
 
+/**
+ * The tag after a For that is a Customer: light grey and filled, never an
+ * outlined pill, which stays From the Truck's. Shared with the Driver card.
+ */
+export const CUSTOMER_TAG = { word: 'Customer', className: 'rounded bg-foreground/10 px-1.5 py-0.5 text-[11px] font-semibold leading-4 text-foreground' };
+
+/**
+ * Whom an Assignment is for, "For Jaus", and whether that is a Customer; null
+ * when For is blank.
+ */
+export function forLine({ foremanName, customerName }: Pick<Assignment, 'foremanName' | 'customerName'>): { name: string; customer: boolean } | null {
+  if (customerName) return { name: customerName, customer: true };
+  if (foremanName) return { name: foremanName, customer: false };
+  return null;
+}
+
 /** The mark on a cancelled block, in place of Changed: greyed like the block itself. */
 const CANCELLED = { word: 'Cancelled', className: 'border border-muted-foreground/40 bg-background text-muted-foreground' };
 
@@ -96,11 +111,11 @@ const DRAFT = { word: 'Draft', className: 'border border-dashed border-muted-for
 
 /**
  * One Assignment as a block in its lane, marked First (the first in the lane that is not cancelled)
- * or Then. It reads "From → To" (or the one Place set), or its note when it
- * has no Places; under that, the Material, the Foreman, the note when it is
- * not already the title, and the Truck. The Assignment's own Foreman is named
- * beside the job site he runs, as in "TIUNY (Brody)" (the drop-off, else the
- * pick-up), and under the title only when neither Place is a job site. A
+ * or Then. It leads with whom it is for, "For Jaus" in bold, with a grey
+ * Customer tag when For is a Customer (nothing when For is blank). Then it
+ * reads "From → To" (or the one Place set), or its note when it
+ * has no Places; under that, the Material, the note when it is
+ * not already the title, and the Truck. A
  * Truck the Assignment names (the work needs a certain one) shows plainly;
  * with none named the Driver takes his own, so his usual Truck shows in grey, read aloud as "(his own)", or
  * nothing when he has none. A Draft (not Assigned yet, so its Driver sees
@@ -122,7 +137,6 @@ export function AssignmentBlock({
   assignment,
   first,
   usualTruck = null,
-  jobSites,
   onEdit,
   onAssign,
   onDiscard,
@@ -130,8 +144,6 @@ export function AssignmentBlock({
 }: {
   assignment: Assignment;
   first: boolean;
-  /** The ids of the Places that are job sites, so the Foreman shows beside his; none while the Places load. */
-  jobSites?: ReadonlySet<string>;
   /** The number of the Driver's usual Truck, shown when the Assignment names no Truck. */
   usualTruck?: string | null;
   onEdit?: (assignment: Assignment) => void;
@@ -142,14 +154,10 @@ export function AssignmentBlock({
   /** Whether it is open in its lane; tapping it again closes it. */
   open?: boolean;
 }) {
-  const { fromPlaceId, fromPlaceName, toPlaceId, toPlaceName, foremanName } = assignment;
-  const jobSite = (id: string | null, name: string | null) => Boolean(id && name && jobSites?.has(id));
-  const site = foremanName ? foremanSite(jobSite(fromPlaceId, fromPlaceName), jobSite(toPlaceId, toPlaceName)) : null;
-  const beside = (name: string | null, here: boolean) => (name && here ? `${name} (${foremanName})` : name);
-  const places = [beside(fromPlaceName, site === 'from'), beside(toPlaceName, site === 'to')].filter(Boolean).join(' → ');
+  const forWho = forLine(assignment);
+  const places = [assignment.fromPlaceName, assignment.toPlaceName].filter(Boolean).join(' → ');
   const parts: Detail[] = [
     assignment.materialName,
-    !site && foremanName && `Foreman ${foremanName}`,
     places && assignment.note,
   ]
     .filter((part): part is string => Boolean(part))
@@ -159,11 +167,11 @@ export function AssignmentBlock({
   const headline = places || assignment.note;
   // His own Truck is never the title: an Assignment with nothing else set still has no details yet.
   const title: Detail | null = headline ? { words: headline, shown: headline } : details[0]?.hisOwn ? null : (details.shift() ?? null);
+  const forWords = forWho && [`For ${forWho.name}`, forWho.customer && CUSTOMER_TAG.word].filter(Boolean).join(' · ');
   // The edit button is named by what the Assignment itself says: his own Truck is not part of it, and his lane already names it.
   const words =
-    [title, ...details]
-      .filter((part) => part && !part.hisOwn)
-      .map((part) => part?.words)
+    [forWords, ...[title, ...details].filter((part) => part && !part.hisOwn).map((part) => part?.words)]
+      .filter(Boolean)
       .join(' · ') || 'No details yet';
   const draft = assignment.assignedAt === null && !assignment.cancelledAt;
   const mark = assignment.cancelledAt ? CANCELLED : draft ? DRAFT : assignment.sinceSent ? MARKS[assignment.sinceSent] : null;
@@ -188,10 +196,29 @@ export function AssignmentBlock({
           </>
         )}
       </span>
-      {SEPARATOR}
-      <span className={cn('block whitespace-pre-line font-medium', !title && 'font-normal text-muted-foreground', assignment.cancelledAt && cancelledText)}>
-        {title?.shown ?? 'No details yet'}
-      </span>
+      {forWho && (
+        <>
+          {SEPARATOR}
+          <span className="mt-0.5 flex flex-wrap items-center gap-x-1.5">
+            <span className={cn('font-bold text-foreground', assignment.cancelledAt && cancelledText)}>For {forWho.name}</span>
+            {forWho.customer && (
+              <>
+                {SEPARATOR}
+                <span className={CUSTOMER_TAG.className}>{CUSTOMER_TAG.word}</span>
+              </>
+            )}
+          </span>
+        </>
+      )}
+      {/* With For set, a block with nothing else is not "No details yet". */}
+      {(title || !forWho) && (
+        <>
+          {SEPARATOR}
+          <span className={cn('block whitespace-pre-line font-medium', !title && 'font-normal text-muted-foreground', assignment.cancelledAt && cancelledText)}>
+            {title?.shown ?? 'No details yet'}
+          </span>
+        </>
+      )}
       {details.length > 0 && (
         <>
           {SEPARATOR}

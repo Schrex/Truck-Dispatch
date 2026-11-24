@@ -57,6 +57,8 @@ function asAssignment(planned: PlannedAssignment | PlannedMadeAssignment, positi
     materialName: planned.materialName,
     foremanId: null,
     foremanName: null,
+    customerId: null,
+    customerName: null,
     note: null,
     position,
     createdAt: assignedAt,

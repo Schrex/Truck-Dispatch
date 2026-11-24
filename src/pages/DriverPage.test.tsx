@@ -165,7 +165,7 @@ function card(fields: Partial<DriverAssignment>): DriverAssignment {
   return {
     id: crypto.randomUUID(), date: '2026-11-19', driverId: 'drv-a', driverName: 'Sample Driver A',
     truckId: null, truckNumber: null, fromPlaceId: null, fromPlaceName: null, toPlaceId: null, toPlaceName: null,
-    materialId: null, materialName: null, foremanId: null, foremanName: null, note: null, position: 0,
+    materialId: null, materialName: null, foremanId: null, foremanName: null, customerId: null, customerName: null, note: null, position: 0,
     createdAt: '2026-11-18T20:00:00.000Z', updatedAt: '2026-11-18T20:00:00.000Z', changedAt: null, cancelledAt: null,
     assignedAt: ASSIGNED_AT, handedFromId: null, sinceSent: null, was: {}, ...fields,
   };
@@ -339,16 +339,33 @@ describe('a Driver\'s yesterday, today and tomorrow', () => {
     expect(within(changed).getByText('Take your own Truck (was Truck 24)')).toBeTruthy();
   });
 
-  it('shows the Foreman, and what he was when Dave changed him after Assigning it', async () => {
+  it('leads a card with whom it is for, "Haul for Brody", and what For was when Dave changed it after Assigning it', async () => {
     sentDays['drv-a 2026-11-19'] = [
-      card({ note: 'Haul stone', foremanId: 'frm-b', foremanName: 'Brody', sinceSent: 'changed', changedAt: '2026-11-19T12:00:00.000Z', was: { foremanName: 'Sample Foreman A' } }),
+      card({ note: 'Haul stone', foremanId: 'frm-b', foremanName: 'Brody', sinceSent: 'changed', changedAt: '2026-11-19T12:00:00.000Z', was: { forName: 'Sample Foreman A' } }),
       card({ note: 'No foreman', position: 1 }),
     ];
     open('/');
     const [withForeman, without] = cardsIn(await day('Today, Thu, Nov 19'));
-    expect(within(withForeman).getByText('Foreman').nextSibling?.textContent).toBe('Brody');
+    expect(within(withForeman).getByText('Haul for Brody').className).toContain('text-2xl');
     expect(within(withForeman).getByText('was Sample Foreman A')).toBeTruthy();
-    expect(within(without).queryByText('Foreman')).toBeNull();
+    expect(within(withForeman).queryByText('Customer')).toBeNull();
+    expect(within(without).queryByText(/Haul for/)).toBeNull();
+  });
+
+  it('says "Customer" under the For line when the work is for a Customer', async () => {
+    sentDays['drv-a 2026-11-19'] = [card({ note: 'Until someone else needs a truck', customerId: 'cus-jaus', customerName: 'Sample Customer Jaus' })];
+    open('/');
+    const [jaus] = cardsIn(await day('Today, Thu, Nov 19'));
+    expect(within(jaus).getByText('Haul for Sample Customer Jaus')).toBeTruthy();
+    expect(within(jaus).getByText('Customer')).toBeTruthy();
+  });
+
+  it('shows For was there when Dave cleared it after Assigning it', async () => {
+    sentDays['drv-a 2026-11-19'] = [card({ note: 'Haul stone', sinceSent: 'changed', changedAt: '2026-11-19T12:00:00.000Z', was: { forName: 'Sample Customer Jaus' } })];
+    open('/');
+    const [cleared] = cardsIn(await day('Today, Thu, Nov 19'));
+    expect(within(cleared).getByText('Haul for no one named')).toBeTruthy();
+    expect(within(cleared).getByText('was Sample Customer Jaus')).toBeTruthy();
   });
 
   it('marks one Added (Assigned on its own day) "Added by Dave"', async () => {

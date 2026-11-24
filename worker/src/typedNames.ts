@@ -17,11 +17,21 @@ export interface TypedField<Key extends string = string, IdKey extends string = 
   addTo: ListName;
 }
 
-/** The fields an Assignment may type today: each a Place or Material in one list. */
+/**
+ * The fields an Assignment may type: a Place or Material in one list, and
+ * For, a Foreman or else a Customer; a new name For is always a Customer,
+ * as Foremen are added only in Settings.
+ */
 export const TYPED_NAMES = [
   { key: 'fromPlaceName', noun: 'Place', lists: [{ list: 'places', idKey: 'fromPlaceId' }], addTo: 'places' },
   { key: 'toPlaceName', noun: 'Place', lists: [{ list: 'places', idKey: 'toPlaceId' }], addTo: 'places' },
   { key: 'materialName', noun: 'Material', lists: [{ list: 'materials', idKey: 'materialId' }], addTo: 'materials' },
+  {
+    key: 'forName',
+    noun: 'Foreman or Customer',
+    lists: [{ list: 'foremen', idKey: 'foremanId' }, { list: 'customers', idKey: 'customerId' }],
+    addTo: 'customers',
+  },
 ] as const satisfies readonly TypedField<keyof TypedNames, keyof NewAssignment>[];
 
 type AssignmentField = (typeof TYPED_NAMES)[number];

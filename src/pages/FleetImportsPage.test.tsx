@@ -84,7 +84,7 @@ const PLANNED: TripAssignment[] = [
 /** A1 and A2 as the Worker reads them, Assigned to Randy. */
 const shown = (id: string, fromPlaceName: string, toPlaceName: string, materialName: string): Assignment => ({
   id, date: '2026-11-16', driverId: 'drv-randy', driverName: 'Randy', truckId: null, truckNumber: null,
-  fromPlaceId: null, fromPlaceName, toPlaceId: null, toPlaceName, materialId: null, materialName, foremanId: null, foremanName: null, note: null,
+  fromPlaceId: null, fromPlaceName, toPlaceId: null, toPlaceName, materialId: null, materialName, foremanId: null, foremanName: null, customerId: null, customerName: null, note: null,
   position: 0, createdAt: '2026-11-15T22:00:00.000Z', updatedAt: '2026-11-15T22:00:00.000Z', changedAt: null, cancelledAt: null,
   assignedAt: '2026-11-15T22:00:00.000Z', handedFromId: null, sinceSent: null,
 });

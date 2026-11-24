@@ -1,6 +1,6 @@
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import { ArrowDown, ArrowUp, Loader2, X } from 'lucide-react';
-import { NOTE_LIMIT, type Assignment, type AssignmentChange, type ChangedAssignment, type Driver, type Foreman, type Material, type Place, type Truck, type TypedNames } from '../../shared/types';
+import { NOTE_LIMIT, type Assignment, type AssignmentChange, type ChangedAssignment, type Customer, type Driver, type Foreman, type Material, type Place, type Truck, type TypedNames } from '../../shared/types';
 import { chipClass, OrTypeIt, TypedBox } from '@/components/TypedName';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -15,15 +15,18 @@ export interface EditorLists {
   places: Place[] | null;
   materials: Material[] | null;
   foremen: Foreman[] | null;
+  customers: Customer[] | null;
 }
 
-/** A part of the sentence that is picked from a list. */
-type PartKey = 'driverId' | 'materialId' | 'fromPlaceId' | 'toPlaceId' | 'truckId' | 'foremanId';
+/** A part of the sentence that is picked from a list: For from two, Foremen and Customers. */
+type PartKey = 'driverId' | 'materialId' | 'fromPlaceId' | 'toPlaceId' | 'truckId' | 'for';
 
 interface Choice {
   id: string;
   label: string;
   active: boolean;
+  /** The group it is offered in, for a part picked from two lists. */
+  group?: string;
 }
 
 /** One part of the open Assignment's sentence: its name, its list, and the word for it left blank. */
@@ -41,6 +44,10 @@ interface Part {
   blankFirst?: boolean;
   /** The entry's name as the Assignment carries it, for an entry the lists do not have (yet). */
   saved: string | null;
+  /** The choice it has now, as a choice's id; null when blank. */
+  value: string | null;
+  /** What saving a choice (null: the blank one) sends. */
+  changeTo: (id: string | null) => AssignmentChange;
   /** For a Place or Material, the field that sends a name typed with "Or type it". */
   typedKey?: keyof TypedNames;
 }
@@ -49,14 +56,38 @@ function partsOf(assignment: Assignment, lists: EditorLists): Part[] {
   const choices = <T extends { id: string; active: boolean }>(entries: T[] | null, label: (entry: T) => string): Choice[] | null =>
     entries && entries.map((e) => ({ id: e.id, label: label(e), active: e.active }));
   const places = choices(lists.places, (p) => p.shortName);
+  const one = (key: Exclude<PartKey, 'for'>) => ({ value: assignment[key], changeTo: (id: string | null) => ({ [key]: id }) });
   return [
-    { key: 'driverId', name: 'Driver', choices: choices(lists.drivers, (d) => d.name), blankWords: 'Unassigned', blankChoice: 'Unassigned', saved: assignment.driverName },
-    { key: 'materialId', name: 'Material', lead: 'hauls', choices: choices(lists.materials, (m) => m.name), blankWords: 'no Material', blankChoice: 'Leave blank', saved: assignment.materialName, typedKey: 'materialName' },
-    { key: 'fromPlaceId', name: 'From', lead: 'from', choices: places, blankWords: 'no Place', blankChoice: 'Leave blank', saved: assignment.fromPlaceName, typedKey: 'fromPlaceName' },
-    { key: 'toPlaceId', name: 'To', lead: 'to', choices: places, blankWords: 'no Place', blankChoice: 'Leave blank', saved: assignment.toPlaceName, typedKey: 'toPlaceName' },
-    { key: 'truckId', name: 'Truck', lead: 'in', choices: choices(lists.trucks, (t) => t.number), blankWords: 'His own', blankChoice: 'His own', blankFirst: true, saved: assignment.truckNumber },
-    { key: 'foremanId', name: 'Foreman', lead: 'for', choices: choices(lists.foremen, (f) => f.name), blankWords: 'no Foreman', blankChoice: 'Leave blank', saved: assignment.foremanName },
+    { key: 'driverId', name: 'Driver', choices: choices(lists.drivers, (d) => d.name), blankWords: 'Unassigned', blankChoice: 'Unassigned', saved: assignment.driverName, ...one('driverId') },
+    { key: 'materialId', name: 'Material', lead: 'hauls', choices: choices(lists.materials, (m) => m.name), blankWords: 'no Material', blankChoice: 'Leave blank', saved: assignment.materialName, typedKey: 'materialName', ...one('materialId') },
+    { key: 'fromPlaceId', name: 'From', lead: 'from', choices: places, blankWords: 'no Place', blankChoice: 'Leave blank', saved: assignment.fromPlaceName, typedKey: 'fromPlaceName', ...one('fromPlaceId') },
+    { key: 'toPlaceId', name: 'To', lead: 'to', choices: places, blankWords: 'no Place', blankChoice: 'Leave blank', saved: assignment.toPlaceName, typedKey: 'toPlaceName', ...one('toPlaceId') },
+    { key: 'truckId', name: 'Truck', lead: 'in', choices: choices(lists.trucks, (t) => t.number), blankWords: 'His own', blankChoice: 'His own', blankFirst: true, saved: assignment.truckNumber, ...one('truckId') },
+    { key: 'for', name: 'For', lead: 'for', blankWords: 'no one', blankChoice: 'Leave blank', typedKey: 'forName', ...forPart(assignment, lists) },
   ];
+}
+
+/**
+ * For: a Foreman or a Customer, from both lists, Foremen first, each choice's
+ * id naming its list. Picking one sends only its id, and the Worker clears the
+ * other; Leave blank clears both.
+ */
+function forPart(assignment: Assignment, lists: EditorLists): Pick<Part, 'choices' | 'saved' | 'value' | 'changeTo'> {
+  const { foremen, customers } = lists;
+  const choices =
+    foremen && customers
+      ? [
+          ...foremen.map((f) => ({ id: `foremen:${f.id}`, label: f.name, active: f.active, group: 'Foremen' })),
+          ...customers.map((c) => ({ id: `customers:${c.id}`, label: c.name, active: c.active, group: 'Customers' })),
+        ]
+      : null;
+  const value = assignment.foremanId ? `foremen:${assignment.foremanId}` : assignment.customerId ? `customers:${assignment.customerId}` : null;
+  const changeTo = (id: string | null): AssignmentChange => {
+    if (!id) return { foremanId: null, customerId: null };
+    const [list, entry] = id.split(':');
+    return list === 'foremen' ? { foremanId: entry } : { customerId: entry };
+  };
+  return { choices, saved: assignment.foremanName ?? assignment.customerName, value, changeTo };
 }
 
 /** Which way a move goes, and its button's words. */
@@ -74,12 +105,12 @@ function messageOf(error: unknown, key: string | null, fallback: string): string
 
 /**
  * An Assignment opened in its lane (F2): a sentence of chips, "Driver hauls
- * Material from From to To in Truck for Foreman", and its note. Tapping a chip
+ * Material from From to To in Truck for For", and its note. Tapping a chip
  * offers that part's list as a row of chips (one row at a time): active
  * entries, plus the one the Assignment uses if it was removed since, and a
  * choice that leaves it blank (Unassigned for the Driver, His own for the
- * Truck, "Leave blank" for the rest); From, To and Material also offer "Or
- * type it", as the composer does, sending the name typed. Each pick saves only that part, and the
+ * Truck, "Leave blank" for the rest); For offers Foremen, then Customers;
+ * From, To, Material and For also offer "Or type it", as the composer does, sending the name typed. Each pick saves only that part, and the
  * note saves on its own when Dave leaves it, so nothing waits on a Save and a
  * change made on another device to another part stays. The chips show the
  * Assignment as saved: a save that fails says so and the old value stays.
@@ -154,7 +185,7 @@ export function AssignmentEditor({
   if (assignment.cancelledAt) {
     const sentence = parts
       .map((part) => {
-        const value = assignment[part.key];
+        const value = part.value;
         const shown = value ? (part.choices?.find((c) => c.id === value)?.label ?? part.saved ?? '…') : part.blankWords;
         return [part.lead, shown].filter(Boolean).join(' ');
       })
@@ -186,7 +217,7 @@ export function AssignmentEditor({
     <section aria-label="Open Assignment" className="animate-unfold space-y-4 rounded-md border border-primary/40 bg-background p-4 shadow-md">
       <p className="flex flex-wrap items-center gap-x-2 gap-y-2 text-base">
         {parts.map((part) => {
-          const value = assignment[part.key];
+          const value = part.value;
           const shown = value ? (part.choices?.find((c) => c.id === value)?.label ?? part.saved ?? '…') : part.blankWords;
           return (
             <span key={part.key} className="contents">
@@ -212,9 +243,9 @@ export function AssignmentEditor({
         <ChoiceRow
           key={open.key}
           part={open}
-          value={assignment[open.key]}
+          value={open.value}
           busy={saving === open.key}
-          onPick={(id) => save(open.key, { [open.key]: id }, open.name)}
+          onPick={(id) => save(open.key, open.changeTo(id), open.name)}
           onTyped={(name) => open.typedKey && saving !== open.key && save(open.key, { [open.typedKey]: name }, open.name)}
         />
       )}
@@ -280,31 +311,42 @@ function ChoiceRow({
   const typing = typed !== null;
   const entries = (part.choices ?? [])
     .filter((choice) => choice.active || choice.id === value)
-    .map((choice) => ({ id: choice.id as string | null, label: choice.active ? choice.label : `${choice.label} (removed)` }));
-  const blank = { id: null, label: part.blankChoice };
+    .map((choice) => ({ id: choice.id as string | null, label: choice.active ? choice.label : `${choice.label} (removed)`, group: choice.group }));
+  const blank = { id: null, label: part.blankChoice, group: undefined };
   const chips = part.blankFirst ? [blank, ...entries] : [...entries, blank];
+  const chip = (choice: (typeof chips)[number]) => {
+    const pressed = !typing && choice.id === value;
+    return (
+      <Button
+        key={choice.id ?? 'blank'}
+        type="button"
+        variant={pressed ? 'default' : 'outline'}
+        aria-pressed={pressed}
+        disabled={busy}
+        className={chipClass(pressed)}
+        onClick={() => !pressed && onPick(choice.id)}
+      >
+        {choice.label}
+      </Button>
+    );
+  };
+  // A part from two lists offers each in its own group, in order; the blank choice after them.
+  const groups = [...new Set(chips.flatMap((choice) => (choice.group ? [choice.group] : [])))];
   return (
     <div role="group" aria-labelledby={labelId} className="space-y-2">
       <p id={labelId} className="sr-only">
         {part.name}
       </p>
       <div className="flex flex-wrap gap-2">
-        {chips.map((chip) => {
-          const pressed = !typing && chip.id === value;
-          return (
-            <Button
-              key={chip.id ?? 'blank'}
-              type="button"
-              variant={pressed ? 'default' : 'outline'}
-              aria-pressed={pressed}
-              disabled={busy}
-              className={chipClass(pressed)}
-              onClick={() => !pressed && onPick(chip.id)}
-            >
-              {chip.label}
-            </Button>
-          );
-        })}
+        {groups.map((group) => (
+          <div key={group} role="group" aria-label={group} className="w-full space-y-1.5">
+            <p aria-hidden className="text-xs font-semibold text-muted-foreground">
+              {group}
+            </p>
+            <div className="flex flex-wrap gap-2">{chips.filter((choice) => choice.group === group).map(chip)}</div>
+          </div>
+        ))}
+        {chips.filter((choice) => !choice.group).map(chip)}
         {part.typedKey && <OrTypeIt typing={typing} onClick={() => setTyped(typing ? null : '')} />}
       </div>
       {typing && (

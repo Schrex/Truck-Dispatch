@@ -152,7 +152,10 @@ export interface NewAssignment {
   fromPlaceId?: string | null;
   toPlaceId?: string | null;
   materialId?: string | null;
+  /** For, when it is a Foreman: at most one of foremanId and customerId; setting one clears the other. */
   foremanId?: string | null;
+  /** For, when it is a Customer. */
+  customerId?: string | null;
   note?: string | null;
 }
 
@@ -170,15 +173,20 @@ export type AddAssignment = NewAssignment & TypedNames & { alsoDriverIds?: strin
 export type AssignmentChange = Partial<Omit<NewAssignment, 'date'> & TypedNames>;
 
 /**
- * A Place or Material an Assignment may give by name instead of by id, when
- * adding or changing it: the Worker links the entry with that name, ignoring
- * case, bringing a removed one back, or adds a new one. A Place added this way
- * has no kind yet.
+ * A Place, Material or For an Assignment may give by name instead of by id,
+ * when adding or changing it: the Worker links the entry with that name,
+ * ignoring case, bringing a removed one back, or adds a new one. A Place added
+ * this way has no kind yet.
  */
 export interface TypedNames {
   fromPlaceName?: string | null;
   toPlaceName?: string | null;
   materialName?: string | null;
+  /**
+   * For, typed: a Foreman (active, then removed, brought back), else a
+   * Customer (likewise), else a new Customer. Never a new Foreman.
+   */
+  forName?: string | null;
 }
 
 /** One piece of work given to one Driver for one day, with the names of its Driver, Truck and Places resolved. */
@@ -197,8 +205,12 @@ export interface Assignment {
   toPlaceName: string | null;
   materialId: string | null;
   materialName: string | null;
+  /** For, when it is a Foreman; then customerId is null. */
   foremanId: string | null;
   foremanName: string | null;
+  /** For, when it is a Customer; then foremanId is null. */
+  customerId: string | null;
+  customerName: string | null;
   note: string | null;
   /**
    * Its place in its lane (its date and Driver, or Unassigned), from 0: the
@@ -352,7 +364,12 @@ export interface CopiedDay {
  * Assigned ("was Cobblestone"): only those that differ now, each with the
  * name it had then; null when it was empty (for the Truck, his own).
  */
-export type Was = Partial<Pick<Assignment, 'truckNumber' | 'fromPlaceName' | 'toPlaceName' | 'materialName' | 'foremanName' | 'note'>>;
+export type Was = Partial<
+  Pick<Assignment, 'truckNumber' | 'fromPlaceName' | 'toPlaceName' | 'materialName' | 'note'> & {
+    /** For, one field across Foremen and Customers: the name of whichever it was (a Foreman's or a Customer's). */
+    forName: string | null;
+  }
+>;
 
 /** An Assignment as a Driver sees it: with what it was when Assigned, empty unless it is Changed. */
 export interface DriverAssignment extends Assignment {
