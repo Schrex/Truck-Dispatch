@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Loader2, Settings, Upload } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
-import type { Assignment, BusinessDay, DayTruck, CheckIn, Driver, Foreman, Material, Place, Truck, TruckProblem } from '../../shared/types';
+import type { Assignment, BusinessDay, DayTruck, CheckIn, Driver, Foreman, Material, PaperLogPhoto, Place, Truck, TruckProblem } from '../../shared/types';
 import { isCalendarDate } from '../../shared/days';
 import { AssignmentEditor } from '@/components/AssignmentEditor';
 import { Composer, EMPTY_DRAFT, type Draft } from '@/components/Composer';
@@ -14,12 +14,17 @@ import { WeekStrip } from '@/components/WeekStrip';
 import { ViewToggle } from '@/components/ViewToggle';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/sonner';
+import { PaperLogDialog } from '@/components/PaperLogDialog';
 import { useReadOnFocus } from '@/lib/useReadOnFocus';
-import { assignAssignment, discardAssignment, fetchBusinessDay, fetchCheckIns, fetchDay, fetchList, fetchTruckProblems, Refused } from '@/lib/api';
+import { assignAssignment, discardAssignment, fetchBusinessDay, fetchCheckIns, fetchDay, fetchList, fetchPaperLogs, fetchTruckProblems, Refused } from '@/lib/api';
 import { Loading } from '@/components/States';
 
 /** Every open Truck problem, for the marks. */
 const readOpenProblems = () => fetchTruckProblems({ open: true });
+/** A day's Paper log photos, with the day they are for. */
+const readPaperLogs = async (date: string) => ({ date, photos: await fetchPaperLogs(date) });
+/** A day's check-ins, with the day they are for. */
+const readDayCheckIns = async (date: string) => ({ date, checkIns: await fetchCheckIns(date) });
 
 /**
  * The board: one day's Assignments, one lane per Driver. The day on
@@ -38,6 +43,10 @@ const readOpenProblems = () => fetchTruckProblems({ open: true });
  * On today each lane shows its Driver's check-in (or "Not checked in"), and
  * a red mark when his Truck today has open problems; on any day that can be
  * changed the composer's Truck chips carry the same mark.
+ * On today and past days each Driver's lane has a Paper log mark that opens
+ * his Paper log for the day (components/PaperLogDialog.tsx), where Dave can
+ * attach a photo even on a past day; another day closes it. The day's photos
+ * are read again on focus.
  */
 export function BoardPage() {
   const [search, setSearch] = useSearchParams();
@@ -67,6 +76,16 @@ export function BoardPage() {
   /** Each Driver's check-in on today, read only while today is on screen; null until it is read (or when it cannot be). */
   const [checkIns, setCheckIns] = useState<CheckIn[] | null>(null);
   const onToday = Boolean(date && businessDay && date === businessDay.today);
+  /** Today or a past day on screen, which has a Paper log on each Driver's lane; null otherwise. */
+  const paperLogDay = date && businessDay && date <= businessDay.today ? date : null;
+  /** The Paper log photos of a day, as last read; shown only for the day on screen. */
+  const [paperLogs, setPaperLogs] = useState<{ date: string; photos: PaperLogPhoto[] } | null>(null);
+  /** That day's check-ins, so a Paper log opened on a past day suggests the Truck the Driver checked in to. */
+  const [dayCheckIns, setDayCheckIns] = useState<{ date: string; checkIns: CheckIn[] } | null>(null);
+  /** The Driver whose Paper log is open, by id; null when none is. */
+  const [paperLogFor, setPaperLogFor] = useState<string | null>(null);
+  /** Counts the page regaining the focus, so the open Paper log reads its photos again. */
+  const [focuses, setFocuses] = useState(0);
 
   /** The open Truck problems, read only while the day can be changed; empty until read (or when they cannot be). */
   const [problems, setProblems] = useState<TruckProblem[]>([]);
@@ -80,6 +99,17 @@ export function BoardPage() {
   // Open problems are each Truck's state now, so they matter on any day Dave is planning; read again on focus, so one
   // marked fixed in Settings loses its mark. One that cannot be read leaves the marks as they were until the next focus.
   useReadOnFocus(editable ? true : null, readOpenProblems, setProblems);
+
+  // On today and past days, the day's Paper log photos for the lanes' marks, read again on focus, so one a Driver
+  // attached shows without a reload. While one is open on a past day, that day's check-ins, for the Truck it suggests.
+  useReadOnFocus(paperLogDay, readPaperLogs, setPaperLogs);
+  useReadOnFocus(paperLogFor !== null && paperLogDay && !onToday ? paperLogDay : null, readDayCheckIns, setDayCheckIns);
+  useEffect(() => {
+    if (paperLogFor === null) return;
+    const focused = () => setFocuses((n) => n + 1);
+    window.addEventListener('focus', focused);
+    return () => window.removeEventListener('focus', focused);
+  }, [paperLogFor]);
 
   useEffect(() => {
     // Inactive entries too, so an Assignment that still uses one shows it in its picker.
@@ -108,6 +138,7 @@ export function BoardPage() {
     setComposingFor(undefined);
     setDraft(EMPTY_DRAFT);
     setOpenId(null);
+    setPaperLogFor(null);
   }, [date]);
 
   useEffect(() => {
@@ -179,6 +210,12 @@ export function BoardPage() {
   // Cancelled Assignments are off the day, so the count leaves them out.
   const live = assignments?.filter((a) => a.cancelledAt === null).length ?? 0;
   const composerLane = composingFor === undefined ? undefined : drivers?.find((driver) => driver.id === composingFor);
+  const shownPaperLogs = paperLogDay && paperLogs?.date === paperLogDay ? paperLogs.photos : undefined;
+  const paperLogDriver = paperLogFor === null ? undefined : drivers?.find((driver) => driver.id === paperLogFor);
+  const dayCheckInsShown = onToday ? checkIns : dayCheckIns?.date === date ? dayCheckIns.checkIns : null;
+  /** The open Paper log's photos as it last read or attached them: the lane's count follows. */
+  const paperLogPhotos = (driverId: string, date: string) => (photos: PaperLogPhoto[]) =>
+    setPaperLogs((day) => day && day.date === date ? { date, photos: [...day.photos.filter((p) => p.driverId !== driverId), ...photos] } : day);
 
   return (
     <div className="min-h-screen bg-surface">
@@ -242,6 +279,8 @@ export function BoardPage() {
             checkIns={onToday ? (checkIns ?? undefined) : undefined}
             problems={onToday ? problems : undefined}
             stored={stored}
+            paperLogs={shownPaperLogs}
+            onPaperLog={setPaperLogFor}
             onEdit={editable ? (assignment) => setOpenId((current) => (current === assignment.id ? null : assignment.id)) : undefined}
             onAssign={editable ? assign : undefined}
             onDiscard={discard}
@@ -293,6 +332,18 @@ export function BoardPage() {
                 />
               )
             }
+          />
+        )}
+        {paperLogDay && paperLogDriver && trucks && (
+          <PaperLogDialog
+            key={`${paperLogDriver.id} ${paperLogDay}`}
+            date={paperLogDay}
+            driver={paperLogDriver}
+            trucks={trucks}
+            checkInTruckId={dayCheckInsShown?.find((c) => c.driverId === paperLogDriver.id)?.truckId ?? null}
+            refreshes={focuses}
+            onPhotos={paperLogPhotos(paperLogDriver.id, paperLogDay)}
+            onClose={() => setPaperLogFor(null)}
           />
         )}
       </main>

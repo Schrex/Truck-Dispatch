@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { CircleHelp, Plus, UserX } from 'lucide-react';
-import type { Assignment, CheckIn, DayTruck, Driver, Place, StoredUnplanned, StoredWhichAssignment, Truck, TruckProblem } from '../../shared/types';
+import type { Assignment, CheckIn, DayTruck, Driver, PaperLogPhoto, Place, StoredUnplanned, StoredWhichAssignment, Truck, TruckProblem } from '../../shared/types';
 import { clockTime, easternTime } from '../../shared/days';
 import { AssignmentBlock } from '@/components/AssignmentBlock';
 import { LaneProblems, openOn } from '@/components/ProblemMark';
@@ -146,6 +146,34 @@ function UnplannedMarker({ count, onOpen }: { count: number; onOpen?: () => void
   );
 }
 
+/**
+ * The Paper log mark under a Driver's Truck line: "Paper log · 2 photos" once
+ * he has photos that day, else a quiet "Attach Paper log". It names the
+ * Driver for a screen reader, and a tap opens his Paper log.
+ */
+function PaperLogMark({ name, count, onOpen }: { name: string; count: number; onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        'lift -ml-1 inline-flex h-11 items-center rounded-md px-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        count > 0 ? 'font-semibold' : 'text-muted-foreground underline-offset-4 hover:underline',
+      )}
+      onClick={onOpen}
+    >
+      {count > 0 ? (
+        <>
+          Paper log<span className="sr-only"> for {name}</span> · {count} photo{count === 1 ? '' : 's'}
+        </>
+      ) : (
+        <>
+          Attach Paper log<span className="sr-only"> for {name}</span>
+        </>
+      )}
+    </button>
+  );
+}
+
 /** The amber of Unplanned work and "Which Assignment?", as the Truck log's boxes: for Dave to answer (docs/design/ui-standards.md). */
 const AMBER_BOX = 'rounded-md border border-warning bg-warning/10 px-3 py-2 text-sm';
 
@@ -195,6 +223,9 @@ function WhichAssignmentBox({ ties }: { ties: StoredWhichAssignment[] }) {
  * each Trip two of a lane's Assignments fit asks "Which Assignment?" there;
  * a piece with no Driver known shows in its own row under the lanes,
  * "Driver not known · Truck 55", never in Unassigned.
+ * With paperLogs (the day's Paper log photos, given on today and past days)
+ * and onPaperLog, each Driver's lane has a Paper log mark under its Truck
+ * line that opens his Paper log; Unassigned has none.
  * On a phone a lane's blocks stack under the Driver; from an iPad in portrait
  * up, the Driver sits on the left and the blocks run beside him.
  */
@@ -216,6 +247,8 @@ export function Lanes({
   unplanned,
   onUnplanned,
   stored = [],
+  paperLogs,
+  onPaperLog,
 }: {
   assignments: Assignment[];
   drivers: Driver[] | null;
@@ -245,6 +278,10 @@ export function Lanes({
   onUnplanned?: (driverId: string) => void;
   /** Each Truck's Unplanned work and ties from its stored Trips that day; none without stored visits. */
   stored?: DayTruck[];
+  /** The day's Paper log photos, given only on today and past days: each Driver's lane gets its mark. */
+  paperLogs?: PaperLogPhoto[];
+  /** Dave taps a Driver's Paper log mark (by the Driver's id) to open his Paper log. */
+  onPaperLog?: (driverId: string) => void;
 }) {
   const jobSites = new Set((places ?? []).filter((p) => p.kind === 'job_site').map((p) => p.id));
   return (
@@ -307,6 +344,13 @@ export function Lanes({
                     </LaneProblems>
                   ) : (
                     aboutLine
+                  )}
+                  {paperLogs && onPaperLog && lane.driverId && (
+                    <PaperLogMark
+                      name={name}
+                      count={paperLogs.filter((photo) => photo.driverId === lane.driverId).length}
+                      onOpen={() => onPaperLog(lane.driverId!)}
+                    />
                   )}
                   {waiting && <p className="text-sm text-muted-foreground">Pick a Driver to Assign</p>}
                   </div>
