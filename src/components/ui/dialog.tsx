@@ -23,28 +23,67 @@ const DialogOverlay = React.forwardRef<
 ));
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
+/**
+ * The open dialog on top of `content`, if another one is: dialogs portal into
+ * the body in the order they open, so the last open one is on top.
+ */
+function dialogAbove(content: HTMLElement | null): HTMLElement | null {
+  const open = document.querySelectorAll<HTMLElement>('[role="dialog"][data-state="open"]');
+  const top = open[open.length - 1];
+  return content && top && top !== content ? top : null;
+}
+
+/**
+ * One Escape closes only the dialog on top. Radix hands its Escape listener to
+ * a dialog opened over another only a render or two after it shows, so an
+ * Escape right after opening one (a quick key, a test) would reach the dialog
+ * underneath and close both. Here the one underneath closes the top one instead.
+ */
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, ...props }, ref) => (
-  <DialogPortal>
-    <DialogOverlay />
-    <DialogPrimitive.Content
-      ref={ref}
-      className={cn(
-        'fixed left-[50%] top-[50%] z-50 grid max-h-[90vh] w-[calc(100%-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 overflow-y-auto rounded-lg border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
-        className,
-      )}
-      {...props}
-    >
-      {children}
-      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
-        <X className="h-4 w-4" />
-        <span className="sr-only">Close</span>
-      </DialogPrimitive.Close>
-    </DialogPrimitive.Content>
-  </DialogPortal>
-));
+>(({ className, children, onEscapeKeyDown, ...props }, ref) => {
+  const own = React.useRef<HTMLDivElement | null>(null);
+  const refs = React.useCallback(
+    (node: HTMLDivElement | null) => {
+      own.current = node;
+      if (typeof ref === 'function') ref(node);
+      else if (ref) ref.current = node;
+    },
+    [ref],
+  );
+  return (
+    <DialogPortal>
+      <DialogOverlay />
+      <DialogPrimitive.Content
+        ref={refs}
+        className={cn(
+          'fixed left-[50%] top-[50%] z-50 grid max-h-[90vh] w-[calc(100%-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 overflow-y-auto rounded-lg border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
+          className,
+        )}
+        onEscapeKeyDown={(event) => {
+          const above = dialogAbove(own.current);
+          if (above) {
+            event.preventDefault();
+            above.querySelector<HTMLElement>(':scope > [data-dialog-close]')?.click();
+            return;
+          }
+          onEscapeKeyDown?.(event);
+        }}
+        {...props}
+      >
+        {children}
+        <DialogPrimitive.Close
+          data-dialog-close
+          className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+        >
+          <X className="h-4 w-4" />
+          <span className="sr-only">Close</span>
+        </DialogPrimitive.Close>
+      </DialogPrimitive.Content>
+    </DialogPortal>
+  );
+});
 DialogContent.displayName = DialogPrimitive.Content.displayName;
 
 const DialogHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (

@@ -653,3 +653,41 @@ export interface FieldErrorsBody {
   error: 'invalid';
   fields: Record<string, string>;
 }
+
+/** Who attached a Paper log photo: the Driver from his page, or Dave from the Board. */
+export const PAPER_LOG_ATTACHERS = ['driver', 'dave'] as const;
+export type PaperLogAttacher = (typeof PAPER_LOG_ATTACHERS)[number];
+
+/** The picture kinds a Paper log photo may be. */
+export const PAPER_LOG_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
+
+/** The largest Paper log picture the Worker keeps, in bytes (5 MB). */
+export const PAPER_LOG_MAX_BYTES = 5 * 1024 * 1024;
+
+/**
+ * One photo of a Paper log (GLOSSARY.md): a picture of the paper Daily Truck
+ * Log for a Truck's day, kept privately and read only through the Worker
+ * (GET api/paper-logs/:id/picture). Nothing on the sheet is typed.
+ */
+export interface PaperLogPhoto {
+  id: string;
+  date: string;
+  truckId: string;
+  truckNumber: string;
+  /** Whose day it is. */
+  driverId: string;
+  driverName: string;
+  attachedBy: PaperLogAttacher;
+  /** When it was attached, by the Worker's clock: an ISO 8601 moment in UTC. */
+  attachedAt: string;
+  contentType: string;
+  size: number;
+  /** When Dave took it off (it is then hidden and kept), else null. */
+  takenOffAt: string | null;
+}
+
+/** A day's Paper log photos (GET api/paper-logs?date=), oldest first, without the ones taken off. */
+export interface PaperLogDay {
+  date: string;
+  photos: PaperLogPhoto[];
+}

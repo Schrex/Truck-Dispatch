@@ -5,6 +5,7 @@ import { handleInspections } from './inspections';
 import { handleTruckProblems } from './truckProblems';
 import { handleFleetImports } from './fleetImports';
 import { handleGeofences } from './geofences';
+import { handlePaperLogs } from './paperLogs';
 import { driverTruck, handleTruckLogs, storedDay } from './truckLogs';
 import { exists, handleList, isActive, isList, TEXT_LIMIT } from './lists';
 import { checkTyped, idKeysOf, saveLinked, typedIn, type Typed } from './typedNames';
@@ -81,6 +82,9 @@ export async function handleApi(request: Request, env: Env, route: string, query
 
   const geofences = await handleGeofences(request, env, route);
   if (geofences) return geofences;
+
+  const paperLogs = await handlePaperLogs(request, env, route, query);
+  if (paperLogs) return paperLogs;
 
   const truckLogs = await handleTruckLogs(request, env, route, query);
   if (truckLogs) return truckLogs;

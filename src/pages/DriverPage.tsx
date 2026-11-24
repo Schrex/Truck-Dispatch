@@ -1,10 +1,11 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { ChevronRight, Loader2 } from 'lucide-react';
-import type { BusinessDay, CheckIn as CheckInRead, Driver, DriverAssignment, DriverDay, DriverTruckLog } from '../../shared/types';
+import type { BusinessDay, CheckIn as CheckInRead, Driver, DriverAssignment, DriverDay, DriverTruckLog, Truck } from '../../shared/types';
 import { easternTime, shortDate, weekdayName } from '../../shared/days';
 import { CalendarDays, tabFor } from '@/components/CalendarDays';
 import { CheckIn } from '@/components/CheckIn';
 import { DriverCard } from '@/components/DriverCard';
+import { PaperLog } from '@/components/PaperLog';
 import { StoredTruckLog } from '@/components/TruckLog';
 import { PageHeader } from '@/components/PageHeader';
 import { ViewToggle } from '@/components/ViewToggle';
@@ -31,7 +32,10 @@ type Shown = DriverDay | null | undefined;
  * overnight on Today moves on to the new day and Dave's latest changes show.
  * On Today only, the Check in card (or, once he has checked in, its one line)
  * sits above his Assignments (components/CheckIn.tsx); when his check-in
- * cannot be read, it says so and still offers the card.
+ * cannot be read, it says so and still offers the card. Under the day's
+ * cards, on today and past days (never a day to come), his Paper log
+ * (components/PaperLog.tsx), with that day's check-in Truck suggested, else
+ * his usual one.
  */
 export function DriverPage() {
   const [drivers, setDrivers] = useState<Driver[] | null>(null);
@@ -47,9 +51,14 @@ export function DriverPage() {
   const [checkIn, setCheckIn] = useState<CheckInRead | null | undefined>(undefined);
   const [checkInFailed, setCheckInFailed] = useState(false);
   const [refreshes, setRefreshes] = useState(0);
+  /** Every Truck, removed ones too, so a suggested Truck since removed still shows; null until read. */
+  const [trucks, setTrucks] = useState<Truck[] | null>(null);
+  /** The Truck a Driver checked in to on a past day shown: loading (undefined), none (null), or its id. */
+  const [pastCheckIn, setPastCheckIn] = useState<{ driverId: string; date: string; truckId: string | null } | undefined>(undefined);
 
   useEffect(() => {
     fetchList('drivers').then(setDrivers, () => setDriversFailed(true));
+    fetchList('trucks', { includeInactive: true }).then(setTrucks, () => setTrucks([]));
   }, []);
 
   // Coming back to the page (focus, or the tab shown again) reads everything again.
@@ -110,9 +119,30 @@ export function DriverPage() {
     setNextAssigned(null);
     setCheckIn(undefined);
     setShown(undefined);
+    setPastCheckIn(undefined);
   };
   const today = businessDay?.today ?? null;
   const date = picked ?? today;
+  const pastDay = date && today && date < today ? date : null;
+
+  // The Paper log suggests a past day's check-in Truck: read that day's check-ins.
+  useEffect(() => {
+    if (!driverId || !pastDay) return;
+    let stale = false;
+    fetchCheckIns(pastDay).then(
+      (all) => !stale && setPastCheckIn({ driverId, date: pastDay, truckId: all.find((c) => c.driverId === driverId)?.truckId ?? null }),
+      () => !stale && setPastCheckIn({ driverId, date: pastDay, truckId: null }),
+    );
+    return () => {
+      stale = true;
+    };
+  }, [driverId, pastDay]);
+
+  /** That day's check-in Truck (his own, never the Driver's before a Change), else his usual Truck, else none. */
+  const pastCheckInShown = pastCheckIn?.driverId === driverId && pastCheckIn.date === date ? pastCheckIn : undefined;
+  const dayCheckInTruck = date === today ? (checkIn?.truckId ?? null) : (pastCheckInShown?.truckId ?? null);
+  const suggestedTruckId = dayCheckInTruck ?? driver?.defaultTruckId ?? null;
+  const paperLogTrucks = trucks?.filter((t) => t.active || t.id === suggestedTruckId) ?? [];
   const show = (next: string) => {
     if (next === date) return;
     setPicked(next === today ? null : next);
@@ -202,6 +232,17 @@ export function DriverPage() {
                 }
               }}
             />
+            {driver && today && date && date <= today && trucks && (
+              <PaperLog
+                key={`${driver.id} ${date}`}
+                date={date}
+                driverId={driver.id}
+                attacher="driver"
+                trucks={paperLogTrucks}
+                suggestedTruckId={suggestedTruckId}
+                refreshes={refreshes}
+              />
+            )}
           </>
         )}
       </main>
