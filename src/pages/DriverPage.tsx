@@ -1,9 +1,11 @@
 import { useEffect, useState, type CSSProperties } from 'react';
-import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
-import type { BusinessDay, CheckIn as CheckInRead, Driver, DriverAssignment, DriverDay } from '../../shared/types';
-import { addDays, dayLabel, shortDate, weekdayName } from '../../shared/days';
+import { ChevronRight, Loader2 } from 'lucide-react';
+import type { BusinessDay, CheckIn as CheckInRead, Driver, DriverAssignment, DriverDay, DriverTruckLog } from '../../shared/types';
+import { easternTime, shortDate, weekdayName } from '../../shared/days';
+import { CalendarDays, tabFor } from '@/components/CalendarDays';
 import { CheckIn } from '@/components/CheckIn';
 import { DriverCard } from '@/components/DriverCard';
+import { StoredTruckLog } from '@/components/TruckLog';
 import { PageHeader } from '@/components/PageHeader';
 import { ViewToggle } from '@/components/ViewToggle';
 import { Button } from '@/components/ui/button';
@@ -14,16 +16,6 @@ import { initials } from '@/lib/utils';
 
 /** A day as the page holds it: loading (undefined), failed (null), or as the Worker read it. */
 type Shown = DriverDay | null | undefined;
-
-/** The quick tabs, calendar days around today. */
-const TABS = ['Yesterday', 'Today', 'Tomorrow'] as const;
-type Tab = (typeof TABS)[number];
-const TAB_OFFSET: Record<Tab, number> = { Yesterday: -1, Today: 0, Tomorrow: 1 };
-
-/** "Yesterday", "Today" or "Tomorrow" for those days; null for any other. */
-function tabFor(date: string, today: string): Tab | null {
-  return TABS.find((tab) => addDays(today, TAB_OFFSET[tab]) === date) ?? null;
-}
 
 /**
  * The Driver view: one of the Driver's days at a time, read from the Worker.
@@ -167,49 +159,7 @@ export function DriverPage() {
           </section>
         ) : (
           <>
-            <div className="flex items-stretch gap-1">
-              <Button
-                type="button"
-                variant="outline"
-                className="h-auto min-h-11 w-12 shrink-0 flex-col gap-0 px-1 text-xs"
-                aria-label={date ? `Day before, ${dayLabel(addDays(date, -1))}` : 'Day before'}
-                disabled={!date}
-                onClick={() => date && show(addDays(date, -1))}
-              >
-                <ChevronLeft className="h-5 w-5" />
-                {date && dayLabel(addDays(date, -1))}
-              </Button>
-              <div role="group" aria-label="Day" className="grid flex-1 grid-cols-3 gap-0.5 rounded-lg border bg-muted/60 p-1">
-                {TABS.map((tab) => {
-                  const on = Boolean(date && today && tabFor(date, today) === tab);
-                  return (
-                    <Button
-                      key={tab}
-                      type="button"
-                      size="lg"
-                      className={on ? 'px-1 text-base font-semibold tracking-tight shadow-sm' : 'px-1 text-base font-medium tracking-tight text-muted-foreground hover:bg-background/70'}
-                      variant={on ? 'default' : 'ghost'}
-                      aria-pressed={on}
-                      disabled={!today}
-                      onClick={() => today && show(addDays(today, TAB_OFFSET[tab]))}
-                    >
-                      {tab}
-                    </Button>
-                  );
-                })}
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                className="h-auto min-h-11 w-12 shrink-0 flex-col gap-0 px-1 text-xs"
-                aria-label={date ? `Day after, ${dayLabel(addDays(date, 1))}` : 'Day after'}
-                disabled={!date}
-                onClick={() => date && show(addDays(date, 1))}
-              >
-                <ChevronRight className="h-5 w-5" />
-                {date && dayLabel(addDays(date, 1))}
-              </Button>
-            </div>
+            <CalendarDays date={date} today={today} onShow={show} />
             {driver && today && date === today && (
               <>
                 {checkIn === undefined && checkInFailed && (
@@ -321,6 +271,23 @@ function DaySection({
         <p className="animate-rise rounded-lg border border-dashed bg-card/60 p-6 text-center text-lg text-muted-foreground">Nothing from Dave yet for {weekdayName(shown.date)}.</p>
       )}
       {shown?.assignments.map((assignment, i) => <DriverCard key={assignment.id} assignment={assignment} index={i} onDismiss={onDismiss} />)}
+      {shown?.truckLog && <HisTruckLog log={shown.truckLog} />}
     </section>
+  );
+}
+
+/**
+ * His Truck log, under Today's cards: the Truck he checked in to today (else
+ * his usual one), as of the latest Import, filling in as Imports arrive. The
+ * same Truck log as on the Fleet imports page; Unplanned work is shown, not
+ * answered. His day read has it only on today, and only once that Truck has
+ * stored visits.
+ */
+function HisTruckLog({ log }: { log: DriverTruckLog }) {
+  return (
+    <div className="animate-rise space-y-2 pt-2">
+      <StoredTruckLog day={log} hcssCode={log.hcssCode} />
+      {log.asOf && <p className="text-sm text-muted-foreground">As of the Import at {easternTime(log.asOf)}</p>}
+    </div>
   );
 }

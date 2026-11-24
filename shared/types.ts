@@ -1,5 +1,7 @@
 /** Shapes the API takes and returns, shared by the Worker and the page. */
 import type { FleetExportRow } from './fleetExport';
+import type { TripDay, TripPlace } from './trips';
+import type { TruckLogBody } from './truckLog';
 
 export interface Driver {
   id: string;
@@ -208,8 +210,11 @@ export interface Assignment {
   sinceSent: SinceSent;
   /**
    * What the Truck's Trips say about it (phase 3), from the Trip builder
-   * (shared/trips.ts). Optional: the Worker does not send it yet, and the
-   * board block and Driver card look as they always have without it.
+   * (shared/trips.ts). Optional: the Truck log's read (GET
+   * api/trucks/:id/days/:date), the day read (GET api/assignments) and the
+   * Driver day read (GET api/drivers/:id/days/:date) send it only on
+   * Assignments a stored Trip matched. The board block and Driver card look as
+   * they always have without it.
    */
   trips?: AssignmentTripPart;
   /**
@@ -259,9 +264,52 @@ export interface ChangedAssignment {
   cancelled?: Assignment;
 }
 
-/** A day's Assignments (GET api/assignments?date=). */
+/**
+ * A day's Assignments (GET api/assignments?date=), and, on a day a Truck has
+ * stored visits, each such Truck's Unplanned work and ties for the lanes.
+ */
 export interface Day {
   assignments: Assignment[];
+  /** Each Truck with stored visits that day; left out when none has any. */
+  trucks?: DayTruck[];
+}
+
+/**
+ * A piece of Unplanned work as the lanes show it: in the lane of the Driver
+ * at its time (the latest check-in to the Truck at or before it leaves), or,
+ * with no check-in before it, in the "Driver not known · Truck 55" row.
+ */
+export interface StoredUnplanned {
+  /** The Unplanned work's id: its first Trip's leftAt. */
+  id: string;
+  /** Where it went, in order: the Place's short name, else Fleet's geofence code. */
+  places: string[];
+  leftAt: string;
+  arrivedAt: string;
+  /** The Driver at its time; null when nobody had checked in to the Truck ("Who was driving?"). */
+  driver: { id: string; name: string } | null;
+}
+
+/** A Trip two or more Assignments fit equally, as the lanes ask it: "Which Assignment?". Never Unplanned work. */
+export interface StoredWhichAssignment {
+  /** The Trip's leftAt. */
+  id: string;
+  from: string;
+  to: string;
+  /** The Assignments that fit it, by id, in Dave's order. */
+  assignmentIds: string[];
+}
+
+/** A stored day's Unplanned work and ties, as the board's lanes and the Fleet imports page's Scheduler view show them. */
+export interface DayLanes {
+  unplanned: StoredUnplanned[];
+  whichAssignment: StoredWhichAssignment[];
+}
+
+/** One Truck's Unplanned work and ties on the day read. */
+export interface DayTruck extends DayLanes {
+  truckId: string;
+  truckNumber: string;
 }
 
 /**
@@ -291,10 +339,22 @@ export interface DriverAssignment extends Assignment {
  * One Driver's day (GET api/drivers/:id/days/:date): only his Assigned
  * Assignments, in Dave's order, cancelled ones included. His Drafts are left
  * out, so a day with none Assigned has no Assignments ("Nothing from Dave yet").
+ * On today only, it also has his Truck log, when that Truck has stored visits.
  */
 export interface DriverDay {
   date: string;
   assignments: DriverAssignment[];
+  /**
+   * Today's Truck log of the Truck he checked in to today, else his usual
+   * Truck, as of the latest Import, as the Truck log route opens it. Left
+   * out on any other day, and when that Truck has no stored visits today.
+   */
+  truckLog?: DriverTruckLog;
+}
+
+/** A Truck's stored day as a Driver reads it: with the Truck's HCSS code, for the Truck log's header. */
+export interface DriverTruckLog extends TruckLogDay {
+  hcssCode: string | null;
 }
 
 /**
@@ -455,6 +515,40 @@ export interface FleetImport extends ImportCounts {
   days: FleetImportDay[];
   /** Every geofence code in it that no Place has, by code; its visits are stored all the same. */
   codesWithNoPlace: CodeWithNoPlace[];
+}
+
+/**
+ * A Truck's stored day (GET api/trucks/:id/days/:date): its stored visits and
+ * the Assignments that name it, through the Trip builder and the shared Truck
+ * log function, at one moment of the day.
+ */
+export interface TruckLogDay {
+  truckId: string;
+  truckNumber: string;
+  /** YYYY-MM-DD, US Eastern. */
+  date: string;
+  /** When the latest Import covering this Truck's day was made (ISO 8601, UTC); null when none was. The day is never built later than this. */
+  asOf: string | null;
+  /** The clock the day opened at, "HH:MM" US Eastern: the one asked for, else the end of a past day, else the latest Import. */
+  clock: string;
+  /** The moment the day is built at (ISO 8601, UTC): the end of the clock's minute, no later than asOf. */
+  at: string;
+  /** The day is over: its date is before today and the clock is at its end, so the Truck stopped wherever it last stopped. */
+  dayOver: boolean;
+  /** Every Place, as the Trip builder takes them, to name where Trips went. */
+  places: TripPlace[];
+  /** The Trip builder's day: Trips, Unplanned work, ties and the Truck log's header (truckDay). */
+  tripDay: TripDay;
+  /** Each Assignment's label ("A1", in Dave's order) by id, discarded ones included, for the Trip log. */
+  labels: Record<string, string>;
+  /** The Assignments shown (Assigned, naming this Truck, not discarded), in Dave's order, on their route at `at`, each with its Trip part. */
+  assignments: Assignment[];
+  /** The Truck log's body (shared/truckLog.ts), one column per shown Assignment. */
+  truckLog: TruckLogBody;
+  /** Every geofence code in the day's stored visits that no active Place has, as an Import lists them. */
+  codesWithNoPlace: CodeWithNoPlace[];
+  /** The Unplanned work, each with the Driver at its time, and the ties, as the lanes show them (the same as the day read's). */
+  lanes: DayLanes;
 }
 
 /** A refusal: each field that is wrong, with a plain message. */

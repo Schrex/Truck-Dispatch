@@ -48,8 +48,9 @@ export interface FleetVisit {
   enteredAt: string;
   /** Null while the Truck is still there. */
   exitedAt: string | null;
-  entryOdometer: number;
-  /** Ignored while the visit is open: Fleet fills it with the current reading. */
+  /** Null when the export gives none (an xlsx export has no odometers). */
+  entryOdometer: number | null;
+  /** Ignored while the visit is open: Fleet fills it with the current reading. Null when the export gives none. */
   exitOdometer: number | null;
 }
 
@@ -66,6 +67,10 @@ export interface TripAssignment extends Route {
   cancelledAt: string | null;
   /** Earlier versions: the From and To it had before each change (assignment_changes). */
   changes: { changedAt: string; before: Route }[];
+  /** Whose it is: with check-ins (TruckDayInput.checkIns), a Trip matches only its Driver's Assignments. */
+  driverId?: string | null;
+  /** The Truck it names; null names its Driver's usual one. Read only when nobody checked in before a Trip. */
+  truckId?: string | null;
 }
 
 /** Dave's "Not a haul" (fuel, a repair, personal): the one spelling for a Trip's kind and for his answer. */
@@ -93,7 +98,7 @@ export interface CleanVisit {
   placeId: string | null;
   enteredAt: string;
   exitedAt: string | null;
-  entryOdometer: number;
+  entryOdometer: number | null;
   exitOdometer: number | null;
   /** Where the Truck was when the day began (Fleet cuts visits at local midnight). */
   startOfDay: boolean;
@@ -108,7 +113,8 @@ export interface Trip {
   toCode: string;
   leftAt: string;
   arrivedAt: string;
-  miles: number;
+  /** From the odometers; null when either visit has none (an xlsx export). */
+  miles: number | null;
   /** Written to the trips table: the visit it reaches is past the drive-through test, so it can no longer change. */
   written: boolean;
   match: Match;
@@ -210,7 +216,8 @@ export interface TruckLogTrip {
   /** Where from and to: the Place's short name, else Fleet's geofence code. */
   from: string;
   to: string;
-  miles: number;
+  /** Null when the visits gave no odometers. */
+  miles: number | null;
 }
 
 /** One Place a piece of Unplanned work went to: its Place, else only Fleet's geofence code. */
@@ -270,6 +277,24 @@ export interface TruckDayInput {
    * Truck's Unplanned work: the Driver, when more than one fits. Ignored otherwise.
    */
   drivenBy?: string | null;
+  /**
+   * The check-ins to the Truck that day (an Inspection naming it, by its
+   * Driver, at its time); never one from an earlier day. With them, the
+   * Driver at a Trip's time is the Driver of the latest check-in at or before
+   * it, and the Trip matches only that Driver's Assignments, whatever Truck
+   * they name. With no check-in before a Trip nobody is guessed: the Truck
+   * log asks "Who was driving?" and the Trip matches the Assignments that
+   * name the Truck. Left out (a made-up day with no check-ins to give), the
+   * Driver comes from the Assignments as before and every Assignment is matched.
+   */
+  checkIns?: TruckCheckIn[];
+}
+
+/** A Driver's check-in to the Truck: from `at` on, until another Driver checks in to it, he is driving it. */
+export interface TruckCheckIn {
+  driverId: string;
+  /** ISO 8601. */
+  at: string;
 }
 
 export interface TripDay {
@@ -291,10 +316,12 @@ export interface TripDay {
   /** Geofence codes with no Place: listed for Dave in Settings. */
   unknownCodes: string[];
   miles: {
-    trips: number;
-    insidePlaces: number;
+    /** Null when a Trip has no miles (visits with no odometers). */
+    trips: number | null;
+    /** Null when a closed visit has no odometers. */
+    insidePlaces: number | null;
     day: number | null;
-    /** Null until the day's meter readings exist. */
+    /** Null until the day's meter readings exist, or without Trip miles. */
     ok: boolean | null;
   };
 }
@@ -521,7 +548,7 @@ function pair(visits: CleanVisit[], now: string): Omit<Trip, 'match'>[] {
   for (let i = 0; i + 1 < visits.length; i++) {
     const from = visits[i];
     const to = visits[i + 1];
-    if (from.exitedAt === null || from.exitOdometer === null) continue;
+    if (from.exitedAt === null) continue;
     const settled = to.exitedAt !== null || ms(now) - ms(to.enteredAt) >= DRIVE_THROUGH_MINUTES * MINUTE;
     trips.push({
       fromPlaceId: from.placeId,
@@ -530,7 +557,8 @@ function pair(visits: CleanVisit[], now: string): Omit<Trip, 'match'>[] {
       toCode: to.geofenceCode,
       leftAt: from.exitedAt,
       arrivedAt: to.enteredAt,
-      miles: round(to.entryOdometer - from.exitOdometer),
+      // No odometers (an xlsx export): the Trip is still made, its miles blank.
+      miles: to.entryOdometer === null || from.exitOdometer === null ? null : round(to.entryOdometer - from.exitOdometer),
       written: settled,
     });
   }
@@ -587,6 +615,34 @@ function truckDrivers(truck: TruckDayInput | null | undefined): TruckDayDriver[]
   return (named.length > 0 ? named : truck.drivers.filter(usual)).map(({ id, name }) => ({ id, name }));
 }
 
+/**
+ * The Driver at a moment, from the check-ins: the Driver of the latest
+ * check-in to the Truck at or before `at`. Null when nobody checked in by
+ * then, or the Truck's check-ins are not given.
+ */
+export function driverAt(truck: TruckDayInput | null | undefined, at: string): TruckDayDriver | null {
+  const latest = (truck?.checkIns ?? [])
+    .filter((c) => ms(c.at) <= ms(at))
+    .reduce<TruckCheckIn | null>((last, c) => (last === null || ms(c.at) >= ms(last.at) ? c : last), null);
+  const driver = latest && truck!.drivers.find((d) => d.id === latest.driverId);
+  return driver ? { id: driver.id, name: driver.name } : null;
+}
+
+/**
+ * The Assignments a Trip leaving at `at` is matched against. With check-ins:
+ * the Driver at that time's, whatever Truck they name; with no check-in
+ * before it, the ones that name the Truck (a null Truck names the Driver's
+ * usual one). Without check-ins given: all of them.
+ */
+function assignmentsAt(input: TripDayInput, at: string): TripAssignment[] {
+  const truck = input.truck;
+  if (!truck?.checkIns) return input.assignments;
+  const driver = driverAt(truck, at);
+  if (driver) return input.assignments.filter((a) => a.driverId === driver.id);
+  const usualTruck = (driverId: string | null | undefined) => truck.drivers.find((d) => d.id === driverId)?.defaultTruckId ?? null;
+  return input.assignments.filter((a) => (a.truckId ?? usualTruck(a.driverId)) === truck.id);
+}
+
 /** The Truck log's header at `now`. */
 function truckDayOf(input: TripDayInput, visits: CleanVisit[], trips: Trip[]): TruckDay {
   const at = ms(input.now);
@@ -611,10 +667,13 @@ function truckDayOf(input: TripDayInput, visits: CleanVisit[], trips: Trip[]): T
     endAt = back && lastOff && !lastOff.on && ms(lastOff.at) > ms(back) ? lastOff.at : back;
   }
 
-  const candidates = truckDrivers(input.truck);
+  const checkedIn = driverAt(input.truck, input.now);
+  const candidates = checkedIn ? [checkedIn] : truckDrivers(input.truck);
   const picked = candidates.find((c) => c.id === input.truck?.drivenBy) ?? null;
+  // With check-ins, nobody is guessed: only a check-in or Dave's pick names the Driver.
+  const guessed = !input.truck?.checkIns && candidates.length === 1 ? candidates[0] : null;
   return {
-    driver: candidates.length === 1 ? candidates[0] : picked,
+    driver: checkedIn ?? guessed ?? picked,
     driverCandidates: candidates,
     startAt,
     endAt,
@@ -781,7 +840,7 @@ function piecesOf(trips: Trip[], runs: number[][]): UnplannedWork[] {
 export function buildTripDay(input: TripDayInput): TripDay {
   const known = knownAt(input.visits, input.now);
   const { visits, dropped, merged } = clean(known, input.places);
-  const matched = pair(visits, input.now).map((t) => ({ ...t, match: matchTrip(t, input.assignments, input.places) }));
+  const matched = pair(visits, input.now).map((t) => ({ ...t, match: matchTrip(t, assignmentsAt(input, t.leftAt), input.places) }));
   const grouped = unplannedRuns(matched);
   const answers = input.answers ?? {};
   const runs = splitRuns(grouped.trips, grouped.runs, answers.splits ?? []);
@@ -796,8 +855,12 @@ export function buildTripDay(input: TripDayInput): TripDay {
   const unplanned = piecesOf(trips, runs);
   // Inside cleaned visits only: a drive-through's miles are already in the Trip across it,
   // and a short exit's miles are inside the joined visit.
-  const insidePlaces = round(visits.reduce((sum, v) => sum + (v.exitOdometer === null ? 0 : v.exitOdometer - v.entryOdometer), 0));
-  const tripMiles = round(trips.reduce((sum, t) => sum + t.miles, 0));
+  // Without odometers on every Trip and closed visit, the sums are not known.
+  const closed = visits.filter((v) => v.exitedAt !== null);
+  const insidePlaces = closed.every((v) => v.entryOdometer !== null && v.exitOdometer !== null)
+    ? round(closed.reduce((sum, v) => sum + (v.exitOdometer! - v.entryOdometer!), 0))
+    : null;
+  const tripMiles = trips.every((t) => t.miles !== null) ? round(trips.reduce((sum, t) => sum + t.miles!, 0)) : null;
   const day = input.meter && input.meter.endOdometer !== null ? round(input.meter.endOdometer - input.meter.startOdometer) : null;
   const unknownCodes = [...new Set(visits.filter((v) => v.placeId === null).map((v) => v.geofenceCode))];
   return {
@@ -818,7 +881,7 @@ export function buildTripDay(input: TripDayInput): TripDay {
       trips: tripMiles,
       insidePlaces,
       day,
-      ok: day === null ? null : Math.abs(day - tripMiles - insidePlaces) <= MILES_TOLERANCE,
+      ok: day === null || tripMiles === null || insidePlaces === null ? null : Math.abs(day - tripMiles - insidePlaces) <= MILES_TOLERANCE,
     },
   };
 }

@@ -41,7 +41,7 @@ _Avoid_: project lead, super
 ## Trucks
 
 **Check-in**:
-A Driver picking the Truck he is taking today and doing its Inspection, as one step. He is checked in to that Truck once the Inspection is done; taking another Truck later that day means checking in to it too. Offered only for today, whether or not Dave has Assigned him work. His latest check-in that day counts; earlier ones stay.
+A Driver picking the Truck he is taking today and doing its Inspection, as one step. He is checked in to that Truck once the Inspection is done; taking another Truck later that day means checking in to it too. Offered only for today, whether or not Dave has Assigned him work. His latest check-in that day counts; earlier ones stay. On a Truck's day, the Driver of its latest check-in at or before a Trip was driving it then; with no check-in before a Trip, nobody is guessed ("Who was driving?").
 _Avoid_: clock-in, sign-in, truck pick
 
 **Inspection**:
@@ -91,6 +91,17 @@ _Avoid_: run
 **Unplanned work**:
 Trips in a row that a Truck made and no Assignment explains, taken as one piece of work for Dave to answer: make an Assignment for it, link it to an Assignment, or say it was not a haul. The Truck cannot tell which way material went, so where it was loaded is Dave's to say.
 _Avoid_: extra job, side job, unassigned trip, Trips with no Assignment
+
+**Which Assignment?**:
+A Trip that two or more of the Truck's Assignments fit equally well. It is planned work, never Unplanned work; Dave picks which Assignment it counts on.
+_Avoid_: tie (in what Dave or a Driver reads)
+
+**Trip part**:
+What the Truck's Trips say about one Assignment at a moment of the day: its Loads so far, Now or Done, since when, and its Trucking hours. An Assignment has one only once a Trip counts on it.
+
+**Import**:
+One Fleet export Dave drops on the Fleet imports page, with what it stored (new, closed and already stored visits). A stored day is shown as of its latest Import ("As of the Import at 16:25"), never later.
+_Avoid_: upload, sync
 
 **Material**:
 What a Load carries, e.g. 2" minus, CR2, dirt, topsoil, stone.

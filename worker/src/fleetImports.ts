@@ -137,7 +137,7 @@ async function importExport(request: Request, env: Env): Promise<Response> {
  * stored all the same. A code is a drive-through when every visit there was
  * one: closed, and shorter than the Trip builder's DRIVE_THROUGH_MINUTES.
  */
-async function codesWithNoPlaceIn(DB: D1Database, visits: StoredVisit[]): Promise<CodeWithNoPlace[]> {
+export async function codesWithNoPlaceIn(DB: D1Database, visits: Pick<StoredVisit, 'geofenceCode' | 'enteredAt' | 'exitedAt'>[]): Promise<CodeWithNoPlace[]> {
   const { results } = await DB.prepare('SELECT geofence_code AS code FROM places WHERE active = 1 AND geofence_code IS NOT NULL').all<{ code: string }>();
   const placed = new Set(results.map((p) => p.code.toLowerCase()));
   const byCode = new Map<string, boolean>();

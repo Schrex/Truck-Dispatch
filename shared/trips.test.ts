@@ -144,6 +144,25 @@ describe('Trips and matching on the 16 Nov day', () => {
     expect(short.miles.ok).toBe(false);
   });
 
+  it('builds the same Trips with miles blank when the visits have no odometers, as an xlsx export gives them', () => {
+    const noMeters = FIXTURE_VISITS.map((v) => ({ ...v, entryOdometer: null, exitOdometer: null }));
+    const d = buildTripDay({ places: FIXTURE_PLACES, visits: noMeters, assignments: scenario('two'), now: END_OF_DAY, dayOver: true });
+    expect(lines(d)).toEqual(lines(day('two')));
+    expect(d.trips.every((t) => t.miles === null)).toBe(true);
+    expect(d.truckDay).toMatchObject({ startMiles: null, endMiles: null });
+    expect([easternTime(d.truckDay.startAt!), easternTime(d.truckDay.endAt!)]).toEqual(['06:24', '16:03']);
+    expect(d.assignments.map((a) => a.loads)).toEqual([4, 2]);
+    expect(d.miles).toEqual({ trips: null, insidePlaces: null, day: null, ok: null });
+  });
+
+  it('leaves blank only the miles of a Trip whose visits miss an odometer', () => {
+    const visits = FIXTURE_VISITS.map((v, i) => (i === FIXTURE_VISITS.length - 2 ? { ...v, exitOdometer: null } : v));
+    const d = buildTripDay({ places: FIXTURE_PLACES, visits, assignments: scenario('two'), now: END_OF_DAY });
+    expect(lines(d)).toEqual(lines(day('two')));
+    expect(d.trips.at(-1)!.miles).toBeNull();
+    expect(d.trips[1].miles).toBe(3.39);
+  });
+
   it('with A1’s To empty, never counts a way back or the drive to the shop as a Load', () => {
     const d = day('blank-to');
     // A1's ways back (Plant or South to North) and the drives to the shop; Quarry → North is A2's real Load.
@@ -402,5 +421,80 @@ describe('Matching one Trip', () => {
     expect(routeAt(changed, '2026-11-16T13:00:00Z').toPlaceId).toBe('plc-plant');
     expect(routeAt(changed, '2026-11-16T15:00:00Z').toPlaceId).toBe('plc-quarry');
     expect(routeAt(changed, '2026-11-16T17:00:00Z').toPlaceId).toBe('plc-south');
+  });
+});
+
+describe('The Driver from check-ins', () => {
+  const randy = { id: 'drv-randy', name: 'Randy', defaultTruckId: 'trk-55' };
+  const driverA = { id: 'drv-a', name: 'Sample Driver A', defaultTruckId: 'trk-21' };
+  const driverB = { id: 'drv-b', name: 'Sample Driver B', defaultTruckId: 'trk-24' };
+  const drivers = [randy, driverA, driverB];
+  /** 06:00 and 12:00 US Eastern on 16 Nov. */
+  const SIX = '2026-11-16T11:00:00Z';
+  const NOON = '2026-11-16T17:00:00Z';
+  /** Scenario 'two' (A1 North → Plant, A2 Quarry → North) as Randy's, naming no Truck: his usual Truck 55. */
+  const randys = scenario('two').map((a) => ({ ...a, driverId: randy.id, truckId: null }));
+  const withCheckIns = (assignments: TripAssignment[], checkIns: { driverId: string; at: string }[], now = END_OF_DAY) =>
+    buildTripDay({
+      places: FIXTURE_PLACES,
+      visits: FIXTURE_VISITS,
+      assignments,
+      now,
+      truck: { id: 'trk-55', drivers, assignments: assignments.map((a) => ({ driverId: a.driverId ?? null, truckId: a.truckId ?? null })), checkIns },
+    });
+  const loads = (d: ReturnType<typeof day>) => Object.fromEntries(d.assignments.map((a) => [a.assignmentId, a.loads]));
+
+  it('names the Driver who checked in to the Truck, and his Assignments get their Loads', () => {
+    const d = withCheckIns(randys, [{ driverId: randy.id, at: SIX }]);
+    expect(d.truckDay.driver?.name).toBe('Randy');
+    expect(loads(d)).toEqual({ a1: 4, a2: 2 });
+  });
+
+  it('matches the Trips against the checked-in Driver’s Assignments, not the Driver whose usual Truck it is', () => {
+    const asA = scenario('two').map((a) => ({ ...a, id: `${a.id}-a`, driverId: driverA.id, truckId: 'trk-55' }));
+    const d = withCheckIns([...randys, ...asA], [{ driverId: driverA.id, at: SIX }]);
+    expect(d.truckDay.driver?.name).toBe('Sample Driver A');
+    expect(loads(d)).toEqual({ a1: 0, a2: 0, 'a1-a': 4, 'a2-a': 2 });
+  });
+
+  it('hands the Truck over at the second check-in: each Trip matches the Driver at its time', () => {
+    const [a1, a2] = scenario('two');
+    const assignments = [
+      { ...a1, driverId: driverA.id, truckId: 'trk-55' },
+      { ...a2, driverId: driverB.id, truckId: 'trk-55' },
+    ];
+    const checkIns = [
+      { driverId: driverB.id, at: NOON },
+      { driverId: driverA.id, at: SIX },
+    ];
+    expect(withCheckIns(assignments, checkIns, '2026-11-16T16:59:59Z').truckDay.driver?.name).toBe('Sample Driver A');
+    expect(withCheckIns(assignments, checkIns, NOON).truckDay.driver?.name).toBe('Sample Driver B');
+    expect(loads(withCheckIns(assignments, checkIns))).toEqual({ a1: 4, a2: 2 });
+    // The other way round: A1's Loads (before noon) are not B's, and A2's (after) not A's.
+    const swapped = [
+      { ...a1, driverId: driverB.id, truckId: 'trk-55' },
+      { ...a2, driverId: driverA.id, truckId: 'trk-55' },
+    ];
+    expect(loads(withCheckIns(swapped, checkIns))).toEqual({ a1: 0, a2: 0 });
+  });
+
+  it('matches a checked-in Driver’s Assignment that names another Truck', () => {
+    const asA = scenario('two').map((a) => ({ ...a, driverId: driverA.id, truckId: 'trk-21' }));
+    expect(loads(withCheckIns(asA, [{ driverId: driverA.id, at: SIX }]))).toEqual({ a1: 4, a2: 2 });
+  });
+
+  it('asks "Who was driving?" with no check-in, and matches the Assignments that name the Truck', () => {
+    const elsewhere = scenario('two').map((a) => ({ ...a, id: `${a.id}-a`, driverId: driverA.id, truckId: null }));
+    const d = withCheckIns([...randys, ...elsewhere], []);
+    expect(d.truckDay.driver).toBeNull();
+    expect(d.truckDay.driverCandidates.map((c) => c.name)).toEqual(['Randy']);
+    expect(loads(d)).toEqual({ a1: 4, a2: 2, 'a1-a': 0, 'a2-a': 0 });
+  });
+
+  it('asks "Who was driving?" for the Trips before the first check-in', () => {
+    const d = withCheckIns(randys, [{ driverId: driverA.id, at: NOON }]);
+    expect(withCheckIns(randys, [{ driverId: driverA.id, at: NOON }], SIX).truckDay.driver).toBeNull();
+    // Randy's A1 Loads were before A checked in; his A2 Loads after it are A's to explain.
+    expect(loads(d)).toEqual({ a1: 4, a2: 0 });
   });
 });

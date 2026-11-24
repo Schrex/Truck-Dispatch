@@ -1,14 +1,22 @@
-import { useRef, useState, type CSSProperties, type DragEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type DragEvent, type SetStateAction } from 'react';
 import { ClipboardList, Loader2, Upload } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { PageHeader } from '@/components/PageHeader';
 import { chipClass } from '@/components/TypedName';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Refused, fetchList, importFleetExport } from '@/lib/api';
+import { CalendarDays } from '@/components/CalendarDays';
+import { EmptyBox, Loading } from '@/components/States';
+import { Refused, fetchBusinessDay, fetchList, fetchTruckLogDay, importFleetExport } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { StoredTruckLog } from '@/components/TruckLog';
+import { Lanes } from '@/components/Lanes';
+import { DriverView } from '@/components/DriverView';
+import { ReplayClock } from '@/components/ReplayClock';
+import { TripLog } from '@/components/TripLog';
+import { clockMinutes, easternTime, minuteClock, shortDate } from '../../shared/days';
 import { EXPORT_ADVICE, countFleetXlsxVisits, readFleetJson, readFleetXlsx, type FleetExportRow, type FleetSheet } from '../../shared/fleetExport';
-import type { FleetExportFormat, FleetImport, FleetImportDay, ImportCounts, Truck } from '../../shared/types';
+import type { CodeWithNoPlace, Driver, FleetExportFormat, FleetImport, FleetImportDay, ImportCounts, Truck, TruckLogDay } from '../../shared/types';
 
 /** A dropped file's text or bytes. FileReader, as every browser (and jsdom) has it. */
 function readFile(file: File, as: 'text'): Promise<string>;
@@ -89,6 +97,189 @@ const dayCounts = (day: FleetImportDay) => `${dayLabel(day.date)}: ${countsLabel
 /** A Truck an xlsx can be imported for: one with an HCSS code. */
 type CodedTruck = Truck & { hcssCode: string };
 
+/** The active Trucks with an HCSS code: the ones an Import can be for. */
+const codedTrucks = async (): Promise<CodedTruck[]> =>
+  (await fetchList('trucks')).flatMap((truck) => (truck.hcssCode ? [{ ...truck, hcssCode: truck.hcssCode }] : []));
+
+/**
+ * The geofence codes no Place has, drive-throughs marked: on an Import's
+ * result and on a stored day alike. Nothing when there are none.
+ */
+function CodesWithNoPlace({ id, codes }: { id: string; codes: CodeWithNoPlace[] }) {
+  if (codes.length === 0) return null;
+  return (
+    <div className="mt-3">
+      <h3 id={id} className="text-sm font-medium">
+        Codes with no Place
+      </h3>
+      <p className="text-xs text-muted-foreground">Their visits are stored. Give a Place its geofence code in Settings.</p>
+      <ul aria-labelledby={id} className="mt-1 flex flex-wrap gap-2">
+        {codes.map((c) => (
+          <li key={c.code} className="rounded-full border bg-surface px-3 py-1 text-sm">
+            {c.code}
+            {c.driveThrough && <span className="text-muted-foreground"> · drive-through</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** What the stored day shows: nothing picked yet, loading, the day, or why it could not be read. */
+type StoredDayState = { state: 'idle' } | { state: 'loading' } | { state: 'shown'; day: TruckLogDay } | { state: 'failed' };
+
+/**
+ * One Truck's stored day, picked by Truck and day, as the Simulation shows
+ * its made-up one: a replay clock, the Scheduler view (the real lanes) and the
+ * Driver view (the real Driver cards), each Assignment with its Trip part,
+ * the Trip log, and its Truck log (miles blank, as no meter readings exist
+ * yet), all as the Worker builds the day at the clock's minute, never past
+ * the latest Import. Unplanned work is shown, not answered.
+ * `clock` is the minute asked for; null opens the day as the Worker does (a
+ * past day at its end, today at the latest Import). `refresh` changes after
+ * each Import, so the day read again shows it.
+ */
+function StoredDay({
+  trucks,
+  allTrucks,
+  drivers,
+  truckId,
+  date,
+  today,
+  clock,
+  refresh,
+  onTruck,
+  onDate,
+  onClock,
+}: {
+  trucks: CodedTruck[];
+  allTrucks: Truck[] | null;
+  drivers: Driver[] | null;
+  truckId: string;
+  date: string;
+  /** Today, US Eastern, for the quick picks; null until the Worker says. */
+  today: string | null;
+  clock: number | null;
+  refresh: number;
+  onTruck: (id: string) => void;
+  onDate: (date: string) => void;
+  onClock: (clock: number | null) => void;
+}) {
+  const [shown, setShown] = useState<StoredDayState>({ state: 'idle' });
+  useEffect(() => {
+    if (!truckId || !date) return setShown({ state: 'idle' });
+    let current = true;
+    // Moving the clock keeps the day on screen while the Worker builds it again.
+    setShown((was) => (was.state === 'shown' && was.day.truckId === truckId && was.day.date === date ? was : { state: 'loading' }));
+    fetchTruckLogDay(truckId, date, clock === null ? undefined : minuteClock(clock)).then(
+      (day) => current && setShown({ state: 'shown', day }),
+      () => current && setShown({ state: 'failed' }),
+    );
+    return () => {
+      current = false;
+    };
+  }, [truckId, date, clock, refresh]);
+
+  const day = shown.state === 'shown' ? shown.day : null;
+  /** The clock on screen: the minute asked for, else the one the Worker opened the day at. */
+  const onScreen = clock ?? (day ? clockMinutes(day.clock) : 0);
+  const setClock = useCallback((next: SetStateAction<number>) => onClock(typeof next === 'function' ? next(onScreen) : next), [onClock, onScreen]);
+
+  return (
+    <section aria-label="Stored day" className="space-y-3">
+      <h2 className="font-display text-xl font-semibold uppercase tracking-wide">Stored day{date && ` · ${shortDate(date)}`}</h2>
+      <div className="space-y-3">
+        {trucks.length > 0 && (
+          <div role="group" aria-label="Truck" className="flex flex-wrap gap-2">
+            {trucks.map((truck) => {
+              const pressed = truck.id === truckId;
+              return (
+                <Button
+                  key={truck.id}
+                  type="button"
+                  variant={pressed ? 'default' : 'outline'}
+                  aria-pressed={pressed}
+                  className={chipClass(pressed)}
+                  onClick={() => onTruck(truck.id)}
+                >
+                  Truck {truck.number} ({truck.hcssCode})
+                </Button>
+              );
+            })}
+          </div>
+        )}
+        <div className="max-w-xl">
+          <CalendarDays date={date || null} today={today} onShow={onDate} />
+        </div>
+      </div>
+      {trucks.length === 0 && <EmptyBox>No Truck has an HCSS code yet. Set one in Settings.</EmptyBox>}
+      {shown.state === 'loading' && <Loading what="the day" />}
+      {shown.state === 'failed' && <p className="text-sm text-destructive">Could not load the day. It tries again when you pick a Truck, a day or a time.</p>}
+      {day && <StoredDayViews day={day} trucks={trucks} allTrucks={allTrucks} drivers={drivers} clock={onScreen} onClock={setClock} />}
+    </section>
+  );
+}
+
+/** A stored day's replay clock and views, as the Worker built it at the clock's minute. */
+function StoredDayViews({
+  day,
+  trucks,
+  allTrucks,
+  drivers,
+  clock,
+  onClock,
+}: {
+  day: TruckLogDay;
+  trucks: CodedTruck[];
+  allTrucks: Truck[] | null;
+  drivers: Driver[] | null;
+  clock: number;
+  onClock: (next: SetStateAction<number>) => void;
+}) {
+  /** The Drivers with Assignments on the day, in the order they first come. */
+  const onTheDay = [...new Map(day.assignments.flatMap((a) => (a.driverId ? [[a.driverId, a.driverName ?? '']] : []))).entries()];
+  const laneDrivers = drivers?.filter((d) => onTheDay.some(([id]) => id === d.id)) ?? null;
+  /** As the board shows them: each piece of Unplanned work in the lane of the Driver at its time, else "Driver not known". */
+  const stored = [{ truckId: day.truckId, truckNumber: day.truckNumber, ...day.lanes }];
+
+  return (
+    <>
+      <p className="text-sm text-muted-foreground">
+        {day.asOf ? `As of the Import at ${easternTime(day.asOf)}` : 'No Import has covered this day yet.'}
+      </p>
+      <ReplayClock clock={clock} onClock={onClock} className="sticky top-0 z-10 -mx-4 border-b bg-background/95 px-4 py-3 backdrop-blur" />
+      <CodesWithNoPlace id="no-place-day" codes={day.codesWithNoPlace} />
+      <div className="grid gap-6 xl:grid-cols-2">
+        <div className="min-w-0 space-y-6">
+          <section aria-label="Scheduler view" className="space-y-3">
+            <h2 className="font-display text-xl font-semibold uppercase tracking-wide">Scheduler view</h2>
+            <Lanes
+              assignments={day.assignments}
+              drivers={laneDrivers}
+              trucks={allTrucks}
+              stored={stored}
+            />
+          </section>
+          {onTheDay.length > 0 && (
+            <DriverView
+              date={day.date}
+              phones={onTheDay.map(([driverId, driverName]) => ({
+                driverId,
+                driverName,
+                assignments: day.assignments.filter((a) => a.driverId === driverId),
+              }))}
+            />
+          )}
+        </div>
+        <div className="min-w-0">
+          <TripLog trips={day.tripDay.trips} places={day.places} assignmentLabels={day.labels} />
+        </div>
+      </div>
+      <StoredTruckLog day={day} hcssCode={trucks.find((t) => t.id === day.truckId)?.hcssCode ?? null} />
+    </>
+  );
+}
+
 /** One dropped file: importing, waiting for its Truck, imported with what it changed, or not imported and why. */
 type Drop = { key: number; fileName: string } & (
   | { state: 'importing' }
@@ -106,6 +297,45 @@ export function FleetImportsPage() {
   const [over, setOver] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
   const counter = useRef(0);
+  /** The stored day shown: the Trucks to pick from, the Truck and day picked, and a count of Imports so it is read again after each. */
+  const [trucks, setTrucks] = useState<CodedTruck[]>([]);
+  const [truckId, setTruckId] = useState('');
+  const [date, setDate] = useState('');
+  const [today, setToday] = useState<string | null>(null);
+  const [refresh, setRefresh] = useState(0);
+  /** The replay clock's minute; null opens the day as the Worker does. A new Truck, day or Import opens it so again. */
+  const [clock, setClock] = useState<number | null>(null);
+  /** Every active Truck and Driver, for the Scheduler view's lanes; null while they load. */
+  const [allTrucks, setAllTrucks] = useState<Truck[] | null>(null);
+  const [drivers, setDrivers] = useState<Driver[] | null>(null);
+  const pickTruck = (id: string) => {
+    setTruckId(id);
+    setClock(null);
+  };
+  const pickDate = (picked: string) => {
+    setDate(picked);
+    setClock(null);
+  };
+
+  useEffect(() => {
+    // The first Truck with an HCSS code, on today, until Dave picks another or an Import says which.
+    fetchList('trucks').then(setAllTrucks, () => setAllTrucks([]));
+    fetchList('drivers').then(setDrivers, () => setDrivers([]));
+    codedTrucks().then(
+      (all) => {
+        setTrucks(all);
+        setTruckId((picked) => picked || (all[0]?.id ?? ''));
+      },
+      () => setTrucks([]),
+    );
+    fetchBusinessDay().then(
+      ({ today }) => {
+        setToday(today);
+        setDate((picked) => picked || today);
+      },
+      () => undefined,
+    );
+  }, []);
 
   const importFile = async (file: File) => {
     const key = ++counter.current;
@@ -114,7 +344,13 @@ export function FleetImportsPage() {
     const failed = (reason: string) => update({ key, fileName: file.name, state: 'failed', reason });
     const send = async (format: FleetExportFormat, rows: FleetExportRow[]) => {
       try {
-        update({ key, fileName: file.name, state: 'imported', result: await importFleetExport({ fileName: file.name, format, rows }) });
+        const result = await importFleetExport({ fileName: file.name, format, rows });
+        update({ key, fileName: file.name, state: 'imported', result });
+        // Show the day it touched last, for its Truck.
+        pickTruck(result.truckId);
+        const touched = result.days.at(-1)?.date;
+        if (touched) pickDate(touched);
+        setRefresh((n) => n + 1);
       } catch (error) {
         failed(error instanceof Refused ? error.message : 'Could not import it. Check the connection and drop it again.');
       }
@@ -129,19 +365,19 @@ export function FleetImportsPage() {
 
     // The xlsx names no Truck: Dave picks one of the Trucks with an HCSS code.
     const { visits, forTruck } = read;
-    let trucks: CodedTruck[];
+    let offered: CodedTruck[];
     try {
-      trucks = (await fetchList('trucks')).flatMap((truck) => (truck.hcssCode ? [{ ...truck, hcssCode: truck.hcssCode }] : []));
+      offered = await codedTrucks();
     } catch {
       return failed('Could not load the Trucks. Check the connection and drop it again.');
     }
-    if (trucks.length === 0) return failed('An xlsx export does not say which Truck it is for, and no Truck has an HCSS code. Set one in Settings.');
+    if (offered.length === 0) return failed('An xlsx export does not say which Truck it is for, and no Truck has an HCSS code. Set one in Settings.');
     const asking: Extract<Drop, { state: 'pickTruck' }> = {
       key,
       fileName: file.name,
       state: 'pickTruck',
       visits,
-      trucks,
+      trucks: offered,
       picked: null,
       pick: (truck) => {
         // The picked chip stays pressed until the Worker answers.
@@ -257,22 +493,8 @@ export function FleetImportsPage() {
                           {drop.fileName} · Truck {drop.result.truckNumber}
                         </p>
                         <p className="text-sm">{drop.result.days.map(dayCounts).join('; ')}</p>
-                        {drop.result.codesWithNoPlace.length > 0 && (
-                          <div className="mt-3">
-                            <h3 id={`no-place-${drop.key}`} className="text-sm font-medium">
-                              Codes with no Place
-                            </h3>
-                            <p className="text-xs text-muted-foreground">Their visits are stored. Give a Place its geofence code in Settings.</p>
-                            <ul aria-labelledby={`no-place-${drop.key}`} className="mt-1 flex flex-wrap gap-2">
-                              {drop.result.codesWithNoPlace.map((c) => (
-                                <li key={c.code} className="rounded-full border bg-surface px-3 py-1 text-sm">
-                                  {c.code}
-                                  {c.driveThrough && <span className="text-muted-foreground"> · drive-through</span>}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
+                        <CodesWithNoPlace id={`no-place-${drop.key}`} codes={drop.result.codesWithNoPlace} />
+
                       </>
                     )}
                     {drop.state === 'failed' && (
@@ -287,6 +509,20 @@ export function FleetImportsPage() {
             </ul>
           </section>
         )}
+
+        <StoredDay
+          trucks={trucks}
+          allTrucks={allTrucks}
+          drivers={drivers}
+          truckId={truckId}
+          date={date}
+          today={today}
+          clock={clock}
+          refresh={refresh}
+          onTruck={pickTruck}
+          onDate={pickDate}
+          onClock={setClock}
+        />
       </main>
     </div>
   );

@@ -1,23 +1,19 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ClipboardList, Pause, Play } from 'lucide-react';
+import { useCallback, useMemo, useState } from 'react';
+import { ClipboardList } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Lanes } from '@/components/Lanes';
 import { PageHeader } from '@/components/PageHeader';
 import { TruckLog } from '@/components/TruckLog';
 import { TruckLogAssignments, unplannedLine } from '@/components/TruckLogAssignments';
 import { Button } from '@/components/ui/button';
-import { DriverView } from '@/simulate/DriverView';
-import { TripLog } from '@/simulate/TripLog';
+import { DriverView } from '@/components/DriverView';
+import { TripLog } from '@/components/TripLog';
 import { UnplannedAnswerFlow } from '@/simulate/UnplannedAnswerFlow';
 import { madeAssignmentId, type UnplannedAnswer } from '@/simulate/answers';
 import { REAL_DAY, placeName } from '@/simulate/realDay';
-import { DAY_END, clockTime, simulateAt } from '@/simulate/simulate';
-import { easternTime } from '../../shared/days';
-
-/** Play moves the clock in the steps the Worker pulls Fleet (every 10 minutes). */
-const PULL_MINUTES = 10;
-/** Where Play starts when the clock is at the end of the day: before the Truck leaves the shop. */
-const PLAY_FROM = 4 * 60;
+import { ReplayClock } from '@/components/ReplayClock';
+import { simulateAt } from '@/simulate/simulate';
+import { DAY_END, easternTime } from '../../shared/days';
 
 /**
  * The simulation: Truck 55 (MCK-55-17), driven by Randy on Mon 16 Nov 2026,
@@ -36,24 +32,11 @@ const PLAY_FROM = 4 * 60;
 export function SimulatePage() {
   const [scenarioId, setScenarioId] = useState(REAL_DAY.scenarios[0].id);
   const [clock, setClock] = useState(DAY_END);
-  const [playing, setPlaying] = useState(false);
   const [answers, setAnswers] = useState<UnplannedAnswer[]>([]);
   /** Where Dave split Unplanned work in two: each Trip's leftAt. */
   const [splits, setSplits] = useState<string[]>([]);
   /** The Unplanned work being answered (its id); null when none is. */
   const [answering, setAnswering] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!playing) return;
-    const timer = window.setInterval(() => {
-      setClock((c) => {
-        const next = Math.min(DAY_END, c + PULL_MINUTES);
-        if (next === DAY_END) setPlaying(false);
-        return next;
-      });
-    }, 600);
-    return () => window.clearInterval(timer);
-  }, [playing]);
 
   const scenario = REAL_DAY.scenarios.find((s) => s.id === scenarioId) ?? REAL_DAY.scenarios[0];
   const day = useMemo(() => simulateAt({ scenario, minutes: clock, answers, splits }), [scenario, clock, answers, splits]);
@@ -107,33 +90,7 @@ export function SimulatePage() {
       </PageHeader>
 
       <div className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur">
-        <div className="container flex flex-wrap items-center gap-3 py-3">
-          <Button
-            size="icon"
-            variant="outline"
-            className="shrink-0"
-            aria-label={playing ? 'Pause' : 'Play the day'}
-            onClick={() => {
-              if (!playing && clock === DAY_END) setClock(PLAY_FROM);
-              setPlaying((p) => !p);
-            }}
-          >
-            {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-          </Button>
-          <input
-            type="range"
-            aria-label="Clock"
-            min={0}
-            max={DAY_END}
-            step={1}
-            value={clock}
-            onChange={(e) => setClock(Number(e.target.value))}
-            className="w-full max-w-md accent-primary"
-          />
-          <p className="text-sm">
-            <strong className="font-display text-lg">{clock === DAY_END ? 'end of day' : clockTime(clock)}</strong>
-          </p>
-        </div>
+        <ReplayClock clock={clock} onClock={setClock} className="container py-3" />
       </div>
 
       <main className="container space-y-6 py-6">
@@ -150,7 +107,16 @@ export function SimulatePage() {
               />
             </section>
             {/* An Assignment made from Unplanned work sends Randy no notice, so it is not on his phone. */}
-            <DriverView driverName={REAL_DAY.driver.name} date={REAL_DAY.date} assignments={day.assignments.filter((a) => !a.fromTheTruck && a.driverId === REAL_DAY.driver.id)} />
+            <DriverView
+              date={REAL_DAY.date}
+              phones={[
+                {
+                  driverId: REAL_DAY.driver.id,
+                  driverName: REAL_DAY.driver.name,
+                  assignments: day.assignments.filter((a) => !a.fromTheTruck && a.driverId === REAL_DAY.driver.id),
+                },
+              ]}
+            />
           </div>
           <div className="min-w-0">
             <TripLog
@@ -161,7 +127,7 @@ export function SimulatePage() {
           </div>
         </div>
         <TruckLog truck={REAL_DAY.truck} date={REAL_DAY.date} truckDay={day.tripDay.truckDay}>
-          <TruckLogAssignments columns={day.truckLog.columns} unplanned={day.truckLog.unplanned} whichAssignment={day.truckLog.whichAssignment} shopTrips={day.truckLog.shopTrips} onAnswer={openAnswer} />
+          <TruckLogAssignments log={day.truckLog} onAnswer={openAnswer} />
         </TruckLog>
         {answeringWork && answeringBox && (
           <UnplannedAnswerFlow

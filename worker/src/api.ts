@@ -4,9 +4,11 @@ import { json, readJson, refuse, text } from './http';
 import { handleInspections } from './inspections';
 import { handleTruckProblems } from './truckProblems';
 import { handleFleetImports } from './fleetImports';
-import { exists, handleList, isActive, isList, listOrder } from './lists';
+import { driverTruck, handleTruckLogs, storedDay } from './truckLogs';
+import { exists, handleList, isActive, isList } from './lists';
 import { checkTyped, saveLinked, typedIn, type Typed } from './typedNames';
-import { addDays, dayState, draftsOn, holidayName, isCalendarDate, mondayOf, sinceSent, weekDates } from '../../shared/days';
+import { DAY_ORDER, SELECT_ASSIGNMENT, marked, type AssignmentRow } from './assignmentQueries';
+import { addDays, dayState, draftsOn, holidayName, isCalendarDate, mondayOf, weekDates } from '../../shared/days';
 import { NOTE_LIMIT, type Assignment, type BusinessDay, type CopiedDay, type Day, type DriverAssignment, type DriverDay, type ListName, type NewAssignment, type TypedNames, type Was, type Week } from '../../shared/types';
 
 /** The JSON API under /api/ (or /truck-dispatch/api/). */
@@ -74,6 +76,9 @@ export async function handleApi(request: Request, env: Env, route: string, query
 
   const fleetImports = await handleFleetImports(request, env, route);
   if (fleetImports) return fleetImports;
+
+  const truckLogs = await handleTruckLogs(request, env, route, query);
+  if (truckLogs) return truckLogs;
 
   const [list, entryId, ...rest] = route.split('/');
   if (isList(list) && rest.length === 0) return handleList(request, env, list, entryId, query);
@@ -151,50 +156,26 @@ async function laterDays(env: Env, driverId: string): Promise<Response> {
 }
 
 /**
- * Each Assignment with the names of its Driver, Truck, Places, Material and
- * Foreman, so the page never has to look them up, and when it was Assigned,
- * from which marked() works out whether it is Changed or Added.
- */
-const SELECT_ASSIGNMENT = `SELECT a.id, a.date, a.driver_id AS driverId, d.name AS driverName,
-       a.truck_id AS truckId, t.number AS truckNumber,
-       a.from_place_id AS fromPlaceId, pf.short_name AS fromPlaceName,
-       a.to_place_id AS toPlaceId, pt.short_name AS toPlaceName,
-       a.material_id AS materialId, m.name AS materialName,
-       a.foreman_id AS foremanId, f.name AS foremanName, a.note,
-       a.position, a.created_at AS createdAt, a.updated_at AS updatedAt, a.changed_at AS changedAt, a.cancelled_at AS cancelledAt,
-       a.assigned_at AS assignedAt, a.handed_from AS handedFromId
-  FROM assignments a LEFT JOIN drivers d ON d.id = a.driver_id LEFT JOIN trucks t ON t.id = a.truck_id
-  LEFT JOIN places pf ON pf.id = a.from_place_id LEFT JOIN places pt ON pt.id = a.to_place_id
-  LEFT JOIN materials m ON m.id = a.material_id LEFT JOIN foremen f ON f.id = a.foreman_id`;
-
-/**
- * How a day's Assignments are listed: lane by lane (in the Drivers' order,
- * as their list is read, the Unassigned lane last), then in each lane's order,
- * ties (such as Assignments saved before they had a position) in the order
- * they were added.
- */
-const DAY_ORDER = `ORDER BY a.driver_id IS NULL, ${listOrder('drivers', 'd')}, a.driver_id, a.position, a.created_at, a.rowid`;
-
-/**
  * The position just after the last Assignment in a lane: bind the date and the
  * Driver (null for Unassigned), then an Assignment to leave out (the one moving).
  * Worked out in the same statement that saves, so nothing slips in between.
  */
 const LAST_IN_LANE = '(SELECT COALESCE(MAX(position) + 1, 0) FROM assignments WHERE date = ? AND driver_id IS ? AND id IS NOT ?)';
 
-/** An Assignment as SELECT_ASSIGNMENT reads it: everything but whether it is Changed or Added. */
-type AssignmentRow = Omit<Assignment, 'sinceSent'>;
-
-/** An Assignment as the API answers it: Changed, Added or neither since it was Assigned, by the shared day rules. */
-function marked(assignment: AssignmentRow): Assignment {
-  return { ...assignment, sinceSent: sinceSent(assignment) };
-}
-
-/** A day's Assignments, Drafts and Assigned ones (cancelled ones Dave discarded left out), each marked Changed or Added since it was Assigned. */
+/**
+ * A day's Assignments, Drafts and Assigned ones (cancelled ones Dave discarded
+ * left out), each marked Changed or Added since it was Assigned, and each one a
+ * stored Trip matched with its Trip part. On a day a Truck has stored visits,
+ * each such Truck's Unplanned work and ties too, for the lanes (see storedDay).
+ */
 async function readDay(env: Env, date: string | null): Promise<Response> {
   if (!isCalendarDate(date)) return refuse({ date: PICK_DATE });
-  const { results } = await env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.date = ? AND a.discarded_at IS NULL ${DAY_ORDER}`).bind(date).all<AssignmentRow>();
-  return json({ assignments: results.map(marked) } satisfies Day);
+  const [{ results }, { withTripPart, trucks }] = await Promise.all([
+    env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.date = ? AND a.discarded_at IS NULL ${DAY_ORDER}`).bind(date).all<AssignmentRow>(),
+    storedDay(env, date),
+  ]);
+  // No key with no stored visits, so such a day answers exactly as before.
+  return json({ assignments: results.map(marked).map(withTripPart), ...(trucks.length > 0 && { trucks }) } satisfies Day);
 }
 
 /**
@@ -220,25 +201,33 @@ const WAS_FIELDS = [
  * when it was Assigned, from the first earlier fields kept after that (changes
  * are kept only once it is Assigned, so the first is it as he was given it).
  * Days before today are read like the rest, so the phone still shows today
- * after midnight Eastern until it refreshes.
+ * after midnight Eastern until it refreshes. Each one a stored Trip matched has
+ * its Trip part, by the same whole-Truck days as the board (storedDay).
+ * Today, his Truck's stored day comes too, one of those days (driverTruck).
  */
 async function readDriverDay(env: Env, driverId: string, date: string): Promise<Response> {
   if (!isCalendarDate(date)) return refuse({ date: PICK_DATE });
   if (!(await exists(env, 'drivers', driverId))) return json({ error: 'not_found' }, 404);
-  const [{ results: rows }, { results: kept }] = await env.DB.batch<AssignmentRow & { id: string; before: string }>([
-    env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.date = ? AND a.driver_id = ? AND a.assigned_at IS NOT NULL AND a.dismissed_at IS NULL ${DAY_ORDER}`).bind(date, driverId),
-    env.DB.prepare(
-      `SELECT c.assignment_id AS id, c.before FROM assignment_changes c JOIN assignments a ON a.id = c.assignment_id
-        WHERE a.date = ? AND a.driver_id = ? AND c.changed_at >= a.assigned_at ORDER BY c.changed_at DESC, c.rowid DESC`,
-    ).bind(date, driverId),
+  const [[{ results: rows }, { results: kept }], { withTripPart, days }, truck] = await Promise.all([
+    env.DB.batch<AssignmentRow & { id: string; before: string }>([
+      env.DB.prepare(`${SELECT_ASSIGNMENT} WHERE a.date = ? AND a.driver_id = ? AND a.assigned_at IS NOT NULL AND a.dismissed_at IS NULL ${DAY_ORDER}`).bind(date, driverId),
+      env.DB.prepare(
+        `SELECT c.assignment_id AS id, c.before FROM assignment_changes c JOIN assignments a ON a.id = c.assignment_id
+          WHERE a.date = ? AND a.driver_id = ? AND c.changed_at >= a.assigned_at ORDER BY c.changed_at DESC, c.rowid DESC`,
+      ).bind(date, driverId),
+    ]),
+    storedDay(env, date),
+    driverTruck(env, driverId, date),
   ]);
   // Newest first, so the last one set for each Assignment is its first.
   const asAssigned = new Map(kept.map((row) => [row.id, JSON.parse(row.before) as Partial<Assignment>]));
   const assignments = rows.map(marked).map((assignment): DriverAssignment => {
     const before = asAssigned.get(assignment.id);
-    return { ...assignment, was: assignment.sinceSent === 'changed' && before ? wasWhenAssigned(assignment, before) : {} };
+    const was = assignment.sinceSent === 'changed' && before ? wasWhenAssigned(assignment, before) : {};
+    return withTripPart({ ...assignment, was });
   });
-  return json({ date, assignments } satisfies DriverDay);
+  const day = truck && days.get(truck.id);
+  return json((day ? { date, assignments, truckLog: { ...day, hcssCode: truck.hcssCode } } : { date, assignments }) satisfies DriverDay);
 }
 
 /** The fields a Driver reads that are not as they were when Assigned, each with the name it had then. */
