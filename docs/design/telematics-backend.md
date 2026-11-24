@@ -123,7 +123,7 @@ The rest of phase 3 sees only **visits**: `{ truck, geofenceCode, enteredAt, exi
 
 Raw visits are stored as they come and never changed by people (proposal P2 gives the table). The Trip builder cleans them each time it runs:
 
-1. **Drop the visits not considered:** a visit to a code on Dave's Not considered list in Settings, however long. (This replaced "drop a visit under 2 min" as a drive-through: see [ADR 0009](../adr/0009-not-considered-geofences-replace-the-drive-through-rule.md).)
+1. **Drop the visits not considered:** a visit to a code Dave turned to Not considered in Settings → Geofences, however long. (This replaced "drop a visit under 2 min" as a drive-through: see [ADR 0009](../adr/0009-not-considered-geofences-replace-the-drive-through-rule.md).)
 2. **Join short exits:** two visits to the same Place with 5 min or less between them become one.
 3. **Midnight:** a visit starting at 00:00 local is where the Truck began the day.
 4. **Ignore exit values on an open visit.**
