@@ -59,7 +59,7 @@ const visit = (geofenceCode: string, enteredAt: string, exitedAt: string | null,
   exitOdometer,
 });
 
-/** MCK-55-17's raw Fleet rows, UTC. "sunset" is a geofence the Truck only drives through (61 s each time), on no Place. */
+/** MCK-55-17's raw Fleet rows, UTC. "sunset" is a geofence the Truck only drives through (61 s each time), on no Place and not considered. */
 const VISITS: FleetVisit[] = [
   visit('SHOP', '2026-11-16T05:00:00Z', '2026-11-16T11:24:46Z', 258050.59, 258050.91),
   visit('J25008 Los Flamboyanes', '2026-11-16T12:02:03Z', '2026-11-16T12:13:29Z', 258071.5, 258071.91),
@@ -156,6 +156,8 @@ export const REAL_DAY = {
     { id: 'job-j611', jobNumber: 'J611', name: 'Bishop Kearney' },
   ] satisfies TripJob[] as TripJob[],
   visits: VISITS,
+  /** Dave's Not considered list: "sunset", the road fence the Truck drives through, so the day reads as it always has. */
+  notConsidered: ['sunset'],
   /** The Materials Dave picks from when he answers Unplanned work ("or type it" for another). */
   materials: ['Fill', '1&2 stone', 'Top soil'],
   /** The meter readings around the day: 258,050.59 read 15 Nov 21:41 ET, 258,212.20 read 16 Nov 22:12 ET. */

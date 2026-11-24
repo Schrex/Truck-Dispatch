@@ -3,7 +3,7 @@ import { clock } from './clock';
 import { json, readJson, refuse, text } from './http';
 import { businessDateOf } from '../../shared/days';
 import { EXPORT_ADVICE, isMoment, type FleetExportRow } from '../../shared/fleetExport';
-import { DRIVE_THROUGH_MINUTES } from '../../shared/trips';
+import { codeKey } from '../../shared/trips';
 import type { CodeWithNoPlace, FleetExportFormat, FleetImport, FleetImportDay, ImportCounts } from '../../shared/types';
 
 /**
@@ -131,22 +131,25 @@ async function importExport(request: Request, env: Env): Promise<Response> {
   );
 }
 
+/** The codes on the Not considered list (Settings), as the Trip builder takes them. */
+export async function notConsideredCodes(DB: D1Database): Promise<string[]> {
+  const { results } = await DB.prepare('SELECT code FROM not_considered WHERE active = 1 ORDER BY code COLLATE NOCASE').all<{ code: string }>();
+  return results.map((r) => r.code);
+}
+
 /**
- * Every geofence code in the Import that no active Place has (ignoring case,
- * as Settings and the Trip builder match codes), by code. Its visits are
- * stored all the same. A code is a drive-through when every visit there was
- * one: closed, and shorter than the Trip builder's DRIVE_THROUGH_MINUTES.
+ * Every geofence code in the Import that no active Place has and that is not
+ * on the Not considered list (both ignoring case, as Settings and the Trip
+ * builder match codes), by code. Its visits are stored all the same.
  */
-export async function codesWithNoPlaceIn(DB: D1Database, visits: Pick<StoredVisit, 'geofenceCode' | 'enteredAt' | 'exitedAt'>[]): Promise<CodeWithNoPlace[]> {
-  const { results } = await DB.prepare('SELECT geofence_code AS code FROM places WHERE active = 1 AND geofence_code IS NOT NULL').all<{ code: string }>();
-  const placed = new Set(results.map((p) => p.code.toLowerCase()));
-  const byCode = new Map<string, boolean>();
-  for (const v of visits) {
-    if (placed.has(v.geofenceCode.toLowerCase())) continue;
-    const driveThrough = v.exitedAt !== null && Date.parse(v.exitedAt) - Date.parse(v.enteredAt) < DRIVE_THROUGH_MINUTES * 60_000;
-    byCode.set(v.geofenceCode, (byCode.get(v.geofenceCode) ?? true) && driveThrough);
-  }
-  return [...byCode].map(([code, driveThrough]) => ({ code, driveThrough })).sort((a, b) => a.code.localeCompare(b.code));
+export async function codesWithNoPlaceIn(DB: D1Database, visits: Pick<StoredVisit, 'geofenceCode'>[]): Promise<CodeWithNoPlace[]> {
+  const { results } = await DB.prepare(
+    `SELECT geofence_code AS code FROM places WHERE active = 1 AND geofence_code IS NOT NULL
+     UNION ALL SELECT code FROM not_considered WHERE active = 1`,
+  ).all<{ code: string }>();
+  const known = new Set(results.map((p) => codeKey(p.code)));
+  const codes = new Set(visits.map((v) => v.geofenceCode).filter((code) => !known.has(codeKey(code))));
+  return [...codes].sort((a, b) => a.localeCompare(b)).map((code) => ({ code }));
 }
 
 /**

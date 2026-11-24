@@ -5,11 +5,12 @@ import { REAL_DAY, easternIso } from './realDay';
 
 const scenario = (id: string) => REAL_DAY.scenarios.find((s) => s.id === id)!;
 const at = (id: string, time = '23:59:59') =>
-  buildTripDay({ places: REAL_DAY.places, jobs: REAL_DAY.jobs, visits: REAL_DAY.visits, assignments: scenario(id).assignments, now: easternIso(REAL_DAY.date, time) });
+  buildTripDay({ places: REAL_DAY.places, notConsidered: REAL_DAY.notConsidered, jobs: REAL_DAY.jobs, visits: REAL_DAY.visits, assignments: scenario(id).assignments, now: easternIso(REAL_DAY.date, time) });
 /** Randy's day for Truck 55 at a clock time: his Assignments name no Truck (his own), and the evening's end meter reading is passed only when asked (at end of day here). */
 const truckDayAt = (time: string, endOfDay = false) =>
   buildTripDay({
     places: REAL_DAY.places,
+    notConsidered: REAL_DAY.notConsidered,
     visits: REAL_DAY.visits,
     assignments: scenario('planned').assignments,
     now: easternIso(REAL_DAY.date, time),
@@ -84,18 +85,18 @@ describe('The Trip builder on the real day (MCK-55-17, Mon 16 Nov 2026)', () => 
       expect(unplanned('reroute')).toEqual([]);
     });
 
-    it('before 14:23 there is none; it grows as each Trip is written', () => {
+    it('before 14:23 there is none; it grows as each Trip arrives', () => {
       expect(unplanned('planned', '14:16:59')).toEqual([]);
-      expect(unplanned('planned', '14:24:59')).toEqual([]);
-      // The 14:15 Trip is written 2 min after it reached Bishop Kearney at 14:23:53.
-      expect(unplanned('planned', '14:25:59')).toEqual(['J25008 Los Flamboyanes ⇄ J611 Bishop Kearney · 14:15–14:23 · 1 Trips · 0.14 h']);
-      expect(unplanned('planned', '14:45:59')).toEqual(['J25008 Los Flamboyanes ⇄ J611 Bishop Kearney · 14:15–14:43 · 2 Trips · 0.46 h']);
-      expect(at('planned', '14:45:59').unplanned[0].id).toBe(at('planned', '14:25:59').unplanned[0].id);
+      expect(unplanned('planned', '14:22:59')).toEqual([]);
+      // The 14:15 Trip counts as soon as it reaches Bishop Kearney at 14:23:53.
+      expect(unplanned('planned', '14:23:59')).toEqual(['J25008 Los Flamboyanes ⇄ J611 Bishop Kearney · 14:15–14:23 · 1 Trips · 0.14 h']);
+      expect(unplanned('planned', '14:43:59')).toEqual(['J25008 Los Flamboyanes ⇄ J611 Bishop Kearney · 14:15–14:43 · 2 Trips · 0.46 h']);
+      expect(at('planned', '14:43:59').unplanned[0].id).toBe(at('planned', '14:23:59').unplanned[0].id);
     });
 
-    it('never shows the drive back as A1’s, even in the two minutes before it is written', () => {
-      const d = at('planned', '14:44:59');
-      expect(d.trips.at(-1)).toMatchObject({ fromCode: 'J611 Bishop Kearney', written: false, match: { assignmentId: null } });
+    it('never shows the drive back as A1’s, from the moment it arrives', () => {
+      const d = at('planned', '14:43:59');
+      expect(d.trips.at(-1)).toMatchObject({ fromCode: 'J611 Bishop Kearney', match: { assignmentId: null } });
       expect(d.assignments[0].truckingHours).toBe(3.02);
     });
   });
@@ -108,6 +109,7 @@ describe('The Trip builder on the real day (MCK-55-17, Mon 16 Nov 2026)', () => 
       const unplannedId = at('planned').unplanned[0].id;
       return buildTripDay({
         places: REAL_DAY.places,
+        notConsidered: REAL_DAY.notConsidered,
         jobs: REAL_DAY.jobs,
         visits: REAL_DAY.visits,
         assignments: scenario('planned').assignments,
@@ -153,6 +155,7 @@ describe('The Trip builder on the real day (MCK-55-17, Mon 16 Nov 2026)', () => 
       const unplannedId = at('planned').unplanned[0].id;
       return buildTripDay({
         places: REAL_DAY.places,
+        notConsidered: REAL_DAY.notConsidered,
         jobs: REAL_DAY.jobs,
         visits: REAL_DAY.visits,
         assignments: scenario('planned').assignments,
@@ -196,6 +199,7 @@ describe('The Trip builder on the real day (MCK-55-17, Mon 16 Nov 2026)', () => 
       const unplannedId = at('planned').unplanned[0].id;
       return buildTripDay({
         places: REAL_DAY.places,
+        notConsidered: REAL_DAY.notConsidered,
         jobs: REAL_DAY.jobs,
         visits: REAL_DAY.visits,
         assignments: scenario('planned').assignments,
@@ -225,6 +229,7 @@ describe('The Trip builder on the real day (MCK-55-17, Mon 16 Nov 2026)', () => 
       const unplannedId = at('planned').unplanned[0].id;
       const d = buildTripDay({
         places: REAL_DAY.places,
+        notConsidered: REAL_DAY.notConsidered,
         visits: REAL_DAY.visits,
         assignments: scenario('planned').assignments,
         now: easternIso(REAL_DAY.date, '23:59:59'),
@@ -311,7 +316,7 @@ describe('The Truck’s Driver', () => {
   const randy = { id: 'drv-randy', name: 'Randy', defaultTruckId: 'trk-55' };
   const sam = { id: 'drv-sam', name: 'Sam', defaultTruckId: 'trk-60' };
   const driverOf = (truck: { drivers: (typeof randy)[]; assignments: { driverId: string; truckId: string | null }[]; drivenBy?: string | null }) =>
-    buildTripDay({ places: REAL_DAY.places, visits: [], assignments: [], now: easternIso(REAL_DAY.date, '12:00:00'), truck: { id: 'trk-55', ...truck } }).truckDay;
+    buildTripDay({ places: REAL_DAY.places, notConsidered: REAL_DAY.notConsidered, visits: [], assignments: [], now: easternIso(REAL_DAY.date, '12:00:00'), truck: { id: 'trk-55', ...truck } }).truckDay;
 
   it('is the Driver whose Assignments name the Truck, over the Driver whose usual Truck it is', () => {
     const d = driverOf({ drivers: [randy, sam], assignments: [{ driverId: 'drv-sam', truckId: 'trk-55' }] });

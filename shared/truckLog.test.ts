@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { easternTime } from './days';
 import { buildTripDay } from './trips';
-import { FIXTURE_PLACES, FIXTURE_SCENARIOS, FIXTURE_VISITS } from './trips.fixture';
+import { FIXTURE_NOT_CONSIDERED, FIXTURE_PLACES, FIXTURE_SCENARIOS, FIXTURE_VISITS } from './trips.fixture';
 import { truckLog, type TruckLogAssignment } from './truckLog';
 
 const END_OF_DAY = '2026-11-16T23:59:59-05:00';
@@ -11,7 +11,7 @@ const scenario = (id: string) => FIXTURE_SCENARIOS.find((s) => s.id === id)!.ass
 /** The real 16 Nov day under a scenario, as the Truck log shows it at `now`. */
 const logOf = (id: string, now = END_OF_DAY) => {
   const planned = scenario(id);
-  const tripDay = buildTripDay({ places: FIXTURE_PLACES, visits: FIXTURE_VISITS, assignments: planned, now });
+  const tripDay = buildTripDay({ places: FIXTURE_PLACES, notConsidered: FIXTURE_NOT_CONSIDERED, visits: FIXTURE_VISITS, assignments: planned, now });
   const assignments: TruckLogAssignment[] = planned.map((a) => ({
     id: a.id,
     fromPlaceName: placeName(a.fromPlaceId),

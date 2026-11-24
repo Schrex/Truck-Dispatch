@@ -92,7 +92,7 @@ export function simulateAt({ scenario, minutes, answers = [], splits = [] }: Sim
   const wholeDay =
     answers.length === 0
       ? []
-      : buildTripDay({ places: REAL_DAY.places, visits: day.visits, assignments: scenario.assignments, answers: { splits }, now: easternIso(REAL_DAY.date, '23:59:59'), dayOver: true }).unplanned;
+      : buildTripDay({ places: REAL_DAY.places, notConsidered: REAL_DAY.notConsidered, visits: day.visits, assignments: scenario.assignments, answers: { splits }, now: easternIso(REAL_DAY.date, '23:59:59'), dayOver: true }).unplanned;
   const answered = tripAnswers({ answers, pieces: wholeDay, plannedCount: scenario.assignments.length, driverId: drivers[0].id, splits });
   // A linked Assignment, planned or made from another piece, is rerouted from its Unplanned work's first Trip: shown on its new route, Changed from then.
   const linked = <A extends PlannedAssignment | PlannedMadeAssignment>(a: A) => {
@@ -104,6 +104,7 @@ export function simulateAt({ scenario, minutes, answers = [], splits = [] }: Sim
   const all: (PlannedAssignment | PlannedMadeAssignment)[] = [...scenario.assignments, ...made].map(linked);
   const tripDay = buildTripDay({
     places: REAL_DAY.places,
+    notConsidered: REAL_DAY.notConsidered,
     visits: day.visits,
     // Whose each is (none named: Randy's), so the check-ins pick the Assignments a Trip matches.
     assignments: scenario.assignments.map((a) => ({ ...a, driverId: a.driverId ?? REAL_DAY.driver.id, truckId: a.truckId ?? null })),

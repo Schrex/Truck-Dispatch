@@ -1,7 +1,7 @@
 import type { Env } from './app';
 import { DAY_ORDER, SELECT_ASSIGNMENT, marked, type AssignmentRow } from './assignmentQueries';
 import { clock } from './clock';
-import { codesWithNoPlaceIn } from './fleetImports';
+import { codesWithNoPlaceIn, notConsideredCodes } from './fleetImports';
 import { LATEST_INSPECTIONS } from './inspectionQueries';
 import { json, refuse } from './http';
 import { DAY_END, addDays, easternMoment, easternTime, isCalendarDate, minuteClock } from '../../shared/days';
@@ -24,7 +24,7 @@ export async function handleTruckLogs(request: Request, env: Env, route: string,
   return readTruckDay(env, decodeURIComponent(day[1]), decodeURIComponent(day[2]), query.get('at'));
 }
 
-/** The last minute of a day: a past day opens there, so the drive back to the shop is written. */
+/** The last minute of a day: a past day opens there, so its whole day is read. */
 const DAY_END_CLOCK = minuteClock(DAY_END);
 
 const CLOCK = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -144,7 +144,7 @@ async function storedTruckDay(env: Env, truck: StoredTruck, date: string, at: st
   const asOf = (latest.results[0]?.importedAt as string | null) ?? null;
   const { today, now: workerNow } = clock(env);
   const clockAt = at ?? (date < today ? DAY_END_CLOCK : easternTime(asOf ?? workerNow.toISOString()));
-  // Never later than the latest Import: a stale export must not turn a drive-through into Unplanned work.
+  // Never later than the latest Import: what a later export would say is not known yet.
   const moment = asOf ? earlier(endOfMinute(date, clockAt), asOf) : endOfMinute(date, clockAt);
   const dayOver = date < today && clockAt === DAY_END_CLOCK;
 
@@ -187,6 +187,8 @@ async function storedTruckDay(env: Env, truck: StoredTruck, date: string, at: st
     now: moment,
     dayOver,
     truck: truckInput,
+    // Dave's Not considered list as it is now, so a code put on it or taken off re-reads every day, past ones included.
+    notConsidered: await notConsideredCodes(DB),
   });
 
   // Shown as the board shows them: discarded ones are hidden, though their Trips stay theirs. A checked-in

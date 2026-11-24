@@ -88,6 +88,18 @@ export interface InspectionItem {
 }
 
 /**
+ * A geofence code on the Not considered list: its visits are skipped before
+ * Trips are built, however long the Truck stayed. Typed in Settings (or by
+ * "Don't consider" on the Fleet imports page), trimmed; unique, ignoring case.
+ * It needs no Place. Taking it off the list (inactive) brings its visits back.
+ */
+export interface NotConsidered {
+  id: string;
+  code: string;
+  active: boolean;
+}
+
+/**
  * The lists Settings edits and the Board picks from, by their API route
  * (GET, POST api/<list>; PATCH api/<list>/<id>). Nothing is ever deleted.
  */
@@ -99,6 +111,7 @@ export interface Lists {
   materials: Material;
   foremen: Foreman;
   'inspection-items': InspectionItem;
+  'not-considered': NotConsidered;
 }
 export type ListName = keyof Lists;
 
@@ -492,11 +505,12 @@ export interface FleetImportDay extends ImportCounts {
   date: string;
 }
 
-/** A geofence code in an Import that no Place has: a Place to set up in Settings, unless it is only driven through. */
+/**
+ * A geofence code in an Import that no Place has and that is not on the Not
+ * considered list: a Place to set up in Settings, or a code to not consider.
+ */
 export interface CodeWithNoPlace {
   code: string;
-  /** Every visit there was a drive-through (closed, under 2 minutes), like "sunset". */
-  driveThrough: boolean;
 }
 
 /**

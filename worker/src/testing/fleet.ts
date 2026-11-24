@@ -21,8 +21,9 @@ export async function fleetXlsxRows(name: string, equipmentCode: string): Promis
 
 /**
  * The 16 Nov day's own data, set up in the test database: Truck 55 with its
- * HCSS code MCK-55-17, its Driver (usual Truck 55) and the five Places with
- * their geofence codes, all through the API as Settings adds them.
+ * HCSS code MCK-55-17, its Driver (usual Truck 55), the five Places with
+ * their geofence codes and "sunset", the road fence it drives through, on the
+ * Not considered list, all through the API as Settings adds them.
  */
 export async function setUpTruck55(send: ReturnType<typeof apiOn>) {
   const truck = await send('POST', '/api/trucks', { number: '55', hcssCode: 'MCK-55-17' });
@@ -39,5 +40,6 @@ export async function setUpTruck55(send: ReturnType<typeof apiOn>) {
   ]) {
     expect((await send('POST', '/api/places', { shortName, kind, geofenceCode })).status).toBe(201);
   }
+  expect((await send('POST', '/api/not-considered', { code: 'sunset' })).status).toBe(201);
   return { truckId };
 }

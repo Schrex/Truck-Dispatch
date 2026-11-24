@@ -25,7 +25,8 @@ const v = (geofenceCode: string, enteredAt: string, exitedAt: string | null, ent
 
 /**
  * The raw Fleet rows, UTC. ROAD is a geofence the Truck only drives through
- * (61 s each time) and is on no Place. The two North visits at 07:02 and
+ * (61 s each time) and is on no Place: Dave has it on the Not considered list
+ * (FIXTURE_NOT_CONSIDERED). The two North visits at 07:02 and
  * 07:15 ET are one stay with a short exit between them.
  */
 export const FIXTURE_VISITS: FleetVisit[] = [
@@ -49,6 +50,9 @@ export const FIXTURE_VISITS: FleetVisit[] = [
   v('J1001 North', '2026-11-16T19:43:31Z', '2026-11-16T20:41:56Z', 258192.91, 258193.4),
   v('SHOP', '2026-11-16T21:03:25Z', null, 258211.79, null),
 ];
+
+/** Dave's Not considered list for the fixture day: the road fence the Truck drives through. */
+export const FIXTURE_NOT_CONSIDERED = ['ROAD'];
 
 /** The meter readings around the day. */
 export const FIXTURE_METER = { startOdometer: 258050.59, endOdometer: 258212.2 };

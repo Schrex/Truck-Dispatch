@@ -88,6 +88,16 @@ const SECTIONS: SectionSpec<ListName>[] = [
     detail: (item) => (item.optional ? 'Optional' : null),
     renamed: 'new wording is used from the next Inspection on.',
   }),
+  section({
+    list: 'not-considered',
+    title: 'Not considered',
+    noun: 'geofence code',
+    // Fuel stops, diners and road fences: their visits are never stops. A code needs no Place.
+    name: { key: 'code', label: 'Geofence code' },
+    fields: [],
+    status: () => 'Its visits are skipped on every Truck and every day, past days included. Remove it to bring them back.',
+    renamed: 'the new code is skipped on every day, and the old one is considered again.',
+  }),
 ];
 
 /** Whether Dave puts this list in his own order with ▲▼. */
