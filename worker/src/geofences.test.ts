@@ -46,3 +46,38 @@ describe('The Geofences migration', () => {
     ]);
   });
 });
+
+/** Codes the app knows already, considered, as an Import or HCSS's list would add them. */
+const known = (...codes: string[]) => {
+  const DB = d1.database();
+  return DB.batch(codes.map((code) => DB.prepare('INSERT INTO geofences (code) VALUES (?)').bind(code)));
+};
+
+describe('Turning a Geofence to Not considered', () => {
+  it('turns a code off and back on, found whatever its case', async () => {
+    await known('GAS STATION', 'SHOP');
+    const off = await send('PATCH', `/api/geofences/${encodeURIComponent('gas station')}`, { notConsidered: true });
+    expect(off.status).toBe(200);
+    expect(await off.json()).toEqual({ geofence: { code: 'GAS STATION', notConsidered: true } });
+    expect(await geofences()).toEqual([
+      { code: 'GAS STATION', notConsidered: true },
+      { code: 'SHOP', notConsidered: false },
+    ]);
+
+    await send('PATCH', '/api/geofences/GAS%20STATION', { notConsidered: false });
+    expect((await geofences())[0]).toEqual({ code: 'GAS STATION', notConsidered: false });
+  });
+
+  it('refuses a toggle that is not true or false, and a code it does not know', async () => {
+    await known('SHOP');
+    const bad = await send('PATCH', '/api/geofences/SHOP', { notConsidered: 'yes' });
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { fields: unknown }).fields).toEqual({ notConsidered: 'Choose considered or not.' });
+    expect((await send('PATCH', '/api/geofences/NOWHERE', { notConsidered: true })).status).toBe(404);
+  });
+
+  it('adds and deletes no code itself', async () => {
+    expect((await send('POST', '/api/geofences', { code: 'X' })).status).toBe(405);
+    expect((await send('DELETE', '/api/geofences/SHOP')).status).toBe(405);
+  });
+});
