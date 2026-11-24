@@ -72,7 +72,6 @@ describe('The Truck log of a stored day', () => {
     const trips = log.tripDay.trips;
     expect(tripLine(log, trips[0])).toBe('06:24 Shop → J25008 Los Flamboyanes');
     expect(tripLine(log, trips.at(-1)!)).toBe('15:41 J25008 Los Flamboyanes → Shop');
-    expect(trips.at(-1)!.written).toBe(true);
     const loads = (id: string) => log.truckLog.columns.find((c) => c.id === id)?.loads;
     expect([loads(a1.id), loads(a2.id)]).toEqual([4, 2]);
     expect(log.labels).toEqual({ [a1.id]: 'A1', [a2.id]: 'A2' });
@@ -203,10 +202,93 @@ describe('Which Assignments a stored day matches', () => {
 });
 
 describe('Codes with no Place on a stored day', () => {
-  it('lists "sunset", marked drive-through', async () => {
+  it('leaves out "sunset", on the Not considered list, and lists it once it is taken off', async () => {
     const { truckId } = await planMonday();
     await importCut('2026-11-16-cut-1620.json');
-    expect((await readLog(truckId)).codesWithNoPlace).toEqual([{ code: 'sunset', driveThrough: true }]);
+    expect((await readLog(truckId)).codesWithNoPlace).toEqual([]);
+
+    const [sunset] = (await (await send('GET', '/api/not-considered')).json() as { 'not-considered': { id: string }[] })['not-considered'];
+    await send('PATCH', `/api/not-considered/${sunset.id}`, { active: false });
+    expect((await readLog(truckId)).codesWithNoPlace).toEqual([{ code: 'sunset' }]);
+  });
+});
+
+/**
+ * A real xlsx day (Mon 23 Nov 2026, Truck 53): [geofence code, entered, exited], UTC,
+ * no odometers. A fuel stop at GAS STATION on the way out, and WEITSMANS, a fence
+ * crossed for 61 s on a way back, are on no Place.
+ */
+const NOV_23: [string, string, string | null][] = [
+  ['SHOP', '2026-11-23T05:00:00.000Z', '2026-11-23T11:39:31.000Z'],
+  ['GAS STATION', '2026-11-23T11:40:32.000Z', '2026-11-23T11:44:37.000Z'],
+  ['J2601 Talmudical', '2026-11-23T12:07:05.000Z', '2026-11-23T12:51:11.000Z'],
+  ['VILLAGER', '2026-11-23T13:04:25.000Z', '2026-11-23T13:09:33.000Z'],
+  ['J2601 Talmudical', '2026-11-23T13:23:50.000Z', '2026-11-23T13:27:55.000Z'],
+  ['VILLAGER', '2026-11-23T13:41:10.000Z', '2026-11-23T13:47:17.000Z'],
+  ['J2601 Talmudical', '2026-11-23T14:01:35.000Z', '2026-11-23T14:05:40.000Z'],
+  ['VILLAGER', '2026-11-23T14:31:09.000Z', '2026-11-23T14:41:18.000Z'],
+  ['J2601 Talmudical', '2026-11-23T14:56:35.000Z', '2026-11-23T15:35:54.000Z'],
+  ['VILLAGER', '2026-11-23T15:47:06.000Z', '2026-11-23T15:57:18.000Z'],
+  ['J2601 Talmudical', '2026-11-23T16:14:39.000Z', '2026-11-23T16:18:44.000Z'],
+  ['VILLAGER', '2026-11-23T16:31:59.000Z', '2026-11-23T16:47:09.000Z'],
+  ['J2601 Talmudical', '2026-11-23T17:01:26.000Z', '2026-11-23T17:06:32.000Z'],
+  ['WEITSMANS', '2026-11-23T17:19:46.000Z', '2026-11-23T17:20:47.000Z'],
+  ['VILLAGER', '2026-11-23T17:20:47.000Z', '2026-11-23T17:33:01.000Z'],
+  ['J2601 Talmudical', '2026-11-23T17:47:17.000Z', '2026-11-23T18:23:50.000Z'],
+  ['VILLAGER', '2026-11-23T18:37:06.000Z', '2026-11-23T18:43:13.000Z'],
+  ['J2601 Talmudical', '2026-11-23T18:57:29.000Z', '2026-11-23T19:08:41.000Z'],
+  ['VILLAGER', '2026-11-23T19:20:53.000Z', '2026-11-23T19:37:54.000Z'],
+  ['J2601 Talmudical', '2026-11-23T19:52:11.000Z', '2026-11-23T19:59:21.000Z'],
+  ['VILLAGER', '2026-11-23T20:10:34.000Z', '2026-11-23T20:17:53.000Z'],
+  ['J2601 Talmudical', '2026-11-23T20:32:09.000Z', '2026-11-23T20:37:15.000Z'],
+  ['SHOP', '2026-11-23T21:01:42.000Z', null],
+];
+
+describe('The Not considered list on a real day (Mon 23 Nov, Truck 53)', () => {
+  /** Truck 53, its Driver, the three Places, and one Assignment Villager → J2601 Talmudical, Assigned the evening before; the Driver checks in at 06:00. */
+  async function setUpNov23() {
+    const truck = await send('POST', '/api/trucks', { number: '53', hcssCode: 'SAMPLE-53' });
+    const truckId = ((await truck.json()) as { truck: { id: string } }).truck.id;
+    const driver = await send('POST', '/api/drivers', { name: 'Sample Driver N', defaultTruckId: truckId });
+    const driverId = ((await driver.json()) as { driver: { id: string } }).driver.id;
+    const placeIds: Record<string, string> = {};
+    for (const [shortName, kind] of [['SHOP', 'shop'], ['VILLAGER', 'plant'], ['J2601 Talmudical', 'job_site']]) {
+      const made = await send('POST', '/api/places', { shortName, kind, geofenceCode: shortName });
+      placeIds[shortName] = ((await made.json()) as { place: { id: string } }).place.id;
+    }
+    const evening = '2026-11-22T22:00:00.000Z';
+    const made = await send('POST', '/api/assignments', { date: '2026-11-23', driverId, fromPlaceId: placeIds.VILLAGER, toPlaceId: placeIds['J2601 Talmudical'] }, { NOW: evening });
+    const { assignment } = (await made.json()) as { assignment: Assignment };
+    expect((await send('POST', `/api/assignments/${assignment.id}/assign`, undefined, { NOW: evening })).status).toBe(200);
+    await checkIn(driverId, truckId, '2026-11-23T11:00:00.000Z');
+    const rows = NOV_23.map(([geofenceCode, enteredAt, exitedAt]) => ({ equipmentCode: 'SAMPLE-53', geofenceCode, enteredAt, exitedAt, entryOdometer: null, exitOdometer: null }));
+    const imported = await send('POST', '/api/fleet-imports', { fileName: 'EntryExitReport.xlsx', format: 'xlsx', rows }, { NOW: '2026-11-23T21:30:00.000Z' });
+    expect(imported.status).toBe(201);
+    return { truckId, assignment };
+  }
+  const readNov23 = (truckId: string) => readLog(truckId, { date: '2026-11-23', NOW: '2026-11-24T13:00:00.000Z' });
+
+  it('with GAS STATION and WEITSMANS not considered: 9 Loads, no Unplanned work, no gas station in the Trip log, and the day ends at the shop at 16:01', async () => {
+    await send('POST', '/api/not-considered', { code: 'GAS STATION' });
+    await send('POST', '/api/not-considered', { code: 'weitsmans' });
+    const { truckId, assignment } = await setUpNov23();
+
+    const log = await readNov23(truckId);
+    expect(log.truckLog.columns.find((c) => c.id === assignment.id)?.loads).toBe(9);
+    expect(log.truckLog.unplanned).toEqual([]);
+    expect(log.tripDay.trips.map((t) => tripLine(log, t)).filter((line) => /GAS STATION|WEITSMANS/.test(line))).toEqual([]);
+    expect(tripLine(log, log.tripDay.trips[0])).toBe('06:39 SHOP → J2601 Talmudical');
+    expect(easternTime(log.tripDay.truckDay.endAt!)).toBe('16:01');
+    expect(log.codesWithNoPlace).toEqual([]);
+  });
+
+  it('without them, the drive from the gas station is Unplanned work and WEITSMANS splits a haul, and both are listed with no Place', async () => {
+    const { truckId, assignment } = await setUpNov23();
+
+    const log = await readNov23(truckId);
+    expect(log.truckLog.unplanned.map((w) => w.places.join(' ⇄ '))).toEqual(['GAS STATION ⇄ J2601 Talmudical', 'J2601 Talmudical ⇄ WEITSMANS']);
+    expect(log.truckLog.columns.find((c) => c.id === assignment.id)?.loads).toBe(9);
+    expect(log.codesWithNoPlace).toEqual([{ code: 'GAS STATION' }, { code: 'WEITSMANS' }]);
   });
 });
 

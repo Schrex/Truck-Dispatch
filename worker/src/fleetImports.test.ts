@@ -246,24 +246,27 @@ describe('The days an Import touched', () => {
 });
 
 describe('Codes with no Place', () => {
-  it('lists "sunset" from the 16 Nov JSON, marked drive-through, and stores its visits', async () => {
+  it('leaves out "sunset" from the 16 Nov JSON, on the Not considered list, and stores its visits', async () => {
     const { truckId } = await setUpTruck55(send);
     const { import: made } = (await (await importFile('2026-11-16-1502.json')).json()) as { import: FleetImport };
-    expect(made.codesWithNoPlace).toEqual([{ code: 'sunset', driveThrough: true }]);
+    expect(made.codesWithNoPlace).toEqual([]);
     expect((await storedVisits(truckId)).filter((v) => v.geofenceCode === 'sunset')).toHaveLength(2);
   });
 
-  it('lists a code with no Place where the Truck stopped without the drive-through mark', async () => {
+  it('lists a code with no Place and not on the Not considered list, however short the visits there', async () => {
     await setUpTruck55(send);
     // The Villager plant's visits, as if no Place had its code yet.
     const rows = fleetRows('2026-11-16-1502.json').map((r) => (r.geofenceCode === 'VILLAGER' ? { ...r, geofenceCode: 'BROCKPORT' } : r));
     const response = await send('POST', '/api/fleet-imports', { fileName: 'brockport.json', format: 'json', rows }, { NOW: AFTERNOON });
     expect(response.status).toBe(201);
     const { import: made } = (await response.json()) as { import: FleetImport };
-    expect(made.codesWithNoPlace).toEqual([
-      { code: 'BROCKPORT', driveThrough: false },
-      { code: 'sunset', driveThrough: true },
-    ]);
+    expect(made.codesWithNoPlace).toEqual([{ code: 'BROCKPORT' }]);
+
+    // Off the list, "sunset" (61 s each time) is listed like any other code.
+    const [sunset] = ((await (await send('GET', '/api/not-considered')).json()) as { 'not-considered': { id: string }[] })['not-considered'];
+    await send('PATCH', `/api/not-considered/${sunset.id}`, { active: false });
+    const again = await send('POST', '/api/fleet-imports', { fileName: 'brockport.json', format: 'json', rows }, { NOW: AFTERNOON });
+    expect(((await again.json()) as { import: FleetImport }).import.codesWithNoPlace).toEqual([{ code: 'BROCKPORT' }, { code: 'sunset' }]);
   });
 
   it('lists none when every code has a Place, matching codes whatever their case', async () => {
