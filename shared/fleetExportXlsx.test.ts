@@ -63,6 +63,30 @@ describe('Reading an xlsx Fleet export', () => {
     expect(rows[0]).toMatchObject({ enteredAt: '2026-07-01T10:24:46.000Z', exitedAt: '2026-07-01T17:05:00.000Z' });
   });
 
+  it('leaves a visit open when the Truck is still there and Fleet left its Exit Time blank', () => {
+    // As exported on 23 Nov in the evening: the Truck back at the shop at 4:20 PM, still inside.
+    const rows = readFleetXlsx(
+      [
+        ['Location Code', 'Location Description', 'Entry Time', 'Exit Time', 'Duration', 'Calculated Mileage'],
+        ['Entry Date: 11/23/2026', null, null, null, null, null],
+        ['J2601 Talmudical', 'Talmudical Institue', '12:38:53 PM', '12:58:32 PM', 0.33, 0.2],
+        ['SHOP', 'Our shop and equipment yard', '04:20:36 PM', null, 6.48, 0.1],
+      ],
+      'MCK-59-27',
+    );
+    expect(rows).toEqual([
+      { equipmentCode: 'MCK-59-27', geofenceCode: 'J2601 Talmudical', enteredAt: '2026-11-23T17:38:53.000Z', exitedAt: '2026-11-23T17:58:32.000Z', entryOdometer: null, exitOdometer: null },
+      { equipmentCode: 'MCK-59-27', geofenceCode: 'SHOP', enteredAt: '2026-11-23T21:20:36.000Z', exitedAt: null, entryOdometer: null, exitOdometer: null },
+    ]);
+  });
+
+  it('still refuses a row with no Entry Time, or an Exit Time that is not a time', () => {
+    const header = ['Location Code', 'Location Description', 'Entry Time', 'Exit Time', 'Duration', 'Calculated Mileage'];
+    const day = ['Entry Date: 11/23/2026', null, null, null, null, null];
+    expect(() => readFleetXlsx([header, day, ['SHOP', null, null, '04:20:36 PM', 1, 0]], 'MCK-59-27')).toThrow(/Row 3/);
+    expect(() => readFleetXlsx([header, day, ['SHOP', null, '04:20:36 PM', 'soon', 1, 0]], 'MCK-59-27')).toThrow(/Row 3/);
+  });
+
   it('refuses a sheet that is not the entry/exit report, with a reason', () => {
     expect(() => readFleetXlsx([['Name', 'Phone']], 'MCK-55-17')).toThrow(/entry\/exit report/i);
     expect(() => readFleetXlsx([['Location Code', 'Location Description', 'Entry Time', 'Exit Time', 'Duration', 'Calculated Mileage']], 'MCK-55-17')).toThrow(/no entry\/exit rows/i);

@@ -102,7 +102,8 @@ interface XlsxVisit {
   date: string;
   geofenceCode: string;
   entry: number;
-  exit: number;
+  /** Null when Fleet left Exit Time blank: the Truck is still there. */
+  exit: number | null;
 }
 
 /**
@@ -112,7 +113,7 @@ interface XlsxVisit {
  * Its layout: a header row (Location Code, Location Description, Entry Time,
  * Exit Time, Duration, Calculated Mileage); an "Entry Date: M/D/YYYY" row
  * starting each day; then a row per visit, its times "hh:mm:ss AM" in US
- * Eastern.
+ * Eastern. A blank Exit Time is a visit still open when the report was run.
  */
 function xlsxVisits(sheet: FleetSheet): XlsxVisit[] {
   const [header, ...rows] = sheet;
@@ -130,8 +131,9 @@ function xlsxVisits(sheet: FleetSheet): XlsxVisit[] {
     }
     if (row.every((cell) => cell == null || cell === '')) return;
     const entry = wallTime(row[2]);
-    const exit = wallTime(row[3]);
-    if (!firstCell || entry === null || exit === null) {
+    const stillThere = row[3] == null || (typeof row[3] === 'string' && row[3].trim() === '');
+    const exit = stillThere ? null : wallTime(row[3]);
+    if (!firstCell || entry === null || (exit === null && !stillThere)) {
       throw new Error(`Row ${i + 2} has no Location Code, Entry Time or Exit Time. Is this the HCSS Fleet entry/exit report?`);
     }
     if (date === null) throw new Error(`Row ${i + 2} comes before any "Entry Date" row. Is this the HCSS Fleet entry/exit report?`);
@@ -167,6 +169,10 @@ export function readFleetXlsx(sheet: FleetSheet, equipmentCode: string): FleetEx
   const code = equipmentCode.trim();
   const at = (day: string, seconds: number) => easternMoment(day, Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60);
   return visits.map((visit, i) => {
+    if (visit.exit === null) {
+      // Exit Time blank: the Truck is still there, so the visit is open; a later Import closes it.
+      return { equipmentCode: code, geofenceCode: visit.geofenceCode, enteredAt: at(visit.date, visit.entry), exitedAt: null, entryOdometer: null, exitOdometer: null };
+    }
     let exitedAt: string | null = at(visit.date, visit.exit);
     if (visit.exit === 0) {
       // Exit 12:00:00 AM: the visit ran to the end of its day.
