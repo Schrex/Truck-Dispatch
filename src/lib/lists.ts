@@ -8,6 +8,7 @@ const DISPLAY: { [L in ListName]: (entry: Lists[L]) => string } = {
   places: (place) => place.shortName,
   materials: (material) => material.name,
   foremen: (foreman) => foreman.name,
+  customers: (customer) => customer.name,
   'inspection-items': (item) => item.label,
 };
 
@@ -19,6 +20,7 @@ export const LIST_TITLES: Record<ListName, string> = {
   places: 'Places',
   materials: 'Materials',
   foremen: 'Foremen',
+  customers: 'Customers',
   'inspection-items': 'Inspection checklist',
 };
 
@@ -50,10 +52,9 @@ export function choicesOf<L extends ListName>(list: L, entries: Lists[L][] | nul
 }
 
 /**
- * Which of an Assignment's Places its Foreman is named beside, as in
- * "TIUNY (Brody)": the drop-off if it is a job site, otherwise the pick-up if
- * that is one, the same rule that fills in the usual Foreman; null when
- * neither is a job site.
+ * Which of an Assignment's Places gives the usual Foreman the composer fills
+ * in as For: the drop-off if it is a job site, otherwise the pick-up if that
+ * is one; null when neither is a job site.
  */
 export function foremanSite(fromIsJobSite: boolean, toIsJobSite: boolean): 'from' | 'to' | null {
   return toIsJobSite ? 'to' : fromIsJobSite ? 'from' : null;

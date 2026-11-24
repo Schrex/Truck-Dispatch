@@ -5,7 +5,7 @@ How Dave plans each driver's day and how the work they actually do becomes a tru
 ## Planning
 
 **Assignment**:
-One piece of work given to one Driver for one day, e.g. haul 2" minus from Villager to TIUNY. It covers any number of Loads. The same work for two Drivers is two Assignments, one each, made together but separate from then on. A Driver's Assignments for a day are done in an order Dave sets. Dave can cancel one; a cancelled Assignment is kept and the Driver sees it was cancelled. Each of them can then clear it out of his own view (Dave discards it, the Driver dismisses it) without hiding it from the other; it is still kept. Its day never changes once it exists. Once it is Assigned, giving it to another Driver cancels it and adds a new one for that Driver. Whether one has started or finished comes from the Truck, never from Dave or the Driver.
+One piece of work given to one Driver for one day, e.g. haul 2" minus from Villager to TIUNY. Each is one kind of work, a Haul (the default), a Move or Other, and its kind decides which of its fields it uses. It covers any number of Loads. The same work for two Drivers is two Assignments, one each, made together but separate from then on. A Driver's Assignments for a day are done in an order Dave sets. Dave can cancel one; a cancelled Assignment is kept and the Driver sees it was cancelled. Each of them can then clear it out of his own view (Dave discards it, the Driver dismisses it) without hiding it from the other; it is still kept. Its day never changes once it exists. Once it is Assigned, giving it to another Driver cancels it and adds a new one for that Driver. Whether one has started or finished comes from the Truck, never from Dave or the Driver.
 _Avoid_: task, order (the paper Truck log's word), work order, dispatch, dispatch order, job
 
 **Unassigned**:
@@ -35,8 +35,32 @@ A weekday that is not one of the six Holidays (New Year's Day, Memorial Day, Ind
 A person who drives a company Truck and receives Assignments. Each has a usual Truck; an Assignment names a Truck only when the work needs a certain one, otherwise it names none ("His own") and the Driver takes his usual Truck.
 
 **Foreman**:
-The person running a Job on a given day. Changes from day to day, so an Assignment names one, not a Place. A job-site Place can have a usual Foreman, who is suggested for new Assignments that drop off there, or pick up there when the drop-off is not a job site.
+The person running a Job on a given day. Changes from day to day, so an Assignment names one as its For, not a Place. An Assignment names a Foreman or a Customer as its For, never both. A job-site Place can have a usual Foreman, who is suggested as the For of a new Assignment that drops off there, or picks up there when the drop-off is not a job site, until Dave picks or types a For himself. New Foremen are added only in Settings.
 _Avoid_: project lead, super
+
+**For**:
+Whose work an Assignment is: a Foreman or a Customer, one field picked from both lists ("Nate hauling for Jaus"), or typed. A typed For is a Foreman if one has that name, else a Customer, else a new Customer. Blank is allowed. A Customer is tagged "Customer" wherever For is shown.
+_Avoid_: client, owner, foreman (for a Customer)
+
+**At**:
+The Place an Assignment's Truck works at, usually the Job site, when Dave says where without planning a route ("hauling for Brody at TIUNY"). Optional, picked from the Places or typed (a typed one is found, brought back or added, as a From or To is), and usable beside From and To ("at TIUNY, asphalt to Villager"). Picking a For fills an empty At with its usual Place: a Customer's usual Place, or the one active job site a Foreman is the usual Foreman of. An At Dave chose is never overwritten, and an At never suggests a For.
+_Avoid_: site, location, job
+
+**Haul**:
+The usual kind of Assignment: hauling material, with a For, At, Material, From and To, each optional. Every Assignment is a Haul unless Dave picks another kind; every one made before there were kinds is a Haul.
+_Avoid_: load (a Load is one trip's worth), job
+
+**Move**:
+An Assignment that moves a piece of equipment, typically on a lowboy: a machine typed as Dave writes it ("the 260 + big bucket"), with From and To, and no Material, For or At. Never counted as Loads. Changing an Assignment from one kind to another clears what the new kind does not use, after Dave confirms. Its From → To Trips are Move Trips.
+_Avoid_: lowboy (the trailer, not the work), transfer, haul (for a Move)
+
+**Other**:
+An Assignment that is not a haul or a move, such as a shop day, standby, water truck or vac truck work: the Driver, a named Truck if any, and a line of text (its note), e.g. "Shop, on deck". No For, At, Material, From, To or machine. Start from and Copy to keep its text, as it is its whole content. Its Trips count as not a haul: while it is live, the Driver's Trips that fit no other Assignment count on it, toward its Now / Done and Trucking hours, never Loads.
+_Avoid_: note (for the Assignment itself), misc, non-haul
+
+**Customer**:
+Someone outside the company we haul for, e.g. Jaus; never a Foreman. Kept in Settings beside Foremen, each with an optional usual Place where their work usually is, which picking them fills in as At. No name is both a Foreman's and a Customer's (ignoring case, removed ones included).
+_Avoid_: client, contractor
 
 ## Trucks
 
@@ -79,21 +103,27 @@ Anywhere a Truck loads, dumps or parks: a plant, a job site, the shop, a yard.
 _Avoid_: site, location, geofence
 
 **Job**:
-A construction project with a job number. A Job can have more than one Place; a Place belongs to at most one Job. An Assignment's Job is the Job of its drop-off, or of its pick-up when the drop-off belongs to none.
+A construction project with a job number. A Job can have more than one Place; a Place belongs to at most one Job. An Assignment's Job is the Job of its To, then of its At, then of its From: the first that belongs to a Job.
 _Avoid_: site, project
 
 ## Work
 
 **Trip**:
-One movement of a Truck from one Place to another, as the Truck records it, loaded or empty. Nobody enters Trips.
+One movement of a Truck from one Place to another, as the Truck records it, loaded or empty. Nobody enters Trips. A Trip is a Load, an empty, an At Trip, a Move Trip, or not a haul (on an Other, or once Dave says so).
 _Avoid_: run, leg
+
+**Move Trip**:
+A Trip from a Move's From to its To: the machine on the lowboy. It counts toward Now / Done and Trucking hours, never toward Loads. The drive to the Move's From and the way back are its empties.
 
 **Load**:
 A Trip carrying material from a pickup Place to a drop Place. Counted from the Truck and tickets, never entered by Dave.
 _Avoid_: run
 
+**At Trip**:
+A Trip that starts or ends at the At of an Assignment with no From or To. It counts toward Now / Done and Trucking hours, never toward Loads: the Truck cannot tell which way material went, and round trips cannot give a true count, so its Loads come from Tickets. With a From or a To, At fills the missing end instead and the Trips are Loads as usual.
+
 **Unplanned work**:
-Trips in a row that a Truck made and no Assignment explains, taken as one piece of work for Dave to answer: make an Assignment for it, link it to an Assignment, or say it was not a haul. The Truck cannot tell which way material went, so where it was loaded is Dave's to say.
+Trips in a row that a Truck made and no Assignment explains, taken as one piece of work for Dave to answer: make an Assignment for it, link it to an Assignment, or say it was not a haul. The Truck cannot tell which way material went, so where it was loaded is Dave's to say. While the Driver is on an Other, the Trips nothing else fits count on that Other as not a haul instead, so a shop day is never Unplanned work.
 _Avoid_: extra job, side job, unassigned trip, Trips with no Assignment
 
 **Which Assignment?**:

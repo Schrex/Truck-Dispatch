@@ -18,7 +18,7 @@ These stories record what phase 1 had to do and why ("so that…"). They are kep
 5. As Dave, I want a lane's blocks in the order I set, marked First and Then (a cancelled one neither, as it is off the day), so that the Driver knows what to do first.
 6. As Dave, I want no Now, "since 7:05", Busy or Free on the board yet, so that the board never claims to know progress it cannot see.
 7. As Dave, I want an empty lane to say "Nothing planned yet", so that I can tell an empty day from one still loading.
-8. As Dave, I want a block for a job site to show its Foreman, as in "TIUNY (Brody)", so that I know who is running the work.
+8. As Dave, I want a block to lead with whom the work is for, its Foreman or a Customer, and where the Truck works, as in "For Brody" over "at TIUNY · Asphalt · → Villager", so that I know who is running the work and where. (First built as "TIUNY (Brody)" beside the job site; spec #118 made it For and At.)
 9. As Dave, I want a cancelled Assignment to stay in its place, struck through and greyed, so that I see what the Driver sees and can put it back.
 10. As Dave, I want the board to fit an iPad in portrait and a phone, so that I can plan from either.
 
@@ -36,7 +36,7 @@ These stories record what phase 1 had to do and why ("so that…"). They are kep
 20. As Dave, I want "Note or other truck" to show the Truck chips and the note, so that the common case stays short.
 21. As Dave, I want the Truck to default to "His own", so that I only pick a Truck when the work needs a certain one.
 22. As Dave, I want the Foreman filled from the drop-off's usual Foreman if it is a job site, otherwise the pick-up's, and changeable, so that I do not pick Brody every time, hauling out of TIUNY still names him, and I can still name Mike on Tuesday.
-23. As Dave, I want a sentence preview ("Randy hauls 2" minus from Villager to TIUNY (Brody)"), so that I can check what I am about to save.
+23. As Dave, I want a sentence preview ("Randy hauls for Brody · 2" minus from Villager to TIUNY"), so that I can check what I am about to save.
 24. As Dave, I want Save allowed with only the day, so that I can jot down work before I know the details.
 25. As Dave, I want the new Assignment placed last in its lane, so that adding work never reshuffles the day.
 26. As Dave, I want the composer to fold when I Save and every **+** to open a blank one, so that the lane is tidy and one Driver's work is never carried into the next Driver's by mistake. To give the same haul to several Drivers, I pick them in "Who?" and Save once: each gets his own Draft.

@@ -6,7 +6,7 @@ import { notConsideredCodes } from './geofences';
 import { LATEST_INSPECTIONS } from './inspectionQueries';
 import { json, refuse } from './http';
 import { DAY_END, addDays, easternMoment, easternTime, isCalendarDate, minuteClock } from '../../shared/days';
-import { buildTripDay, routeAt, type FleetVisit, type TripAssignment, type TripJob, type TripPlace, type TruckCheckIn, type TruckDayInput } from '../../shared/trips';
+import { buildTripDay, routeAt, savedRoute, type FleetVisit, type Route, type TripAssignment, type TripJob, type TripPlace, type TruckCheckIn, type TruckDayInput } from '../../shared/trips';
 import { truckLog, truckLogLanes } from '../../shared/truckLog';
 import type { Assignment, AssignmentTripPart, DayTruck, TruckLogDay } from '../../shared/types';
 
@@ -157,15 +157,15 @@ async function storedTruckDay(env: Env, truck: StoredTruck, date: string, at: st
   const changesOf = (id: string) =>
     (changes.results as unknown as { id: string; changedAt: string; before: string }[])
       .filter((c) => c.id === id)
-      .map((c) => {
-        const before = JSON.parse(c.before) as { fromPlaceId: string | null; toPlaceId: string | null };
-        return { changedAt: c.changedAt, before: { fromPlaceId: before.fromPlaceId ?? null, toPlaceId: before.toPlaceId ?? null } };
-      });
+      .map((c) => ({ changedAt: c.changedAt, before: savedRoute(JSON.parse(c.before) as Partial<Route>) }));
   const tripAssignments: TripAssignment[] = assignmentRows.map((a) => ({
     id: a.id,
     label: labels[a.id],
     fromPlaceId: a.fromPlaceId,
     toPlaceId: a.toPlaceId,
+    atPlaceId: a.atPlaceId,
+    work: a.work,
+    note: a.note,
     cancelledAt: a.cancelledAt,
     changes: changesOf(a.id),
     driverId: a.driverId,
@@ -201,7 +201,16 @@ async function storedTruckDay(env: Env, truck: StoredTruck, date: string, at: st
     .filter((a) => !discardedIds.has(a.id) && (namesTruck(a) || hasTrips(a)))
     .map((row): Assignment => {
       const route = routeAt(tripAssignments.find((t) => t.id === row.id)!, moment);
-      return { ...marked(row), fromPlaceId: route.fromPlaceId, fromPlaceName: placeName(route.fromPlaceId), toPlaceId: route.toPlaceId, toPlaceName: placeName(route.toPlaceId) };
+      return {
+        ...marked(row),
+        fromPlaceId: route.fromPlaceId,
+        fromPlaceName: placeName(route.fromPlaceId),
+        toPlaceId: route.toPlaceId,
+        toPlaceName: placeName(route.toPlaceId),
+        atPlaceId: route.atPlaceId,
+        atPlaceName: placeName(route.atPlaceId),
+        work: route.work,
+      };
     });
   const { assignments, ...log } = truckLog({ tripDay, places: tripPlaces, assignments: shown, labels });
 

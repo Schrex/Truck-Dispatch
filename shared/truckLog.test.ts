@@ -9,14 +9,14 @@ const placeName = (id: string | null) => FIXTURE_PLACES.find((p) => p.id === id)
 const scenario = (id: string) => FIXTURE_SCENARIOS.find((s) => s.id === id)!.assignments;
 
 /** The real 16 Nov day under a scenario, as the Truck log shows it at `now`. */
-const logOf = (id: string, now = END_OF_DAY) => {
-  const planned = scenario(id);
+const logOf = (id: string, now = END_OF_DAY, planned = scenario(id)) => {
   const tripDay = buildTripDay({ places: FIXTURE_PLACES, notConsidered: FIXTURE_NOT_CONSIDERED, visits: FIXTURE_VISITS, assignments: planned, now });
   const assignments: TruckLogAssignment[] = planned.map((a) => ({
     id: a.id,
     fromPlaceName: placeName(a.fromPlaceId),
     toPlaceName: placeName(a.toPlaceId),
     materialName: 'Stone',
+    work: a.work,
   }));
   const labels = Object.fromEntries(planned.map((a) => [a.id, a.label]));
   return truckLog({ tripDay, places: FIXTURE_PLACES, assignments, labels });
@@ -58,5 +58,12 @@ describe('The Truck log on the real day (Mon 16 Nov 2026)', () => {
     const log = logOf('two', '2026-11-16T06:00:59-05:00');
     expect(log.columns.map((c) => [c.loads, c.truckingHours])).toEqual([[0, null], [0, null]]);
     expect(log.shopTrips).toEqual([]);
+  });
+
+  it('marks a Move’s and an Other’s column with its kind, so it shows no Loads; a Haul’s is unmarked', () => {
+    const [a1, a2] = scenario('two');
+    const other = { ...a2, id: 'o1', label: 'O1', work: 'other' as const, fromPlaceId: null, toPlaceId: null, note: 'Shop, on deck' };
+    const log = logOf('two', END_OF_DAY, [{ ...a1, work: 'move' }, a2, other]);
+    expect(log.columns.map((c) => c.work)).toEqual(['move', undefined, 'other']);
   });
 });

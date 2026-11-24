@@ -75,6 +75,18 @@ export interface Foreman {
 }
 
 /**
+ * Someone outside the company we haul for, e.g. Jaus; never a Foreman. No
+ * name is both a Foreman's and a Customer's, ignoring case.
+ */
+export interface Customer {
+  id: string;
+  name: string;
+  /** The Place their work usually is at, which picking them fills in as At; null when their sites change. Picked from the Places in use. */
+  usualPlaceId: string | null;
+  active: boolean;
+}
+
+/**
  * One line of the Inspection checklist ("Lights"), kept in Settings. A Driver
  * may leave an optional item unanswered.
  */
@@ -109,6 +121,7 @@ export interface Lists {
   places: Place;
   materials: Material;
   foremen: Foreman;
+  customers: Customer;
   'inspection-items': InspectionItem;
 }
 export type ListName = keyof Lists;
@@ -138,10 +151,50 @@ export interface NewAssignment {
   truckId?: string | null;
   fromPlaceId?: string | null;
   toPlaceId?: string | null;
+  /** At: the Place the Truck works at, usually the Job site; optional, beside From and To. */
+  atPlaceId?: string | null;
   materialId?: string | null;
+  /** For, when it is a Foreman: at most one of foremanId and customerId; setting one clears the other. */
   foremanId?: string | null;
+  /** For, when it is a Customer. */
+  customerId?: string | null;
   note?: string | null;
+  /** The kind of work: Haul when left out on add. */
+  work?: Work;
+  /** A Move's machine, as typed ("the 260 + big bucket"); at most 100 characters. */
+  machine?: string | null;
 }
+
+/**
+ * The kinds of work an Assignment is (stored as `work`, since `kind` already
+ * means a Place's and a Trip's): a Haul (the default), a Move (an equipment
+ * move: a typed machine From → To, never Loads) or Other.
+ */
+export const WORKS = ['haul', 'move', 'other'] as const;
+export type Work = (typeof WORKS)[number];
+
+/** Each kind's word, wherever it is shown or said: its pill, the Kind toggle, "Switch to Move?", a refusal. */
+export const WORK_WORDS: Record<Work, string> = { haul: 'Haul', move: 'Move', other: 'Other' };
+
+/** The fields that only some kinds use. The Driver, Truck and note are every kind's. */
+export type WorkField = 'for' | 'at' | 'material' | 'from' | 'to' | 'machine';
+
+/**
+ * Which of those fields each kind uses. A save that changes the kind clears
+ * the rest; one that keeps it is refused if it sets one of the rest.
+ */
+export const WORK_FIELDS: Record<Work, readonly WorkField[]> = {
+  haul: ['for', 'at', 'material', 'from', 'to'],
+  move: ['machine', 'from', 'to'],
+  other: [],
+};
+
+/**
+ * Each of those fields' word, as a sentence says it ("A Move has no Material",
+ * "machine was D6"): the glossary's word, the machine in lower case as it is
+ * no glossary word.
+ */
+export const WORK_FIELD_WORDS: Record<WorkField, string> = { for: 'For', at: 'At', material: 'Material', from: 'From', to: 'To', machine: 'machine' };
 
 /**
  * What the page sends to add an Assignment. With `alsoDriverIds` the same
@@ -157,15 +210,21 @@ export type AddAssignment = NewAssignment & TypedNames & { alsoDriverIds?: strin
 export type AssignmentChange = Partial<Omit<NewAssignment, 'date'> & TypedNames>;
 
 /**
- * A Place or Material an Assignment may give by name instead of by id, when
- * adding or changing it: the Worker links the entry with that name, ignoring
- * case, bringing a removed one back, or adds a new one. A Place added this way
- * has no kind yet.
+ * A Place, Material or For an Assignment may give by name instead of by id,
+ * when adding or changing it: the Worker links the entry with that name,
+ * ignoring case, bringing a removed one back, or adds a new one. A Place added
+ * this way has no kind yet.
  */
 export interface TypedNames {
   fromPlaceName?: string | null;
   toPlaceName?: string | null;
+  atPlaceName?: string | null;
   materialName?: string | null;
+  /**
+   * For, typed: a Foreman (active, then removed, brought back), else a
+   * Customer (likewise), else a new Customer. Never a new Foreman.
+   */
+  forName?: string | null;
 }
 
 /** One piece of work given to one Driver for one day, with the names of its Driver, Truck and Places resolved. */
@@ -182,11 +241,22 @@ export interface Assignment {
   toPlaceId: string | null;
   /** The To Place's short name. */
   toPlaceName: string | null;
+  /** At: where the Truck works, by the Place's short name. */
+  atPlaceId: string | null;
+  atPlaceName: string | null;
   materialId: string | null;
   materialName: string | null;
+  /** For, when it is a Foreman; then customerId is null. */
   foremanId: string | null;
   foremanName: string | null;
+  /** For, when it is a Customer; then foremanId is null. */
+  customerId: string | null;
+  customerName: string | null;
   note: string | null;
+  /** The kind of work: Haul, Move or Other. Every Assignment made before there were kinds is a Haul. */
+  work: Work;
+  /** A Move's machine, as typed; null on any other kind. */
+  machine: string | null;
   /**
    * Its place in its lane (its date and Driver, or Unassigned), from 0: the
    * order Dave wants the work done. Ties are read in the order they were added.
@@ -241,8 +311,8 @@ export type TripStatus = 'now' | 'done' | 'none';
 
 /** An Assignment's Trips as the screens show them, at one moment of the day. */
 export interface AssignmentTripPart {
-  /** Loads hauled on it so far. */
-  loads: number;
+  /** Loads hauled on it so far; null for an At-only Haul (At, no From or To), whose Loads come from Tickets, shown blank "from Tickets". */
+  loads: number | null;
   /** The tons on its Loads' Tickets (phase 4); null until Tickets exist, shown blank "from Tickets". */
   tons: number | null;
   /** Now while the Truck's latest Trip is its and the Truck is not back at the shop; Done once it moved on; none before its first Trip. */
@@ -251,6 +321,8 @@ export interface AssignmentTripPart {
   since: string | null;
   /** Arrive time of its latest Load (ISO 8601), "last 11:25"; null before its first Load. */
   lastLoadAt: string | null;
+  /** A Move's only: arrive time of its latest Move Trip (ISO 8601), the machine there, "Done 8:15"; null before it. */
+  movedAt?: string | null;
   /** From leaving for its first Trip to arriving at the end of its last, loaded or empty, in hours; null before its first Trip. */
   truckingHours: number | null;
 }
@@ -339,7 +411,12 @@ export interface CopiedDay {
  * Assigned ("was Cobblestone"): only those that differ now, each with the
  * name it had then; null when it was empty (for the Truck, his own).
  */
-export type Was = Partial<Pick<Assignment, 'truckNumber' | 'fromPlaceName' | 'toPlaceName' | 'materialName' | 'foremanName' | 'note'>>;
+export type Was = Partial<
+  Pick<Assignment, 'truckNumber' | 'fromPlaceName' | 'toPlaceName' | 'atPlaceName' | 'materialName' | 'note' | 'work' | 'machine'> & {
+    /** For, one field across Foremen and Customers: the name of whichever it was (a Foreman's or a Customer's). */
+    forName: string | null;
+  }
+>;
 
 /** An Assignment as a Driver sees it: with what it was when Assigned, empty unless it is Changed. */
 export interface DriverAssignment extends Assignment {

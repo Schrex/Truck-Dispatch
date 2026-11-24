@@ -77,14 +77,14 @@ const AS_OF = '2026-11-16T21:25:00.000Z';
 /** The real day's Places, and Dave's two Assignments for Randy: A1 J25008 → Villager, A2 Walworth → J25008. */
 const [, J25008, VILLAGER, WALWORTH] = REAL_DAY.places.map((p) => p.id);
 const PLANNED: TripAssignment[] = [
-  { id: 'a1', label: 'A1', fromPlaceId: J25008, toPlaceId: VILLAGER, cancelledAt: null, changes: [] },
-  { id: 'a2', label: 'A2', fromPlaceId: WALWORTH, toPlaceId: J25008, cancelledAt: null, changes: [] },
+  { id: 'a1', label: 'A1', fromPlaceId: J25008, toPlaceId: VILLAGER, atPlaceId: null, work: 'haul', cancelledAt: null, changes: [] },
+  { id: 'a2', label: 'A2', fromPlaceId: WALWORTH, toPlaceId: J25008, atPlaceId: null, work: 'haul', cancelledAt: null, changes: [] },
 ];
 
 /** A1 and A2 as the Worker reads them, Assigned to Randy. */
 const shown = (id: string, fromPlaceName: string, toPlaceName: string, materialName: string): Assignment => ({
   id, date: '2026-11-16', driverId: 'drv-randy', driverName: 'Randy', truckId: null, truckNumber: null,
-  fromPlaceId: null, fromPlaceName, toPlaceId: null, toPlaceName, materialId: null, materialName, foremanId: null, foremanName: null, note: null,
+  fromPlaceId: null, fromPlaceName, toPlaceId: null, toPlaceName, atPlaceId: null, atPlaceName: null, materialId: null, materialName, foremanId: null, foremanName: null, customerId: null, customerName: null, note: null, work: 'haul', machine: null,
   position: 0, createdAt: '2026-11-15T22:00:00.000Z', updatedAt: '2026-11-15T22:00:00.000Z', changedAt: null, cancelledAt: null,
   assignedAt: '2026-11-15T22:00:00.000Z', handedFromId: null, sinceSent: null,
 });
@@ -449,8 +449,9 @@ describe('A stored day on the Fleet imports page', () => {
   });
 
   describe('the replay clock and the Scheduler and Driver views', () => {
-    const A1 = 'First · J25008 Los Flamboyanes → Villager · Fill · Truck 55 (his own)';
-    const A2 = 'Then · Walworth Dolomite → J25008 Los Flamboyanes · 1&2 stone · Truck 55 (his own)';
+    const A1 = 'First · Haul · J25008 Los Flamboyanes → Villager · Fill · Truck 55 (his own)';
+    const A2 = 'Then · Haul · Walworth Dolomite → J25008 Los Flamboyanes · 1&2 stone · Truck 55 (his own)';
+    // What each card says after its place in his day and its kind pill ("1 ·Haul") and its Loads.
     const CARD_A1 = 'FillPick upJ25008 Los FlamboyanesDrop offVillager';
     const CARD_A2 = '1&2 stonePick upWalworth DolomiteDrop offJ25008 Los Flamboyanes';
     const scheduler = () => screen.getByRole('region', { name: 'Scheduler view' });
@@ -492,7 +493,7 @@ describe('A stored day on the Fleet imports page', () => {
       expect(screen.getByText('end of day')).toBeTruthy();
       expect(clock().value).toBe(String(23 * 60 + 59));
       expect(randy()).toEqual([`${A1} · 4 Loads · Done · since 08:24`, `${A2} · 2 Loads · Done · since 11:30`]);
-      expect(cards()).toEqual([`4 Loads · last 11:25${CARD_A1}`, `2 Loads · last 13:54${CARD_A2}`]);
+      expect(cards()).toEqual([`1 ·Haul4 Loads · last 11:25${CARD_A1}`, `2 ·Haul2 Loads · last 13:54${CARD_A2}`]);
       expect(asked.at(-1)).toBeNull();
     });
 
@@ -503,7 +504,7 @@ describe('A stored day on the Fleet imports page', () => {
       await waitFor(() => expect(randy()).toEqual([`${A1} · 2 Loads · Now · since 08:24`, A2]));
       expect(asked.at(-1)).toBe('10:02');
       expect(screen.getByText('10:02')).toBeTruthy();
-      expect(cards()[0]).toMatch(/^Now2 Loads · last /);
+      expect(cards()[0]).toMatch(/^1 ·HaulNow2 Loads · last /);
       expect(columns()[0]).toMatchObject({ '# of loads': '2', 'Trucking hours': '1.59' });
       expect(header()).toMatchObject({ 'Start time': '06:24', 'End time': '' });
       expect(tripLog().every(([left]) => left! <= '10:02')).toBe(true);

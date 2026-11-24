@@ -7,11 +7,12 @@ import { handleFleetImports } from './fleetImports';
 import { handleGeofences } from './geofences';
 import { handlePaperLogs } from './paperLogs';
 import { driverTruck, handleTruckLogs, storedDay } from './truckLogs';
-import { exists, handleList, isActive, isList } from './lists';
-import { checkTyped, saveLinked, typedIn, type Typed } from './typedNames';
+import { exists, handleList, isActive, isList, TEXT_LIMIT } from './lists';
+import { checkTyped, idKeysOf, saveLinked, typedIn, type Typed } from './typedNames';
 import { DAY_ORDER, SELECT_ASSIGNMENT, marked, type AssignmentRow } from './assignmentQueries';
+import { copiedPlain, plainBefore, plainWas, type PlainColumn } from './plainColumns';
 import { addDays, dayState, draftsOn, holidayName, isCalendarDate, mondayOf, weekDates } from '../../shared/days';
-import { NOTE_LIMIT, type Assignment, type BusinessDay, type CopiedDay, type Day, type DriverAssignment, type DriverDay, type ListName, type NewAssignment, type TypedNames, type Was, type Week } from '../../shared/types';
+import { NOTE_LIMIT, type Assignment, type BusinessDay, type CopiedDay, type Day, type DriverAssignment, type DriverDay, type ListName, type NewAssignment, type TypedNames, type Was, type Week, type Work, type WorkField, WORK_FIELD_WORDS, WORK_FIELDS, WORK_WORDS, WORKS } from '../../shared/types';
 
 /** The JSON API under /api/ (or /truck-dispatch/api/). */
 export async function handleApi(request: Request, env: Env, route: string, query: URLSearchParams): Promise<Response> {
@@ -187,18 +188,44 @@ async function readDay(env: Env, date: string | null): Promise<Response> {
 }
 
 /**
+ * An Assignment's plain columns (see PlainColumn), declared once: each is
+ * read from a request as text, saved by adding ("Who?" too) and changing,
+ * carried by a handover, copied by Start from and Copy to as its `copy`
+ * says, kept before each change and compared for Changed. Its own checks
+ * go in validate. A new one is one line here.
+ */
+const PLAIN = [
+  { key: 'note', column: 'note', copy: { when: "a.work = 'other'" }, missing: null },
+  { key: 'work', column: 'work', copy: 'always', missing: 'haul' },
+  { key: 'machine', column: 'machine', copy: 'always', missing: null },
+] as const satisfies readonly (PlainColumn & { key: keyof NewAssignment & keyof Was })[];
+
+type PlainKey = (typeof PLAIN)[number]['key'];
+
+/**
  * The fields a Driver reads that can be shown as "was …": each by the id that
  * says whether it really changed (a rename is not a change) and the name the
- * Driver is shown. The note has no id; its text is both.
+ * Driver is shown. Plain columns (PLAIN) are compared as they are, and For
+ * as one field across its two lists (see forWas).
  */
 const WAS_FIELDS = [
   ['truckId', 'truckNumber'],
   ['fromPlaceId', 'fromPlaceName'],
   ['toPlaceId', 'toPlaceName'],
+  ['atPlaceId', 'atPlaceName'],
   ['materialId', 'materialName'],
-  ['foremanId', 'foremanName'],
-  ['note', 'note'],
 ] as const satisfies readonly (readonly [keyof Assignment, keyof Was])[];
+
+/**
+ * For, its Foreman or its Customer, as one value: which entry (so a rename is
+ * not a change, and a switch from Foreman Ed to Customer Jaus is one change)
+ * and its name. Values kept before there were Customers have no Customer.
+ */
+function forOf(values: Partial<Assignment>): { id: string | null; name: string | null } {
+  if (values.foremanId) return { id: `foremen:${values.foremanId}`, name: values.foremanName ?? null };
+  if (values.customerId) return { id: `customers:${values.customerId}`, name: values.customerName ?? null };
+  return { id: null, name: null };
+}
 
 /**
  * One Driver's Assignments on a day, for the Driver view: only those Dave has
@@ -240,8 +267,10 @@ async function readDriverDay(env: Env, driverId: string, date: string): Promise<
 
 /** The fields a Driver reads that are not as they were when Assigned, each with the name it had then. */
 function wasWhenAssigned(now: Assignment, before: Partial<Assignment>): Was {
-  const was: Was = {};
+  const was = plainWas(now, before, PLAIN) as Was;
   for (const [id, name] of WAS_FIELDS) if ((before[id] ?? null) !== now[id]) was[name] = (before[name] ?? null) as string | null;
+  const forThen = forOf(before);
+  if (forThen.id !== forOf(now).id) was.forName = forThen.name;
   return was;
 }
 
@@ -310,16 +339,19 @@ function isUnassigned(): Response {
  * The columns a copy takes from its source, each an entry of a list: kept
  * only while that entry is active, so a copy holds only what exists now (a
  * removed Driver's work goes to Unassigned). Named rather than skipped, so a
- * column a later migration adds is never copied by accident. The note, the
- * times and whether it was cancelled are not copied; the position is new.
+ * column a later migration adds is never copied by accident. Plain columns
+ * are copied as PLAIN declares (the note for Other only); the times and whether it
+ * was cancelled are not copied; the position is new.
  */
 const COPIED = [
   { column: 'driver_id', table: 'drivers' },
   { column: 'truck_id', table: 'trucks' },
   { column: 'from_place_id', table: 'places' },
   { column: 'to_place_id', table: 'places' },
+  { column: 'at_place_id', table: 'places' },
   { column: 'material_id', table: 'materials' },
   { column: 'foreman_id', table: 'foremen' },
+  { column: 'customer_id', table: 'customers' },
 ] as const;
 
 /**
@@ -370,13 +402,16 @@ async function copyTo(request: Request, env: Env, from: string): Promise<Respons
  * one statement, so work added meanwhile is never copied over.
  */
 async function copyOnto(env: Env, from: string, to: string): Promise<Response> {
-  const kept = COPIED.map(({ column, table }) => `(SELECT id FROM ${table} WHERE id = a.${column} AND active = 1) AS ${column}`);
+  const kept = [
+    ...COPIED.map(({ column, table }) => `(SELECT id FROM ${table} WHERE id = a.${column} AND active = 1) AS ${column}`),
+    ...copiedPlain(PLAIN),
+  ];
   const { results: sources } = await env.DB.prepare(
     `SELECT ${kept.join(', ')} FROM assignments a LEFT JOIN drivers d ON d.id = a.driver_id
       WHERE a.date = ? AND a.cancelled_at IS NULL ${DAY_ORDER}`,
   )
     .bind(from)
-    .all<Record<(typeof COPIED)[number]['column'], string | null>>();
+    .all<Record<(typeof COPIED)[number]['column'], string | null> & Record<string, unknown>>();
   if (sources.length === 0) return json({ error: 'nothing_to_copy', message: 'That day has no Assignments to copy.' }, 409);
 
   // A fresh position in each lane, in the source's order; a removed Driver's work joins Unassigned.
@@ -386,7 +421,7 @@ async function copyOnto(env: Env, from: string, to: string): Promise<Response> {
     lanes.set(source.driver_id, position + 1);
     return { ...source, id: crypto.randomUUID(), position };
   });
-  const columns = [...COPIED.map(({ column }) => column), 'id', 'position'];
+  const columns = [...COPIED.map(({ column }) => column), ...PLAIN.filter((p) => 'copy' in p).map((p) => p.column), 'id', 'position'];
   const now = clock(env).now.toISOString();
   const { meta } = await env.DB.prepare(
     `INSERT INTO assignments (date, created_at, updated_at, ${columns.join(', ')})
@@ -442,11 +477,11 @@ async function changeAssignment(request: Request, env: Env, id: string): Promise
   if (!existing) return json({ error: 'not_found' }, 404);
   if (isPast(env, existing.date)) return onPastDay();
   if (existing.cancelledAt) return isCancelled();
-  const read = await readChange(request, env, existing.date);
+  const read = await readChange(request, env, existing);
   if (read instanceof Response) return read;
 
   const changes = { ...read.changes };
-  for (const { field } of read.typed) changes[field.idKey] = null; // Linked when saved.
+  for (const idKey of idKeysOf(read.typed)) changes[idKey] = null; // Linked when saved.
   const keys = Object.keys(changes) as ChangeKey[];
   if (keys.length === 0) return json({ assignment: existing });
 
@@ -511,11 +546,15 @@ async function changeAssignment(request: Request, env: Env, id: string): Promise
 const FIELDS_BEFORE = `SELECT json_object(
     'driverId', b.driver_id, 'driverName', d.name, 'truckId', b.truck_id, 'truckNumber', t.number,
     'fromPlaceId', b.from_place_id, 'fromPlaceName', pf.short_name, 'toPlaceId', b.to_place_id, 'toPlaceName', pt.short_name,
+    'atPlaceId', b.at_place_id, 'atPlaceName', pa.short_name,
     'materialId', b.material_id, 'materialName', m.name, 'foremanId', b.foreman_id, 'foremanName', f.name,
-    'note', b.note, 'position', b.position, 'cancelledAt', b.cancelled_at)
+    'customerId', b.customer_id, 'customerName', c.name,
+    ${plainBefore(PLAIN)}, 'position', b.position, 'cancelledAt', b.cancelled_at)
   FROM assignments b LEFT JOIN drivers d ON d.id = b.driver_id LEFT JOIN trucks t ON t.id = b.truck_id
   LEFT JOIN places pf ON pf.id = b.from_place_id LEFT JOIN places pt ON pt.id = b.to_place_id
+  LEFT JOIN places pa ON pa.id = b.at_place_id
   LEFT JOIN materials m ON m.id = b.material_id LEFT JOIN foremen f ON f.id = b.foreman_id
+  LEFT JOIN customers c ON c.id = b.customer_id
   WHERE b.id = assignments.id`;
 
 /**
@@ -698,14 +737,16 @@ const REFERENCES = [
   { key: 'truckId', column: 'truck_id', list: 'trucks', message: 'Pick a Truck from the list.' },
   { key: 'fromPlaceId', column: 'from_place_id', list: 'places', message: PICK_PLACE },
   { key: 'toPlaceId', column: 'to_place_id', list: 'places', message: PICK_PLACE },
+  { key: 'atPlaceId', column: 'at_place_id', list: 'places', message: PICK_PLACE },
   { key: 'materialId', column: 'material_id', list: 'materials', message: 'Pick a Material from the list.' },
   { key: 'foremanId', column: 'foreman_id', list: 'foremen', message: 'Pick a Foreman from the list.' },
+  { key: 'customerId', column: 'customer_id', list: 'customers', message: 'Pick a Customer from the list.' },
 ] as const satisfies readonly { key: keyof NewAssignment; column: string; list: ListName; message: string }[];
 
 type ReferenceKey = (typeof REFERENCES)[number]['key'];
 
-/** A field added to NewAssignment does not compile until it is declared in REFERENCES or handled like date and note. */
-type Undeclared = Exclude<keyof NewAssignment, 'date' | 'note' | ReferenceKey>;
+/** A field added to NewAssignment does not compile until it is declared in REFERENCES or PLAIN, or handled like date. */
+type Undeclared = Exclude<keyof NewAssignment, 'date' | ReferenceKey | PlainKey>;
 const everyFieldDeclared: [Undeclared] extends [never] ? true : Undeclared = true;
 void everyFieldDeclared;
 
@@ -713,15 +754,16 @@ void everyFieldDeclared;
  * An Assignment as a request sends it, checked and tidied. A Place or Material
  * it typed by name is linked only when it is saved (see saveLinked).
  */
-type ReadAssignment = { date: string; note: string | null; typed: Typed[]; alsoDriverIds: string[] } & Record<ReferenceKey, string | null>;
+type ReadAssignment = { date: string; typed: Typed[]; alsoDriverIds: string[] } & Record<ReferenceKey | PlainKey, string | null>;
 
 /** The columns adding an Assignment saves, in the order savedValues gives them. */
-const SAVED_COLUMNS = ['date', ...REFERENCES.map((r) => r.column), 'note'];
+const SAVED_COLUMNS = ['date', ...REFERENCES.map((r) => r.column), ...PLAIN.map((p) => p.column)];
 
 /** A field a change may send: any but the day, which is fixed. */
-type ChangeKey = ReferenceKey | 'note';
+type ChangeKey = ReferenceKey | PlainKey;
 
-const COLUMN_OF = Object.fromEntries([...REFERENCES.map((r) => [r.key, r.column]), ['note', 'note']]) as Record<ChangeKey, string>;
+/** Each field a change may send to its column: what a change sets and a handover carries. */
+const COLUMN_OF = Object.fromEntries([...REFERENCES, ...PLAIN].map((c) => [c.key, c.column])) as Record<ChangeKey, string>;
 
 /** The fields a change sends, checked and tidied (empty is null), and the names it typed. */
 interface ReadChange {
@@ -730,7 +772,7 @@ interface ReadChange {
 }
 
 function savedValues(read: ReadAssignment): (string | null)[] {
-  return [read.date, ...REFERENCES.map((r) => read[r.key]), read.note];
+  return [read.date, ...REFERENCES.map((r) => read[r.key]), ...PLAIN.map((p) => read[p.key])];
 }
 
 /** The Assignment a request sends, checked and tidied, or the response refusing it. */
@@ -738,14 +780,15 @@ async function readAssignment(request: Request, env: Env): Promise<ReadAssignmen
   const body = await readJson<Partial<NewAssignment & TypedNames> & { alsoDriverIds?: unknown }>(request);
   if (body instanceof Response) return body;
 
-  const errors = await checkFields(env, body);
+  // A new Assignment is a Haul unless it says otherwise.
+  const errors = await checkFields(env, body, body.work === undefined ? 'haul' : body.work);
   if (!isCalendarDate(body.date)) errors.date = PICK_DATE;
   else if (isPast(env, body.date)) errors.date = PAST_DAY.date;
   const also = await readAlso(env, body.alsoDriverIds, text(body.driverId) || null);
   if (typeof also === 'string') errors.alsoDriverIds = also;
   if (Object.keys(errors).length > 0) return refuse(errors);
-  const ids = Object.fromEntries(REFERENCES.map((r) => [r.key, text(body[r.key]) || null])) as Record<ReferenceKey, string | null>;
-  return { date: body.date as string, ...ids, note: text(body.note) || null, typed: typedIn(body), alsoDriverIds: also as string[] };
+  const fields = Object.fromEntries([...REFERENCES, ...PLAIN].map((c) => [c.key, text(body[c.key]) || null])) as Record<ReferenceKey | PlainKey, string | null>;
+  return { date: body.date as string, ...fields, work: fields.work ?? 'haul', typed: typedIn(body), alsoDriverIds: also as string[] };
 }
 
 /**
@@ -765,25 +808,76 @@ async function readAlso(env: Env, sent: unknown, driverId: string | null): Promi
  * The fields a change sends, checked and tidied, or the response refusing it.
  * A field left out is not in it; the day may be sent only as it already is.
  */
-async function readChange(request: Request, env: Env, date: string): Promise<ReadChange | Response> {
+async function readChange(request: Request, env: Env, existing: Assignment): Promise<ReadChange | Response> {
   const body = await readJson<Partial<NewAssignment & TypedNames>>(request);
   if (body instanceof Response) return body;
-  if (body.date !== undefined && body.date !== date) return dayFixed();
+  if (body.date !== undefined && body.date !== existing.date) return dayFixed();
 
-  const errors = await checkFields(env, body);
+  const work = 'work' in body ? body.work : existing.work;
+  const errors = await checkFields(env, body, work);
   if (Object.keys(errors).length > 0) return refuse(errors);
   const changes: ReadChange['changes'] = {};
   for (const key of Object.keys(COLUMN_OF) as ChangeKey[]) if (key in body) changes[key] = text(body[key]) || null;
+  // For is one of the two: picking a Foreman clears the Customer, and the other way round.
+  if (changes.foremanId) changes.customerId = null;
+  if (changes.customerId) changes.foremanId = null;
+  // A new kind clears, in the same save, every field it does not use.
+  if (work !== existing.work) for (const key of unusedColumns(work as Work)) changes[key] ??= null;
   return { changes, typed: typedIn(body) };
+}
+
+/**
+ * Each field only some kinds use (WORK_FIELDS): the request keys that set it
+ * and the fields a change of kind clears. A refusal names it by WORK_FIELD_WORDS.
+ */
+const WORK_FIELD_KEYS: Record<WorkField, { keys: readonly (keyof NewAssignment | keyof TypedNames)[]; clears: readonly ChangeKey[] }> = {
+  for: { keys: ['foremanId', 'customerId', 'forName'], clears: ['foremanId', 'customerId'] },
+  at: { keys: ['atPlaceId', 'atPlaceName'], clears: ['atPlaceId'] },
+  material: { keys: ['materialId', 'materialName'], clears: ['materialId'] },
+  from: { keys: ['fromPlaceId', 'fromPlaceName'], clears: ['fromPlaceId'] },
+  to: { keys: ['toPlaceId', 'toPlaceName'], clears: ['toPlaceId'] },
+  machine: { keys: ['machine'], clears: ['machine'] },
+};
+
+/** A kind as a refusal names it: "A Move has no Material."; Other takes no article. */
+const workSubject = (work: Work) => (work === 'other' ? WORK_WORDS.other : `A ${WORK_WORDS[work]}`);
+
+/** The fields a kind does not use. */
+function unusedFields(work: Work): WorkField[] {
+  return (Object.keys(WORK_FIELD_KEYS) as WorkField[]).filter((field) => !WORK_FIELDS[work].includes(field));
+}
+
+/** The fields an Assignment changed to this kind clears. */
+function unusedColumns(work: Work): ChangeKey[] {
+  return unusedFields(work).flatMap((field) => WORK_FIELD_KEYS[field].clears);
+}
+
+/**
+ * Field name to a plain message, for each field sent with a value that the
+ * kind does not use (sending one empty is no harm). Never dropped silently:
+ * Dave changes the kind to clear them.
+ */
+function unusedSent(body: Record<string, unknown>, work: Work): Record<string, string> {
+  const errors: Record<string, string> = {};
+  for (const field of unusedFields(work)) {
+    for (const key of WORK_FIELD_KEYS[field].keys) {
+      const value = body[key];
+      if (value != null && !(typeof value === 'string' && value.trim() === '')) errors[key] = `${workSubject(work)} has no ${WORK_FIELD_WORDS[field]}.`;
+    }
+  }
+  return errors;
 }
 
 /**
  * Field name to a plain message, for each field sent that is wrong, the day
  * aside: references not text or not in their list (checked all at once),
- * typed names, and the note. Fields it does not know are ignored.
+ * typed names, the note, and For given as both a Foreman and a Customer
+ * (on For, which the page shows under the Customer's field). Fields it does
+ * not know are ignored.
  */
-async function checkFields(env: Env, body: Partial<NewAssignment & TypedNames>): Promise<Record<string, string>> {
-  const errors = { ...validate(body), ...checkTyped(body) };
+async function checkFields(env: Env, body: Partial<NewAssignment & TypedNames>, work: unknown): Promise<Record<string, string>> {
+  const errors = { ...(isWork(work) ? unusedSent(body, work) : {}), ...validate(body), ...checkTyped(body) };
+  if (text(body.foremanId) && text(body.customerId) && !errors.customerId) errors.customerId = 'Pick a Foreman or a Customer, not both.';
   const found = await Promise.all(REFERENCES.map((r) => {
     const id = text(body[r.key]);
     return !id || errors[r.key] !== undefined || exists(env, r.list, id);
@@ -794,11 +888,21 @@ async function checkFields(env: Env, body: Partial<NewAssignment & TypedNames>):
   return errors;
 }
 
-/** Field name to a plain message, for each reference or note that is not text, or a note too long. */
+function isWork(value: unknown): value is Work {
+  return (WORKS as readonly unknown[]).includes(value);
+}
+
+/**
+ * Field name to a plain message, for each reference, note or machine that is
+ * not text, a note or machine too long, or a kind sent that is not one.
+ */
 function validate(body: Partial<NewAssignment>): Record<string, string> {
   const errors: Record<string, string> = {};
   for (const r of REFERENCES) if (body[r.key] != null && typeof body[r.key] !== 'string') errors[r.key] = r.message;
   if (body.note != null && typeof body.note !== 'string') errors.note = 'Write the note as text.';
   else if (text(body.note).length > NOTE_LIMIT) errors.note = `Keep the note to ${NOTE_LIMIT} characters or fewer.`;
+  if ('work' in body && !isWork(body.work)) errors.work = 'Pick Haul, Move or Other.';
+  if (body.machine != null && typeof body.machine !== 'string') errors.machine = 'Write the machine as text.';
+  else if (text(body.machine).length > TEXT_LIMIT) errors.machine = `Keep it to ${TEXT_LIMIT} characters or fewer.`;
   return errors;
 }

@@ -184,6 +184,7 @@ export function EntryPanel({
                     failed={Boolean(unloadedList)}
                   />
                 )}
+                {field.kind === 'pick' && field.hint && <p className="text-xs text-muted-foreground">{field.hint(form)}</p>}
               </Field>
             );
           })}

@@ -1,9 +1,10 @@
 import { useState, type CSSProperties } from 'react';
 import { Loader2, X } from 'lucide-react';
-import type { AssignmentTripPart, DriverAssignment, SinceSent } from '../../shared/types';
+import { WORK_FIELD_WORDS, WORK_FIELDS, WORK_WORDS, type AssignmentTripPart, type DriverAssignment, type SinceSent, type Was, type Work, type WorkField } from '../../shared/types';
 import { easternTime } from '../../shared/days';
 import { Button } from '@/components/ui/button';
-import { cn, loadsText, shownTripPart } from '@/lib/utils';
+import { CUSTOMER_TAG, forLine, KIND_PILL, WORK_PILL } from '@/components/AssignmentBlock';
+import { cn, tripWords } from '@/lib/utils';
 
 /** Whose changes the Driver is told about: the dispatcher, by name, as he knows him. */
 const DISPATCHER = 'Dave';
@@ -23,6 +24,33 @@ function Was({ value }: { value: string | null | undefined }) {
   return <span className="block text-sm font-normal text-muted-foreground">was {value ?? 'empty'}</span>;
 }
 
+/** Each field only some kinds show, by its "was" and the word for it in the Changed line. */
+const HIDDEN_WAS = [
+  { field: 'for', key: 'forName' },
+  { field: 'at', key: 'atPlaceName' },
+  { field: 'material', key: 'materialName' },
+  { field: 'machine', key: 'machine' },
+  { field: 'from', key: 'fromPlaceName' },
+  { field: 'to', key: 'toPlaceName' },
+] as const satisfies readonly { field: WorkField; key: keyof Was }[];
+
+/** A field's word at the start of a part: "Machine was D6". */
+const leading = (field: WorkField) => `${WORK_FIELD_WORDS[field].charAt(0).toUpperCase()}${WORK_FIELD_WORDS[field].slice(1)}`;
+
+/**
+ * What Dave changed that the card no longer shows, for the Changed line: the
+ * kind it was ("was Haul"), then each field its kind does not show ("Material
+ * was Sample Stone", after a Haul became a Move). Null when there is none.
+ */
+function hiddenWas(work: Work, was: Was): string | null {
+  const shown: readonly string[] = WORK_FIELDS[work];
+  const parts = [
+    was.work !== undefined && was.work !== work ? `was ${WORK_WORDS[was.work ?? 'haul']}` : null,
+    ...HIDDEN_WAS.filter(({ field, key }) => !shown.includes(field) && key in was).map(({ field, key }) => `${leading(field)} was ${was[key] ?? 'empty'}`),
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
+
 /**
  * Which Truck to take, only when it is not the usual: "Take Truck 53 for this
  * one" when Dave named one; and when he changed it after Assigning it, what it was
@@ -40,24 +68,25 @@ function truckLine({ truckNumber, was }: DriverAssignment): string | null {
  * is on now, once the Truck has Trips on it. Without a Trip part, or before its
  * first Trip, nothing: the card looks as it always has.
  */
-function TripLine({ part }: { part: AssignmentTripPart | undefined }) {
-  const trips = shownTripPart(part);
-  if (!trips) return null;
+function TripLine({ part, work }: { part: AssignmentTripPart | undefined; work: Work }) {
+  const shown = tripWords(part, work);
+  if (!shown) return null;
+  const { trips, loads, moved, hours } = shown;
+  const words = loads ? `${loads}${trips.lastLoadAt ? ` · last ${easternTime(trips.lastLoadAt)}` : ''}` : (moved ?? hours);
   return (
     <p className="flex flex-wrap items-center gap-x-2 text-lg">
       {trips.status === 'now' && <span className="rounded bg-primary px-2 py-0.5 text-base font-semibold text-primary-foreground">Now</span>}
-      <span className="font-medium">
-        {loadsText(trips.loads)}
-        {trips.lastLoadAt && ` · last ${easternTime(trips.lastLoadAt)}`}
-      </span>
+      {words && <span className="font-medium">{words}</span>}
     </p>
   );
 }
 
 /**
- * One of a Driver's Assignments, large enough to read from the cab: the
- * Material, Pick up and Drop off, the Foreman (when there is one), the note, which Truck when it is not his
- * own, and Dave's changes since Assigning it: Changed (with what it was), Added,
+ * One of a Driver's Assignments, large enough to read from the cab: whom it is
+ * for first, "Haul for Ed" (with "Customer" under it for a Customer; none when
+ * For is blank), then At (only when set), the Material, Pick up and Drop off, the note, which Truck when it is not his
+ * own, and Dave's changes since Assigning it. A Move leads with its machine, then
+ * From and To; an Other is its text in large type: Changed (with what it was), Added,
  * or cancelled (struck through). When the Assignment has a Trip part, its Loads,
  * the last one's time and Now. With onDismiss a cancelled card has Dismiss in its bottom right corner,
  * which clears it off his day once he has read it.
@@ -73,13 +102,19 @@ export function DriverCard({
   /** Clears a cancelled card off his day; settles once the Worker has answered. */
   onDismiss?: (assignment: DriverAssignment) => Promise<void>;
 }) {
-  const { materialName, fromPlaceName, toPlaceName, foremanName, note, cancelledAt, sinceSent, was } = assignment;
+  const { materialName, fromPlaceName, toPlaceName, atPlaceName, note, cancelledAt, sinceSent, was, work, machine } = assignment;
+  const move = work === 'move';
+  // Other is its text alone (its note), in large type.
+  const other = work === 'other';
+  const forWho = forLine(assignment);
+  // What Dave changed that this kind of card does not show goes in the Changed line.
+  const hidden = sinceSent === 'changed' && !cancelledAt ? hiddenWas(work, was) : null;
   const mark = cancelledAt ? CANCELLED : sinceSent && MARKS[sinceSent];
   const truck = truckLine(assignment);
   const struck = cancelledAt && 'line-through';
   return (
     <article
-      aria-label={materialName ?? 'Assignment'}
+      aria-label={(move ? machine : other ? note : materialName) ?? 'Assignment'}
       style={{ '--i': index } as CSSProperties}
       className={cn(
         'relative animate-rise overflow-hidden rounded-lg border bg-card p-5 pl-6 text-card-foreground shadow-md',
@@ -94,34 +129,63 @@ export function DriverCard({
           cancelledAt ? 'bg-destructive/70' : sinceSent === 'changed' ? 'bg-warning' : sinceSent === 'added' ? 'bg-success' : 'bg-primary',
         )}
       />
+      {/* Its place in his day and its kind: the kind is the pill only, never the edge. */}
+      <p className="mb-2 flex items-center gap-1.5 text-sm font-bold text-muted-foreground">
+        <span>{index + 1} ·</span>
+        <span className={cn(KIND_PILL, 'text-[11px]', WORK_PILL[work])}>{WORK_WORDS[work]}</span>
+      </p>
       {mark && (
         <div className="mb-3">
           <p className={cn('inline-block rounded-full px-3 py-1.5 text-base font-semibold shadow-xs', mark.className)}>{mark.word}</p>
+          {hidden && <p className="mt-1 text-sm text-muted-foreground">{hidden}</p>}
         </div>
       )}
       {/* On a cancelled card the values are struck through, not the labels beside them. */}
       <div className={cn('space-y-3', cancelledAt && 'text-muted-foreground')}>
-        <TripLine part={assignment.trips} />
-        <p className={cn('text-2xl font-semibold', struck)}>
-          {materialName ?? 'No Material named'}
-          <Was value={was.materialName} />
-        </p>
-        <dl className="grid grid-cols-[6rem_1fr] gap-x-4 gap-y-2 text-lg">
-          <dt className="text-muted-foreground">Pick up</dt>
-          <dd className={cn('font-medium', struck)}>{fromPlaceName ?? '–'}</dd>
-          {'fromPlaceName' in was && <dd className="col-start-2 -mt-2"><Was value={was.fromPlaceName} /></dd>}
-          <dt className="text-muted-foreground">Drop off</dt>
-          <dd className={cn('font-medium', struck)}>{toPlaceName ?? '–'}</dd>
-          {'toPlaceName' in was && <dd className="col-start-2 -mt-2"><Was value={was.toPlaceName} /></dd>}
-          {(foremanName || 'foremanName' in was) && (
-            <>
-              <dt className="text-muted-foreground">Foreman</dt>
-              <dd className={cn('font-medium', struck)}>{foremanName ?? '–'}</dd>
-              {'foremanName' in was && <dd className="col-start-2 -mt-2"><Was value={was.foremanName} /></dd>}
-            </>
-          )}
-        </dl>
-        {(note || 'note' in was) && (
+        <TripLine part={assignment.trips} work={work} />
+        {other ? (
+          <p className={cn('whitespace-pre-line text-2xl font-bold', struck)}>
+            {note ?? 'Nothing written'}
+            <Was value={was.note} />
+          </p>
+        ) : move ? (
+          <>
+            <p className={cn('text-2xl font-bold', struck)}>
+              {machine ?? 'No machine named'}
+              <Was value={was.machine} />
+            </p>
+            <dl className="grid grid-cols-[6rem_1fr] gap-x-4 gap-y-2 text-lg">
+              <Line label="From" value={fromPlaceName} was={was} wasKey="fromPlaceName" struck={struck} />
+              <Line label="To" value={toPlaceName} was={was} wasKey="toPlaceName" struck={struck} />
+            </dl>
+          </>
+        ) : (
+          <>
+            {(forWho || 'forName' in was) && (
+              <div>
+                <p className={cn('text-2xl font-bold', struck)}>Haul for {forWho?.name ?? 'no one named'}</p>
+                {forWho?.customer && <span className={cn('mt-1 inline-block', CUSTOMER_TAG.className)}>{CUSTOMER_TAG.word}</span>}
+                <Was value={was.forName} />
+              </div>
+            )}
+            {(atPlaceName || 'atPlaceName' in was) && (
+              <dl className="grid grid-cols-[6rem_1fr] gap-x-4 gap-y-2 text-lg">
+                <Line label="At" value={atPlaceName} was={was} wasKey="atPlaceName" struck={struck} />
+              </dl>
+            )}
+            {(materialName || 'materialName' in was) && (
+              <p className={cn('text-2xl font-semibold', struck)}>
+                {materialName ?? 'No Material named'}
+                <Was value={was.materialName} />
+              </p>
+            )}
+            <dl className="grid grid-cols-[6rem_1fr] gap-x-4 gap-y-2 text-lg">
+              <Line label="Pick up" value={fromPlaceName} was={was} wasKey="fromPlaceName" struck={struck} />
+              <Line label="Drop off" value={toPlaceName} was={was} wasKey="toPlaceName" struck={struck} />
+            </dl>
+          </>
+        )}
+        {!other && (note || 'note' in was) && (
           <p className={cn('whitespace-pre-line text-lg', struck)}>
             {note}
             <Was value={was.note} />
@@ -136,6 +200,34 @@ export function DriverCard({
         </div>
       )}
     </article>
+  );
+}
+
+/** A labelled line of a card, only when it is set or Dave changed it after Assigning it (then with what it was). */
+function Line({
+  label,
+  value,
+  was,
+  wasKey,
+  struck,
+}: {
+  label: string;
+  value: string | null;
+  was: Was;
+  wasKey: 'fromPlaceName' | 'toPlaceName' | 'atPlaceName';
+  struck: string | null | false;
+}) {
+  if (!value && !(wasKey in was)) return null;
+  return (
+    <>
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className={cn('font-medium', struck)}>{value ?? '–'}</dd>
+      {wasKey in was && (
+        <dd className="col-start-2 -mt-2">
+          <Was value={was[wasKey]} />
+        </dd>
+      )}
+    </>
   );
 }
 

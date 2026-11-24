@@ -18,7 +18,7 @@ Sources: the "Trucking page · 5 design mocks" export, page **Final · scheduler
 ### Assignments
 - **Words.** The UI says "assignment" for the work and "job" only for a Job with a job number, even where the mocks say "job".
 - **Only the date is required**, and there is an Unassigned lane, so Dave can write work down before he knows who will do it.
-- **One Assignment, one Driver, many Loads.** Dave never enters a load count; Loads come from Trips and Tickets. There are no fields for billing, status, quantity or start time. A lowboy move is an ordinary Assignment with a note and no Material.
+- **One Assignment, one Driver, many Loads.** Dave never enters a load count; Loads come from Trips and Tickets. There are no fields for billing, status, quantity or start time. A lowboy move is a **Move**: an Assignment of its own kind with the machine typed and From → To, no Material or For, never counted as Loads (spec #118, ticket #122; it was an ordinary Assignment with a note and no Material before).
 - **Order, not progress.** Neither Dave nor the Driver marks Start or Finished, and the board shows no Now, "since", Busy or Free. Progress will come only from the Truck (phase 3), so the board never claims to know what it cannot. The mocks' Start now / Finished buttons are deliberately not built.
 - **A Truck only when it matters.** An Assignment names a Truck only when the work needs a certain one; blank means "his own".
 - **Foreman per Assignment**, because the person running a job changes from day to day. A job-site Place's usual Foreman fills it in: the drop-off's if it is a job site, otherwise the pick-up's.

@@ -114,7 +114,7 @@ describe('The Trip builder on the real day (MCK-55-17, Mon 16 Nov 2026)', () => 
         visits: REAL_DAY.visits,
         assignments: scenario('planned').assignments,
         now: easternIso(REAL_DAY.date, time),
-        answers: { madeAssignments: [{ id: 'a3', label: 'A3', fromPlaceId, toPlaceId, cancelledAt: null, changes: [], unplannedId }] },
+        answers: { madeAssignments: [{ id: 'a3', label: 'A3', fromPlaceId, toPlaceId, atPlaceId: null, work: 'haul', cancelledAt: null, changes: [], unplannedId }] },
       });
     };
     /** The run's two Trips as "14:15 empty a3 Going to the Assignment’s pickup". */
@@ -188,9 +188,9 @@ describe('The Trip builder on the real day (MCK-55-17, Mon 16 Nov 2026)', () => 
       const unplannedId = at('planned').unplanned[0].id;
       const rerouted = linkedAssignment(a2, { unplannedId, assignmentId: 'a2', fromPlaceId: 'plc-j611', toPlaceId: 'plc-j25008' });
       expect(easternTime(rerouted.changes.at(-1)!.changedAt)).toBe('14:15');
-      expect(rerouted.changes.at(-1)!.before).toEqual({ fromPlaceId: a2.fromPlaceId, toPlaceId: a2.toPlaceId });
-      expect(routeAt(rerouted, easternIso(REAL_DAY.date, '14:00:00'))).toEqual({ fromPlaceId: a2.fromPlaceId, toPlaceId: a2.toPlaceId });
-      expect(routeAt(rerouted, easternIso(REAL_DAY.date, '23:00:00'))).toEqual({ fromPlaceId: 'plc-j611', toPlaceId: 'plc-j25008' });
+      expect(rerouted.changes.at(-1)!.before).toEqual({ fromPlaceId: a2.fromPlaceId, toPlaceId: a2.toPlaceId, atPlaceId: null, work: 'haul' });
+      expect(routeAt(rerouted, easternIso(REAL_DAY.date, '14:00:00'))).toEqual({ fromPlaceId: a2.fromPlaceId, toPlaceId: a2.toPlaceId, atPlaceId: null, work: 'haul' });
+      expect(routeAt(rerouted, easternIso(REAL_DAY.date, '23:00:00'))).toEqual({ fromPlaceId: 'plc-j611', toPlaceId: 'plc-j25008', atPlaceId: null, work: 'haul' });
     });
   });
 

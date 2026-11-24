@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Assignment, Driver, PaperLogPhoto, Place, Truck } from '../../shared/types';
+import type { Assignment, Driver, PaperLogPhoto, Truck } from '../../shared/types';
 import { AssignmentBlock } from './AssignmentBlock';
 import { Lanes } from './Lanes';
 
@@ -18,11 +18,17 @@ const assignment = (fields: Partial<Assignment>): Assignment => ({
   fromPlaceName: null,
   toPlaceId: null,
   toPlaceName: null,
+  atPlaceId: null,
+  atPlaceName: null,
   materialId: null,
   materialName: null,
   foremanId: null,
   foremanName: null,
+  customerId: null,
+  customerName: null,
   note: null,
+  work: 'haul',
+  machine: null,
   position: 0,
   createdAt: '2026-11-19T20:00:00.000Z',
   updatedAt: '2026-11-19T20:00:00.000Z',
@@ -89,9 +95,9 @@ describe('Lanes', () => {
       />,
     );
     expect(lanes()).toEqual([
-      { driver: 'Sample Driver A', about: 'Truck 21', blocks: ['First · Haul stone to the job · Truck 21 (his own)', 'Then · Move the excavator · Truck 21 (his own)', 'Then · Topsoil haul · Truck 21 (his own)'] },
-      { driver: 'Sample Driver B', about: '', blocks: ['First · Fill the shop'] },
-      { driver: 'Unassigned', about: '', blocks: ['First · Who takes this?'] },
+      { driver: 'Sample Driver A', about: 'Truck 21', blocks: ['First · Haul · Haul stone to the job · Truck 21 (his own)', 'Then · Haul · Move the excavator · Truck 21 (his own)', 'Then · Haul · Topsoil haul · Truck 21 (his own)'] },
+      { driver: 'Sample Driver B', about: '', blocks: ['First · Haul · Fill the shop'] },
+      { driver: 'Unassigned', about: '', blocks: ['First · Haul · Who takes this?'] },
     ]);
   });
 
@@ -147,7 +153,7 @@ describe('Lanes', () => {
   it('still shows every Assignment, by its Driver\'s name, while the Drivers have not loaded', () => {
     render(<Lanes assignments={[assignment({ ...b, note: 'Fill the shop' })]} drivers={null} trucks={null} />);
     expect(lanes()).toEqual([
-      { driver: 'Sample Driver B', about: '', blocks: ['First · Fill the shop'] },
+      { driver: 'Sample Driver B', about: '', blocks: ['First · Haul · Fill the shop'] },
       { driver: 'Unassigned', about: '', blocks: [] },
     ]);
   });
@@ -163,29 +169,27 @@ describe('Lanes', () => {
         trucks={trucks}
       />,
     );
-    expect(lanes()[0].blocks).toEqual(['First · Haul stone · Truck 24', 'Then · Topsoil haul · Truck 21 (his own)']);
+    expect(lanes()[0].blocks).toEqual(['First · Haul · Haul stone · Truck 24', 'Then · Haul · Topsoil haul · Truck 21 (his own)']);
     expect(screen.getByText('Truck 24').className).not.toContain('text-muted-foreground');
     expect(screen.getByText('Truck 21', { selector: 'li span' }).className).toContain('text-muted-foreground');
   });
 
   it('still reads "No details yet" when his own Truck is all there is to show', () => {
     render(<Lanes assignments={[assignment({ ...a })]} drivers={drivers} trucks={trucks} onEdit={vi.fn()} />);
-    expect(lanes()[0].blocks).toEqual(['First · No details yet · Truck 21 (his own)']);
+    expect(lanes()[0].blocks).toEqual(['First · Haul · No details yet · Truck 21 (his own)']);
     expect(screen.getByRole('button', { name: 'Edit No details yet' })).toBeTruthy();
   });
 
   it('shows no Truck for his own when the Driver has no usual Truck, nor in the Unassigned lane', () => {
     render(<Lanes assignments={[assignment({ ...b, note: 'Fill the shop' }), assignment({ note: 'Who takes this?' })]} drivers={drivers} trucks={trucks} />);
-    expect(lanes().map((lane) => lane.blocks)).toEqual([[], ['First · Fill the shop'], ['First · Who takes this?']]);
+    expect(lanes().map((lane) => lane.blocks)).toEqual([[], ['First · Haul · Fill the shop'], ['First · Haul · Who takes this?']]);
   });
 
-  it('names an Assignment\'s Foreman beside the job site among the Places', () => {
+  it('leads each block with whom it is for, and names it in its edit button', () => {
     const haul = assignment({ ...a, toPlaceId: 'plc-north', toPlaceName: 'Sample Site North', foremanId: 'frm-a', foremanName: 'Sample Foreman A' });
-    const places: Place[] = [
-      { id: 'plc-north', shortName: 'Sample Site North', fullName: null, kind: 'job_site', jobId: null, usualForemanId: null, geofenceCode: null, onTruckMap: false, sortOrder: null, active: true },
-    ];
-    render(<Lanes assignments={[haul]} drivers={drivers} trucks={trucks} places={places} />);
-    expect(lanes()[0].blocks).toEqual(['First · Sample Site North (Sample Foreman A) · Truck 21 (his own)']);
+    render(<Lanes assignments={[haul]} drivers={drivers} trucks={trucks} onEdit={vi.fn()} />);
+    expect(lanes()[0].blocks).toEqual(['First · Haul · For Sample Foreman A · Sample Site North · Truck 21 (his own)']);
+    expect(screen.getByRole('button', { name: 'Edit For Sample Foreman A · Sample Site North' })).toBeTruthy();
   });
 
   it('shows the open block pressed and its editor in its own lane, saying whether it is first or last there', () => {
@@ -246,10 +250,10 @@ describe('Unplanned work on a lane', () => {
 });
 
 describe('AssignmentBlock', () => {
-  const block = (fields: Partial<Assignment>, first = true, jobSites?: ReadonlySet<string>) => {
+  const block = (fields: Partial<Assignment>, first = true) => {
     render(
       <ul>
-        <AssignmentBlock assignment={assignment(fields)} first={first} jobSites={jobSites} />
+        <AssignmentBlock assignment={assignment(fields)} first={first} />
       </ul>,
     );
     return screen.getByRole('listitem').textContent;
@@ -259,72 +263,159 @@ describe('AssignmentBlock', () => {
   const to = { toPlaceId: 'plc-north', toPlaceName: 'Sample Site North' };
   const minus = { materialId: 'mat-minus', materialName: '2" minus' };
   const foreman = { foremanId: 'frm-a', foremanName: 'Sample Foreman A' };
+  const jaus = { customerId: 'cus-jaus', customerName: 'Sample Customer Jaus' };
   const truck = { truckId: 'trk-24', truckNumber: '24' };
 
   it('reads From → To by the Places\' short names', () => {
-    expect(block({ ...a, ...from, ...to })).toBe('First · Sample Plant → Sample Site North');
+    expect(block({ ...a, ...from, ...to })).toBe('First · Haul · Sample Plant → Sample Site North');
   });
 
   it('is marked Then after the first', () => {
-    expect(block({ ...a, ...from, ...to }, false)).toBe('Then · Sample Plant → Sample Site North');
+    expect(block({ ...a, ...from, ...to }, false)).toBe('Then · Haul · Sample Plant → Sample Site North');
   });
 
   it('reads as its note when it has no Places', () => {
-    expect(block({ ...a, note: 'Move the excavator to the shop' })).toBe('First · Move the excavator to the shop');
+    expect(block({ ...a, note: 'Move the excavator to the shop' })).toBe('First · Haul · Move the excavator to the shop');
   });
 
   it('shows only the Place set, with no dangling arrow', () => {
-    expect(block({ ...a, ...from })).toBe('First · Sample Plant');
+    expect(block({ ...a, ...from })).toBe('First · Haul · Sample Plant');
     cleanup();
-    expect(block({ ...a, ...to })).toBe('First · Sample Site North');
+    expect(block({ ...a, ...to })).toBe('First · Haul · Sample Site North');
   });
 
   it('shows the same Place on both sides when it is both From and To', () => {
     expect(block({ ...a, fromPlaceId: 'plc-yard', fromPlaceName: 'Sample Yard', toPlaceId: 'plc-yard', toPlaceName: 'Sample Yard' })).toBe(
-      'First · Sample Yard → Sample Yard',
+      'First · Haul · Sample Yard → Sample Yard',
     );
   });
 
-  it('adds the Material, the Foreman, the note and the Truck under From → To', () => {
-    expect(block({ ...a, ...from, ...to, ...minus, ...foreman, ...truck, note: 'Two loads' })).toBe(
-      'First · Sample Plant → Sample Site North · 2" minus · Foreman Sample Foreman A · Two loads · Truck 24',
-    );
+  it('adds the Material, the note and the Truck under From → To', () => {
+    expect(block({ ...a, ...from, ...to, ...minus, ...truck, note: 'Two loads' })).toBe('First · Haul · Sample Plant → Sample Site North · 2" minus · Two loads · Truck 24');
   });
 
-  it('adds the Material, the Foreman and the Truck under the note when it has no Places', () => {
-    expect(block({ ...a, ...minus, ...foreman, ...truck, note: 'Two loads' })).toBe('First · Two loads · 2" minus · Foreman Sample Foreman A · Truck 24');
+  it('adds the Material and the Truck under the note when it has no Places', () => {
+    expect(block({ ...a, ...minus, ...truck, note: 'Two loads' })).toBe('First · Haul · Two loads · 2" minus · Truck 24');
   });
 
   it('reads as what is set when there are no Places and no note', () => {
-    expect(block({ ...a, ...truck })).toBe('First · Truck 24');
+    expect(block({ ...a, ...truck })).toBe('First · Haul · Truck 24');
     cleanup();
-    expect(block({ ...a, ...minus, ...foreman })).toBe('First · 2" minus · Foreman Sample Foreman A');
+    expect(block({ ...a, ...minus })).toBe('First · Haul · 2" minus');
   });
 
   it('still reads sensibly with nothing filled in yet', () => {
-    expect(block({ ...a })).toBe('First · No details yet');
+    expect(block({ ...a })).toBe('First · Haul · No details yet');
   });
 
-  describe('for a job site', () => {
-    const north = new Set(['plc-north']);
-
-    it('names the Assignment\'s Foreman beside the drop-off, as in "TIUNY (Brody)"', () => {
-      expect(block({ ...a, ...from, ...to, ...minus, ...foreman }, true, north)).toBe('First · Sample Plant → Sample Site North (Sample Foreman A) · 2" minus');
+  describe('For', () => {
+    it('leads with "For" and the Foreman, in bold, before From → To and the rest', () => {
+      expect(block({ ...a, ...from, ...to, ...minus, ...foreman, ...truck, note: 'Two loads' })).toBe(
+        'First · Haul · For Sample Foreman A · Sample Plant → Sample Site North · 2" minus · Two loads · Truck 24',
+      );
+      expect(screen.getByText('For Sample Foreman A').className).toContain('font-bold');
     });
 
-    it('names him beside the pick-up when the drop-off is not a job site', () => {
-      const out = { fromPlaceId: 'plc-north', fromPlaceName: 'Sample Site North', toPlaceId: 'plc-plant', toPlaceName: 'Sample Plant' };
-      expect(block({ ...a, ...out, ...foreman }, true, north)).toBe('First · Sample Site North (Sample Foreman A) → Sample Plant');
+    it('tags a Customer with a light grey filled Customer tag', () => {
+      expect(block({ ...a, ...to, ...jaus })).toBe('First · Haul · For Sample Customer Jaus · Customer · Sample Site North');
+      const tag = screen.getByText('Customer');
+      expect(tag.className).toContain('bg-foreground/10');
+      expect(tag.className).not.toContain('border');
     });
 
-    it('names him beside the drop-off when both are job sites', () => {
-      const both = new Set(['plc-north', 'plc-south']);
-      const across = { fromPlaceId: 'plc-south', fromPlaceName: 'Sample Site South', ...to };
-      expect(block({ ...a, ...across, ...foreman }, true, both)).toBe('First · Sample Site South → Sample Site North (Sample Foreman A)');
+    it('needs nothing else: For alone is details enough, with "No place yet" in grey', () => {
+      expect(block({ ...a, ...jaus, note: 'Until someone else needs a truck' })).toBe(
+        'First · Haul · For Sample Customer Jaus · Customer · No place yet · Until someone else needs a truck',
+      );
+      expect(screen.getByText('No place yet').className).toContain('text-muted-foreground');
+      cleanup();
+      expect(block({ ...a, ...foreman })).toBe('First · Haul · For Sample Foreman A · No place yet');
+      cleanup();
+      expect(block({ ...a, ...foreman, ...minus })).toBe('First · Haul · For Sample Foreman A · No place yet · 2" minus');
+    });
+  });
+
+  describe('At', () => {
+    const cobblestone = { atPlaceId: 'plc-cobble', atPlaceName: 'Cobblestone' };
+
+    it('reads "at Cobblestone · CR2" under the For line', () => {
+      expect(block({ ...a, ...foreman, ...cobblestone, materialId: 'mat-cr2', materialName: 'CR2', note: 'Show up with CR2 on' })).toBe(
+        'First · Haul · For Sample Foreman A · at Cobblestone · CR2 · Show up with CR2 on',
+      );
+      expect(screen.queryByText('No place yet')).toBeNull();
     });
 
-    it('shows the job site alone when the Assignment has no Foreman', () => {
-      expect(block({ ...a, ...from, ...to }, true, north)).toBe('First · Sample Plant → Sample Site North');
+    it('reads "at TIUNY · Asphalt · → Villager", showing only the parts that are set', () => {
+      const tiuny = { atPlaceId: 'plc-tiuny', atPlaceName: 'TIUNY' };
+      const villager = { toPlaceId: 'plc-villager', toPlaceName: 'Villager' };
+      const asphalt = { materialId: 'mat-asphalt', materialName: 'Asphalt' };
+      expect(block({ ...a, ...foreman, ...tiuny, ...asphalt, ...villager, ...truck })).toBe('First · Haul · For Sample Foreman A · at TIUNY · Asphalt · → Villager · Truck 24');
+      cleanup();
+      expect(block({ ...a, ...tiuny, ...from })).toBe('First · Haul · at TIUNY · Sample Plant →');
+      cleanup();
+      expect(block({ ...a, ...tiuny, ...from, ...to })).toBe('First · Haul · at TIUNY · Sample Plant → Sample Site North');
+    });
+
+    it('names the At in the edit button', () => {
+      render(
+        <ul>
+          <AssignmentBlock assignment={assignment({ ...a, ...cobblestone })} first onEdit={vi.fn()} />
+        </ul>,
+      );
+      expect(screen.getByRole('button', { name: 'Edit at Cobblestone' })).toBeTruthy();
+    });
+  });
+
+  describe('the kind pill', () => {
+    const d6 = { work: 'move' as const, machine: 'D6', fromPlaceId: 'plc-winter', fromPlaceName: 'Wintergarden', toPlaceId: 'plc-bk', toPlaceName: 'BK' };
+
+    it('starts a Haul\'s block with a black HAUL pill beside First', () => {
+      expect(block({ ...a, ...from, ...to })).toBe('First · Haul · Sample Plant → Sample Site North');
+      const pill = screen.getByText('Haul');
+      expect(pill.className).toContain('bg-foreground');
+      expect(pill.className).toContain('uppercase');
+    });
+
+    it('reads a Move as a blue MOVE pill, the machine in bold, then From → To', () => {
+      expect(block({ ...a, ...d6, ...truck, note: 'Lowboy' })).toBe('First · Move · D6 · Wintergarden → BK · Lowboy · Truck 24');
+      expect(screen.getByText('Move').className).toContain('bg-move');
+      expect(screen.getByText('D6').className).toContain('font-bold');
+    });
+
+    it('names the Move in the edit button', () => {
+      render(
+        <ul>
+          <AssignmentBlock assignment={assignment({ ...a, ...d6 })} first onEdit={vi.fn()} />
+        </ul>,
+      );
+      expect(screen.getByRole('button', { name: 'Edit Move · D6 · Wintergarden → BK' })).toBeTruthy();
+    });
+
+    it('never takes the place of a state colour: a Draft Move keeps its dashed outline, a Changed one its amber mark', () => {
+      render(
+        <ul>
+          <AssignmentBlock assignment={assignment({ ...a, ...d6, assignedAt: null })} first onEdit={vi.fn()} />
+          <AssignmentBlock assignment={assignment({ ...a, ...d6, sinceSent: 'changed' })} first={false} onEdit={vi.fn()} />
+        </ul>,
+      );
+      expect(screen.getByRole('button', { name: /· Draft$/ }).className).toContain('border-dashed');
+      expect(screen.getByText('Changed').className).toContain('bg-warning');
+      expect(screen.getAllByText('Move').every((pill) => pill.className.includes('bg-move'))).toBe(true);
+    });
+
+    it('reads an Other as a grey OTHER pill and its text in bold, then the Truck, and names it in the edit button', () => {
+      const shop = { ...a, work: 'other' as const, note: 'Shop, on deck' };
+      expect(block({ ...shop, ...truck })).toBe('First · Other · Shop, on deck · Truck 24');
+      expect(screen.getByText('Other').className).toContain('bg-foreground/10');
+      expect(screen.getByText('Shop, on deck').className).toContain('font-bold');
+      cleanup();
+      render(
+        <ul>
+          <AssignmentBlock assignment={assignment({ ...shop, sinceSent: 'changed' })} first onEdit={vi.fn()} />
+        </ul>,
+      );
+      expect(screen.getByRole('button', { name: 'Edit Other · Shop, on deck · Changed' })).toBeTruthy();
+      expect(screen.getByText('Changed').className).toContain('bg-warning');
     });
   });
 });
@@ -341,7 +432,7 @@ describe('Changed and Added marks', () => {
         <AssignmentBlock assignment={assignment({ ...haul, sinceSent })} first onEdit={vi.fn()} />
       </ul>,
     );
-    expect(screen.getByRole('listitem').textContent).toBe(`First · ${word} · Sample Plant · Haul stone`);
+    expect(screen.getByRole('listitem').textContent).toBe(`First · Haul · ${word} · Sample Plant · Haul stone`);
     expect(screen.getByRole('button', { name: `Edit Sample Plant · Haul stone · ${word}` })).toBeTruthy();
   });
 
@@ -354,7 +445,7 @@ describe('Changed and Added marks', () => {
       </ul>,
     );
     const edit = screen.getByRole('button', { name: 'Edit Sample Plant · Haul stone · Draft' });
-    expect(edit.textContent).toBe('First · Draft · Sample Plant · Haul stone');
+    expect(edit.textContent).toBe('First · Haul · Draft · Sample Plant · Haul stone');
     expect(edit.className).toMatch(/border-dashed/);
     expect(screen.getAllByRole('button', { name: /^Assign / }).map((button) => button.getAttribute('aria-label'))).toEqual(['Assign Sample Plant · Haul stone']);
     fireEvent.click(screen.getByRole('button', { name: 'Assign Sample Plant · Haul stone' }));
@@ -367,7 +458,7 @@ describe('Changed and Added marks', () => {
         <AssignmentBlock assignment={assignment(haul)} first={false} />
       </ul>,
     );
-    expect(screen.getByRole('listitem').textContent).toBe('Then · Sample Plant · Haul stone');
+    expect(screen.getByRole('listitem').textContent).toBe('Then · Haul · Sample Plant · Haul stone');
   });
 });
 
@@ -396,19 +487,41 @@ describe('The Trip part on a block', () => {
 
   it('shows its Loads, Now and since when the Truck is on it', () => {
     expect(html({ trips: part({ loads: 2, status: 'now', since: '2026-11-16T13:24:26Z' }) }).text).toBe(
-      'First · Sample Site North → Sample Plant · Fill · 2 Loads · Now · since 08:24',
+      'First · Haul · Sample Site North → Sample Plant · Fill · 2 Loads · Now · since 08:24',
     );
   });
 
   it('says Done once the Truck has moved on, and 1 Load for one', () => {
     expect(html({ trips: part({ loads: 1, status: 'done', since: '2026-11-16T16:30:53Z' }) }).text).toBe(
-      'First · Sample Site North → Sample Plant · Fill · 1 Load · Done · since 11:30',
+      'First · Haul · Sample Site North → Sample Plant · Fill · 1 Load · Done · since 11:30',
     );
+  });
+
+  it('shows Loads blank, from Tickets, for an At-only Haul: the Truck cannot tell which way material went', () => {
+    expect(html({ fromPlaceName: null, toPlaceName: null, trips: part({ loads: null, status: 'done', since: '2026-11-16T13:24:26Z' }) }).text).toBe(
+      'First · Haul · Fill · Loads from Tickets · Done · since 08:24',
+    );
+  });
+
+  const d6 = { work: 'move' as const, machine: 'D6', materialName: null, fromPlaceName: 'Wintergarden', toPlaceName: 'BK' };
+
+  it('shows a Move with no Loads: Now and since while the Truck is on it, then Done at the time the machine got there', () => {
+    expect(html({ ...d6, trips: part({ status: 'now', since: '2026-11-16T12:40:00Z', movedAt: null }) }).text).toMatch(/· Now · since 07:40$/);
+    const done = html({ ...d6, trips: part({ status: 'done', since: '2026-11-16T12:40:00Z', movedAt: '2026-11-16T13:15:00Z' }) }).text;
+    expect(done).toMatch(/· Done 08:15$/);
+    expect(done).not.toContain('Load');
+  });
+
+  it('shows an Other with its Trucking hours, never Loads', () => {
+    const shop = { work: 'other' as const, materialName: null, fromPlaceName: null, toPlaceName: null, note: 'Shop, on deck' };
+    const { text } = html({ ...shop, trips: part({ status: 'done', since: '2026-11-16T12:40:00Z', truckingHours: 3.02 }) });
+    expect(text).toMatch(/Shop, on deck · Done · 3\.0 h$/);
+    expect(text).not.toContain('Load');
   });
 
   it('looks exactly as it does without a Trip part while it has no Trips yet', () => {
     expect(html({ trips: part({}) }).html).toBe(html({}).html);
-    expect(html({}).text).toBe('First · Sample Site North → Sample Plant · Fill');
+    expect(html({}).text).toBe('First · Haul · Sample Site North → Sample Plant · Fill');
   });
 });
 

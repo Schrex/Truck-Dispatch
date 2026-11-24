@@ -31,6 +31,33 @@ describe('Truck log column: # of tons', () => {
   });
 });
 
+describe('Truck log column: # of loads', () => {
+  const loadsBox = () => within(screen.getByRole('group', { name: 'Assignment 1' })).getByText('# of loads').nextElementSibling?.textContent;
+
+  it('writes the Loads the Truck counted', () => {
+    render(<TruckLogAssignments log={{ columns: [column({ loads: 2 })], unplanned: [], whichAssignment: [], shopTrips: [] }} />);
+    expect(loadsBox()).toBe('2');
+  });
+
+  it('is blank, with no tons either, for a Move or an Other: neither hauls Loads', () => {
+    render(
+      <TruckLogAssignments
+        log={{ columns: [column({ id: 'a1', loads: 0, work: 'move' }), column({ id: 'o1', loads: 0, work: 'other' })], unplanned: [], whichAssignment: [], shopTrips: [] }}
+      />,
+    );
+    for (const name of ['Assignment 1', 'Assignment 2']) {
+      const box = within(screen.getByRole('group', { name }));
+      expect(box.getByText('# of loads').nextElementSibling?.textContent).toBe('');
+      expect(box.getByText('# of tons').nextElementSibling?.textContent).toBe('');
+    }
+  });
+
+  it('is blank, marked "from Tickets", for an At-only Haul', () => {
+    render(<TruckLogAssignments log={{ columns: [column({ loads: null, pickUp: null, dropOff: null })], unplanned: [], whichAssignment: [], shopTrips: [] }} />);
+    expect(loadsBox()).toBe('from Tickets');
+  });
+});
+
 describe('Truck log: Unplanned work', () => {
   const work = (over: Partial<TruckLogUnplanned> = {}): TruckLogUnplanned => ({
     id: '2026-11-16T19:15:43Z',

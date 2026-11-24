@@ -198,8 +198,8 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 function card(fields: Partial<DriverAssignment>): DriverAssignment {
   return {
     id: crypto.randomUUID(), date: '2026-11-19', driverId: 'drv-a', driverName: 'Sample Driver A',
-    truckId: null, truckNumber: null, fromPlaceId: null, fromPlaceName: null, toPlaceId: null, toPlaceName: null,
-    materialId: null, materialName: null, foremanId: null, foremanName: null, note: null, position: 0,
+    truckId: null, truckNumber: null, fromPlaceId: null, fromPlaceName: null, toPlaceId: null, toPlaceName: null, atPlaceId: null, atPlaceName: null,
+    materialId: null, materialName: null, foremanId: null, foremanName: null, customerId: null, customerName: null, note: null, work: 'haul', machine: null, position: 0,
     createdAt: '2026-11-18T20:00:00.000Z', updatedAt: '2026-11-18T20:00:00.000Z', changedAt: null, cancelledAt: null,
     assignedAt: ASSIGNED_AT, handedFromId: null, sinceSent: null, was: {}, ...fields,
   };
@@ -379,16 +379,123 @@ describe('a Driver\'s yesterday, today and tomorrow', () => {
     expect(within(changed).getByText('Take your own Truck (was Truck 24)')).toBeTruthy();
   });
 
-  it('shows the Foreman, and what he was when Dave changed him after Assigning it', async () => {
+  it('leads a card with whom it is for, "Haul for Brody", and what For was when Dave changed it after Assigning it', async () => {
     sentDays['drv-a 2026-11-19'] = [
-      card({ note: 'Haul stone', foremanId: 'frm-b', foremanName: 'Brody', sinceSent: 'changed', changedAt: '2026-11-19T12:00:00.000Z', was: { foremanName: 'Sample Foreman A' } }),
+      card({ note: 'Haul stone', foremanId: 'frm-b', foremanName: 'Brody', sinceSent: 'changed', changedAt: '2026-11-19T12:00:00.000Z', was: { forName: 'Sample Foreman A' } }),
       card({ note: 'No foreman', position: 1 }),
     ];
     open('/');
     const [withForeman, without] = cardsIn(await day('Today, Thu, Nov 19'));
-    expect(within(withForeman).getByText('Foreman').nextSibling?.textContent).toBe('Brody');
+    expect(within(withForeman).getByText('Haul for Brody').className).toContain('text-2xl');
     expect(within(withForeman).getByText('was Sample Foreman A')).toBeTruthy();
-    expect(within(without).queryByText('Foreman')).toBeNull();
+    expect(within(withForeman).queryByText('Customer')).toBeNull();
+    expect(within(without).queryByText(/Haul for/)).toBeNull();
+  });
+
+  it('shows an At line above the Material only when At is set, and what it was when Dave changed it', async () => {
+    sentDays['drv-a 2026-11-19'] = [
+      card({ foremanName: 'Ed', foremanId: 'frm-ed', atPlaceId: 'plc-los', atPlaceName: 'Los Flamboyanes', materialName: 'CR2', sinceSent: 'changed', changedAt: '2026-11-19T12:00:00.000Z', was: { atPlaceName: 'BK' } }),
+      card({ materialName: 'Sample Dirt', position: 1 }),
+    ];
+    open('/');
+    const [withAt, without] = cardsIn(await day('Today, Thu, Nov 19'));
+    const at = within(withAt).getByText('At');
+    expect(at.nextSibling?.textContent).toBe('Los Flamboyanes');
+    expect(within(withAt).getByText('was BK')).toBeTruthy();
+    // Above the Material: the At line comes first in the card.
+    expect(at.compareDocumentPosition(within(withAt).getByText('CR2')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(without).queryByText('At')).toBeNull();
+  });
+
+  it('says "Customer" under the For line when the work is for a Customer', async () => {
+    sentDays['drv-a 2026-11-19'] = [card({ note: 'Until someone else needs a truck', customerId: 'cus-jaus', customerName: 'Sample Customer Jaus' })];
+    open('/');
+    const [jaus] = cardsIn(await day('Today, Thu, Nov 19'));
+    expect(within(jaus).getByText('Haul for Sample Customer Jaus')).toBeTruthy();
+    expect(within(jaus).getByText('Customer')).toBeTruthy();
+  });
+
+  describe('the kind', () => {
+    const d6 = { work: 'move' as const, machine: 'D6', fromPlaceName: 'Wintergarden', toPlaceName: 'BK' };
+    /** A card's edge: its colour says what Dave did, whatever the kind. */
+    const edge = (card: HTMLElement) => card.querySelector('span[aria-hidden].absolute')!.className;
+
+    it('numbers each card and shows its kind in a pill: HAUL black, MOVE blue', async () => {
+      sentDays['drv-a 2026-11-19'] = [card({ materialName: 'Sample Stone' }), card({ ...d6, position: 1 })];
+      open('/');
+      const [haul, move] = cardsIn(await day('Today, Thu, Nov 19'));
+      expect(within(haul).getByText('1 ·')).toBeTruthy();
+      expect(within(haul).getByText('Haul').className).toContain('bg-foreground');
+      expect(within(move).getByText('2 ·')).toBeTruthy();
+      expect(within(move).getByText('Move').className).toContain('bg-move');
+    });
+
+    it('leads a Move card with the machine in large type, then From and To, and nothing of Material or For', async () => {
+      sentDays['drv-a 2026-11-19'] = [card({ ...d6, note: 'Lowboy' })];
+      open('/');
+      const [move] = cardsIn(await day('Today, Thu, Nov 19'));
+      expect(move.getAttribute('aria-label')).toBe('D6');
+      expect(within(move).getByText('D6').className).toContain('text-2xl');
+      expect(within(move).getByText('From').nextSibling?.textContent).toBe('Wintergarden');
+      expect(within(move).getByText('To').nextSibling?.textContent).toBe('BK');
+      expect(within(move).queryByText(/Material|Haul for|Pick up/)).toBeNull();
+      expect(edge(move)).toContain('bg-primary');
+    });
+
+    it('keeps the amber edge on a Changed Move, and says in the Changed line what it was that it no longer shows', async () => {
+      sentDays['drv-a 2026-11-19'] = [
+        card({ ...d6, sinceSent: 'changed', changedAt: '2026-11-19T12:00:00.000Z', was: { work: 'haul', machine: null, materialName: 'Sample Stone', forName: 'Ed', fromPlaceName: 'Los' } }),
+      ];
+      open('/');
+      const [move] = cardsIn(await day('Today, Thu, Nov 19'));
+      expect(edge(move)).toContain('bg-warning');
+      expect(within(move).getByText('Changed by Dave')).toBeTruthy();
+      expect(within(move).getByText('was Haul · For was Ed · Material was Sample Stone')).toBeTruthy();
+      expect(within(move).getByText('was empty')).toBeTruthy();
+      expect(within(move).getByText('was Los')).toBeTruthy();
+    });
+
+    it('shows an Other card\'s grey OTHER pill and its text in large type, with nothing of a haul', async () => {
+      sentDays['drv-a 2026-11-19'] = [card({ work: 'other', note: 'Shop, on deck', truckNumber: '31' })];
+      open('/');
+      const [other] = cardsIn(await day('Today, Thu, Nov 19'));
+      expect(other.getAttribute('aria-label')).toBe('Shop, on deck');
+      expect(within(other).getByText('Other').className).toContain('bg-foreground/10');
+      expect(within(other).getByText('Shop, on deck').className).toContain('text-2xl');
+      expect(within(other).getByText('Take Truck 31 for this one')).toBeTruthy();
+      expect(within(other).queryByText(/Material|Haul for|Pick up|Drop off/)).toBeNull();
+      expect(edge(other)).toContain('bg-primary');
+    });
+
+    it('keeps the amber edge on a Haul turned Other, and says what it was in the Changed line', async () => {
+      sentDays['drv-a 2026-11-19'] = [
+        card({
+          work: 'other', note: 'Shop, on deck', sinceSent: 'changed', changedAt: '2026-11-19T12:00:00.000Z',
+          was: { work: 'haul', note: 'Haul stone', materialName: 'Sample Stone', fromPlaceName: 'Sample Plant', toPlaceName: null },
+        }),
+      ];
+      open('/');
+      const [other] = cardsIn(await day('Today, Thu, Nov 19'));
+      expect(edge(other)).toContain('bg-warning');
+      expect(within(other).getByText('was Haul · Material was Sample Stone · From was Sample Plant · To was empty')).toBeTruthy();
+      expect(within(other).getByText('was Haul stone')).toBeTruthy();
+    });
+
+    it('shows a Haul card\'s Pick up and Drop off lines only when set', async () => {
+      sentDays['drv-a 2026-11-19'] = [card({ materialName: 'Sample Stone', fromPlaceName: 'Sample Plant' })];
+      open('/');
+      const [haul] = cardsIn(await day('Today, Thu, Nov 19'));
+      expect(within(haul).getByText('Pick up').nextSibling?.textContent).toBe('Sample Plant');
+      expect(within(haul).queryByText('Drop off')).toBeNull();
+    });
+  });
+
+  it('shows For was there when Dave cleared it after Assigning it', async () => {
+    sentDays['drv-a 2026-11-19'] = [card({ note: 'Haul stone', sinceSent: 'changed', changedAt: '2026-11-19T12:00:00.000Z', was: { forName: 'Sample Customer Jaus' } })];
+    open('/');
+    const [cleared] = cardsIn(await day('Today, Thu, Nov 19'));
+    expect(within(cleared).getByText('Haul for no one named')).toBeTruthy();
+    expect(within(cleared).getByText('was Sample Customer Jaus')).toBeTruthy();
   });
 
   it('marks one Added (Assigned on its own day) "Added by Dave"', async () => {
@@ -835,6 +942,27 @@ describe('the Trip part on a Driver card', () => {
     expect(text).toContain('1 Load · last 08:40');
   });
 
+  it('shows Loads from Tickets on an At-only Haul, with no last Load', async () => {
+    const { text } = await shown({ fromPlaceName: null, toPlaceName: null, trips: part({ loads: null, status: 'now', since: '2026-11-16T13:24:26Z' }) });
+    expect(text).toContain('Loads from Tickets');
+    expect(text).not.toContain('last');
+  });
+
+  it('shows a Move with no Loads: Now while he is on it, then Done at the time the machine got there', async () => {
+    const d6 = { work: 'move' as const, machine: 'D6', materialName: null, fromPlaceName: 'Wintergarden', toPlaceName: 'BK' };
+    const now = await shown({ ...d6, trips: part({ status: 'now', since: '2026-11-16T12:40:00Z' }) });
+    expect(now.text).toContain('Now');
+    const done = await shown({ ...d6, trips: part({ status: 'done', since: '2026-11-16T12:40:00Z', movedAt: '2026-11-16T13:15:00Z' }) });
+    expect(done.text).toContain('Done 08:15');
+    expect(done.text).not.toContain('Load');
+  });
+
+  it('shows an Other with its Trucking hours, never Loads', async () => {
+    const { text } = await shown({ work: 'other', materialName: null, fromPlaceName: null, toPlaceName: null, note: 'Shop, on deck', trips: part({ status: 'done', since: '2026-11-16T12:40:00Z', truckingHours: 3.02 }) });
+    expect(text).toContain('3.0 h');
+    expect(text).not.toContain('Load');
+  });
+
   it("shows each card's Loads from his day read, and Now on the one he is on", async () => {
     sentDays['drv-a 2026-11-19'] = [
       card({ id: 'a1', ...haul, trips: part({ loads: 4, status: 'done', since: '2026-11-16T13:24:26Z', lastLoadAt: '2026-11-16T16:25:10Z' }) }),
@@ -870,8 +998,8 @@ describe('his Truck log under Today', () => {
     const tripDay = buildTripDay({
       places: REAL_DAY.places, notConsidered: REAL_DAY.notConsidered, jobs: REAL_DAY.jobs, visits, now: asOf, dayOver: false,
       assignments: [
-        { id: 'a1', label: 'A1', fromPlaceId: J25008, toPlaceId: VILLAGER, cancelledAt: null, changes: [] },
-        { id: 'a2', label: 'A2', fromPlaceId: WALWORTH, toPlaceId: J25008, cancelledAt: null, changes: [] },
+        { id: 'a1', label: 'A1', fromPlaceId: J25008, toPlaceId: VILLAGER, atPlaceId: null, work: 'haul', cancelledAt: null, changes: [] },
+        { id: 'a2', label: 'A2', fromPlaceId: WALWORTH, toPlaceId: J25008, atPlaceId: null, work: 'haul', cancelledAt: null, changes: [] },
       ],
     });
     const labels = { a1: 'A1', a2: 'A2' };

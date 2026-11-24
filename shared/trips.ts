@@ -5,7 +5,7 @@
  * board and the Driver's card show. Pure, so the Worker and the simulation
  * page run the same code, and it is tested on one real day's shape.
  */
-import type { AssignmentTripPart, TripStatus } from './types';
+import type { AssignmentTripPart, TripStatus, Work } from './types';
 
 /** Minutes and the US Eastern day, as the rest of the app uses them. */
 const MINUTE = 60_000;
@@ -52,10 +52,40 @@ export interface FleetVisit {
   exitOdometer: number | null;
 }
 
-/** An Assignment's From and To, now or as an earlier version kept in assignment_changes. */
+/**
+ * What matching reads of an Assignment at a moment of the day: its From, To,
+ * At and kind (Haul, Move or Other), now or as an earlier version kept in assignment_changes. To carry
+ * another field, add it here and its default to ROUTE_DEFAULTS: routeAt and
+ * savedRoute pick it up.
+ */
 export interface Route {
   fromPlaceId: string | null;
   toPlaceId: string | null;
+  /** Where the Truck works: fills a missing From or To; alone, it gives At Trips. */
+  atPlaceId: string | null;
+  /** Haul, Move or Other: a Move's From → To Trips are Move Trips; an Other takes the Trips nothing else fits. */
+  work: Work;
+}
+
+/** Each Route field, and what it is when the values saved before a change lack it (an older saved copy). */
+const ROUTE_DEFAULTS: Route = { fromPlaceId: null, toPlaceId: null, atPlaceId: null, work: 'haul' };
+
+/**
+ * The route the rules match: At stands in for a missing From or To (At + To is
+ * At → To, From + At is From → At). With both set, or neither, it is as is.
+ */
+function filledRoute(r: Route): Route {
+  if (r.atPlaceId === null) return r;
+  if (r.fromPlaceId === null && r.toPlaceId !== null) return { ...r, fromPlaceId: r.atPlaceId };
+  if (r.fromPlaceId !== null && r.toPlaceId === null) return { ...r, toPlaceId: r.atPlaceId };
+  return r;
+}
+
+/** The route in `values`: an Assignment, or the values saved before a change (assignment_changes.before). */
+export function savedRoute(values: Partial<Route>): Route {
+  const route = { ...ROUTE_DEFAULTS };
+  for (const key of Object.keys(ROUTE_DEFAULTS) as (keyof Route)[]) if (values[key] !== undefined) Object.assign(route, { [key]: values[key] });
+  return route;
 }
 
 /** An Assignment as matching needs it. */
@@ -63,26 +93,51 @@ export interface TripAssignment extends Route {
   id: string;
   label: string;
   cancelledAt: string | null;
-  /** Earlier versions: the From and To it had before each change (assignment_changes). */
-  changes: { changedAt: string; before: Route }[];
+  /** Earlier versions: the route it had before each change (assignment_changes); a key it lacks is its default. */
+  changes: { changedAt: string; before: Partial<Route> }[];
   /** Whose it is: with check-ins (TruckDayInput.checkIns), a Trip matches only its Driver's Assignments. */
   driverId?: string | null;
   /** The Truck it names; null names its Driver's usual one. Read only when nobody checked in before a Trip. */
   truckId?: string | null;
+  /** Its note: an Other's text, the Why of the Trips it takes ("Other: Shop, on deck"). */
+  note?: string | null;
 }
 
 /** Dave's "Not a haul" (fuel, a repair, personal): the one spelling for a Trip's kind and for his answer. */
 export const NOT_A_HAUL = 'not_a_haul';
 
-/** NOT_A_HAUL: Dave answered its Unplanned work "Not a haul". */
-export type TripKind = 'load' | 'empty' | typeof NOT_A_HAUL | null;
+/**
+ * NOT_A_HAUL: Dave answered its Unplanned work "Not a haul", or it fit nothing
+ * else and counts on its Driver's Other. 'at': an At Trip, one that starts or
+ * ends at the At of an Assignment with no From or To. 'move': a Move Trip, a
+ * Move's From → To. At and Move Trips count toward Now / Done and Trucking
+ * hours, never toward Loads.
+ */
+export type TripKind = 'load' | 'empty' | 'at' | 'move' | typeof NOT_A_HAUL | null;
 
-/** Which rule decided a Trip, and in words why. Rule 7 is "nothing fits". */
+/*
+ * The rules named in code. Rules 1, 2, 4, 5 and 6 fit a Trip to an
+ * Assignment's route and are numbered only in RULES and matchTrip. The last
+ * three run in this order after them: a new rule goes before any of them by
+ * taking its number and moving those after it up, here only.
+ */
+/** To or from the shop or a yard: empty, no Assignment. */
+export const SHOP_OR_YARD = 3;
+/** Starts or ends at the At of an Assignment with only At: an At Trip. */
+export const AT_ONLY = 7;
+/** Nothing else fits, and the Driver is on an Other then: not a haul, on that Other. */
+export const ON_AN_OTHER = 8;
+/** "Nothing fits": the last rule, after every rule that can fit a Trip. */
+export const NOTHING_FITS = 9;
+
+/** Which rule decided a Trip, and in words why. */
 export interface Match {
   kind: TripKind;
   assignmentId: string | null;
-  rule: 1 | 2 | 3 | 4 | 5 | 6 | 7;
+  rule: 1 | 2 | typeof SHOP_OR_YARD | 4 | 5 | 6 | typeof AT_ONLY | typeof ON_AN_OTHER | typeof NOTHING_FITS;
   reason: string;
+  /** An At Trip's At (rule AT_ONLY): the Trip log reads "at TIUNY". */
+  atPlaceId?: string;
   /**
    * A tie: the Assignments (ids, in Dave's order) that fit equally at `rule`.
    * The Truck did planned work and Dave picks which ("Which Assignment?").
@@ -125,9 +180,9 @@ export type AssignmentStatus = TripStatus;
  */
 export interface AssignmentTrips extends AssignmentTripPart {
   assignmentId: string;
-  /** Its Trips that are not Loads: ways back and drives to its pickup. */
+  /** Its empty Trips: ways back and drives to its pickup (never its At Trips). */
   empties: number;
-  /** Its Job: the drop-off's, or the pick-up's when the drop-off belongs to none (its route at `now`). */
+  /** Its Job: its To's, then its At's, then its From's, the first that belongs to a Job (its route at `now`). */
   job: TripJob | null;
 }
 
@@ -166,18 +221,21 @@ export interface TruckDay {
 export interface TruckLogColumn {
   /** The Assignment's id. */
   id: string;
-  /** "J25008 Los Flamboyanes"; null when neither Place belongs to a Job. */
+  /** "J25008 Los Flamboyanes": its To's Job, then its At's, then its From's; null when none belongs to a Job. */
   job: string | null;
   pickUp: string | null;
   dropOff: string | null;
   material: string | null;
-  loads: number;
+  /** Null for an At-only Haul (At, no From or To): shown blank "from Tickets". */
+  loads: number | null;
   /** From the Loads' Tickets (phase 4); null until they are read. */
   tons: number | null;
   /** Null until it has a Trip. */
   truckingHours: number | null;
   /** Made by Dave from Unplanned work: the column is marked "From the Truck". */
   fromTheTruck?: boolean;
+  /** Set for a Move or an Other, which haul no Loads: its # of loads and # of tons are blank. Absent for a Haul. */
+  work?: Exclude<Work, 'haul'>;
 }
 
 /**
@@ -305,7 +363,7 @@ export interface TripDay {
   unplanned: UnplannedWork[];
   /** The Trips two or more Assignments fit equally: planned work, not Unplanned work; Dave picks which. */
   whichAssignment: WhichAssignment[];
-  /** The Trips to or from the shop or a yard (rule 3): leaving in the morning, getting back at the end of the day. */
+  /** The Trips to or from the shop or a yard (rule SHOP_OR_YARD): leaving in the morning, getting back at the end of the day. */
   shopTrips: Trip[];
   /** The Truck's day: Driver, start and end, miles, Total hours. */
   truckDay: TruckDay;
@@ -489,7 +547,7 @@ export function linkedAssignment<A extends TripAssignment>(assignment: A, link: 
 /** The Assignment as it was at `at`: the earliest change after it kept what it had then. */
 export function routeAt(assignment: TripAssignment, at: string): Route {
   const later = assignment.changes.filter((c) => ms(c.changedAt) > ms(at)).sort((a, b) => ms(a.changedAt) - ms(b.changedAt));
-  return later[0]?.before ?? { fromPlaceId: assignment.fromPlaceId, toPlaceId: assignment.toPlaceId };
+  return savedRoute(later[0]?.before ?? assignment);
 }
 
 const RULES: {
@@ -500,7 +558,7 @@ const RULES: {
 }[] = [
   { rule: 1, kind: 'load', fits: (r, a, b) => !!a && !!b && r.fromPlaceId === a && r.toPlaceId === b, reason: 'From and To match the Assignment' },
   { rule: 2, kind: 'empty', fits: (r, a, b) => !!a && !!b && r.fromPlaceId === b && r.toPlaceId === a, reason: 'The way back of the Assignment' },
-  // Rule 3 (shop or yard) needs no Assignment; it is checked between 2 and 4.
+  // SHOP_OR_YARD needs no Assignment; it is checked between 2 and 4.
   { rule: 4, kind: 'empty', fits: (r, _a, b) => !!b && r.fromPlaceId === b, reason: 'Going to the Assignment’s pickup' },
   { rule: 5, kind: 'load', fits: (r, a) => !!a && r.fromPlaceId === a && r.toPlaceId === null, reason: 'Leaves the Assignment’s pickup; its To is empty' },
 ];
@@ -511,12 +569,20 @@ export function matchTrip(
   assignments: TripAssignment[],
   places: TripPlace[],
 ): Match {
-  const live = assignments.filter((a) => a.cancelledAt === null || ms(a.cancelledAt) > ms(trip.leftAt));
-  const routes = live.map((a) => ({ a, r: routeAt(a, trip.leftAt) }));
+  const live = assignments
+    .filter((a) => a.cancelledAt === null || ms(a.cancelledAt) > ms(trip.leftAt))
+    .map((a) => ({ a, r: routeAt(a, trip.leftAt) }));
+  // An Other fits no Trip by Place, and a Move only with both ends: neither is filled from At.
+  const routes = live
+    .filter(({ r }) => r.work === 'haul' || (r.work === 'move' && r.fromPlaceId !== null && r.toPlaceId !== null))
+    .map(({ a, r }) => ({ a, r: filledRoute(r) }));
   const { fromPlaceId: from, toPlaceId: to } = trip;
 
   const at = (rule: (typeof RULES)[number]): Match | null => {
     const fit = routes.filter(({ r }) => rule.fits(r, from, to));
+    // A Move's loaded Trip is a Move Trip, never a Load.
+    if (fit.length === 1 && rule.kind === 'load' && fit[0].r.work === 'move')
+      return { kind: 'move', assignmentId: fit[0].a.id, rule: rule.rule, reason: 'From and To match the Move' };
     if (fit.length === 1) return { kind: rule.kind, assignmentId: fit[0].a.id, rule: rule.rule, reason: rule.reason };
     if (fit.length > 1)
       return {
@@ -533,7 +599,7 @@ export function matchTrip(
     const m = at(rule);
     if (m) return m;
   }
-  if (isShopOrYard(kindOf(places, from)) || isShopOrYard(kindOf(places, to))) return { kind: 'empty', assignmentId: null, rule: 3, reason: 'To or from the shop or a yard' };
+  if (isShopOrYard(kindOf(places, from)) || isShopOrYard(kindOf(places, to))) return { kind: 'empty', assignmentId: null, rule: SHOP_OR_YARD, reason: 'To or from the shop or a yard' };
   for (const rule of RULES.slice(2)) {
     const m = at(rule);
     if (m) return m;
@@ -542,8 +608,17 @@ export function matchTrip(
     const m = at({ rule: 6, kind: 'load', fits: (r, _a, b) => r.toPlaceId === b && r.fromPlaceId === null, reason: 'From a plant to the Assignment’s drop; its From is empty' });
     if (m) return m;
   }
-  return { kind: null, assignmentId: null, rule: 7, reason: 'No Assignment fits; Dave answers next morning' };
+  // Only At: which way material went is unknown, so an At Trip, never a Load. Never on a null At.
+  const m = at({ rule: AT_ONLY, kind: 'at', fits: (r, a, b) => isAtOnly(r) && (r.atPlaceId === a || r.atPlaceId === b), reason: 'Starts or ends at the Assignment’s At' });
+  if (m) return m.assignmentId ? { ...m, atPlaceId: routes.find(({ a }) => a.id === m.assignmentId)!.r.atPlaceId! } : m;
+  // Nothing else fits, and the Driver is on an Other then: not a haul, on the latest-ordered one.
+  const other = live.filter(({ r }) => r.work === 'other').at(-1)?.a;
+  if (other) return { kind: NOT_A_HAUL, assignmentId: other.id, rule: ON_AN_OTHER, reason: `Other: ${other.note?.trim() || 'no text'}` };
+  return { kind: null, assignmentId: null, rule: NOTHING_FITS, reason: 'No Assignment fits; Dave answers next morning' };
 }
+
+/** At and no From or To: its Trips there are At Trips, and its Loads come from Tickets. */
+const isAtOnly = (r: Route) => r.atPlaceId !== null && r.fromPlaceId === null && r.toPlaceId === null;
 
 /** Pair the cleaned visits into Trips: from one visit's exit to the next visit's entry, as soon as the Truck arrives. */
 function pair(visits: CleanVisit[]): Omit<Trip, 'match'>[] {
@@ -566,13 +641,13 @@ function pair(visits: CleanVisit[]): Omit<Trip, 'match'>[] {
   return trips;
 }
 
-/** An Assignment's Job: the Job of its drop-off, otherwise of its pick-up. */
+/** An Assignment's Job: the Job of its To, then its At, then its From; the first that belongs to a Job. */
 function jobOf(route: Route, places: TripPlace[], jobs: TripJob[]): TripJob | null {
   const jobAt = (placeId: string | null) => {
     const jobId = places.find((p) => p.id === placeId)?.jobId;
     return jobs.find((j) => j.id === jobId) ?? null;
   };
-  return jobAt(route.toPlaceId) ?? jobAt(route.fromPlaceId);
+  return jobAt(route.toPlaceId) ?? jobAt(route.atPlaceId) ?? jobAt(route.fromPlaceId);
 }
 
 /** Now, Done or neither (proposal P5): Now while the Truck's latest Trip is its and the Truck is not back at the shop. */
@@ -583,19 +658,24 @@ function summarize(input: TripDayInput, assignments: TripAssignment[], trips: Tr
   return assignments.map((a) => {
     const own = trips.filter((t) => t.match.assignmentId === a.id);
     const loads = own.filter((t) => t.match.kind === 'load');
+    const moves = own.filter((t) => t.match.kind === 'move');
+    const route = routeAt(a, now);
     const status: AssignmentStatus = own.length === 0 ? 'none' : latest?.match.assignmentId === a.id && !atShop ? 'now' : 'done';
     const first = own[0];
     const last = own.at(-1);
     return {
       assignmentId: a.id,
-      job: jobOf(routeAt(a, now), places, input.jobs ?? []),
-      loads: loads.length,
-      empties: own.length - loads.length,
+      job: jobOf(route, places, input.jobs ?? []),
+      // Only At: no Load is guessed, so none are counted; they come from Tickets.
+      loads: isAtOnly(route) && loads.length === 0 ? null : loads.length,
+      empties: own.filter((t) => t.match.kind === 'empty').length,
       // Tons come from the Loads' Tickets (phase 4); none are read yet.
       tons: null,
       status,
       since: first?.leftAt ?? null,
       lastLoadAt: loads.at(-1)?.arrivedAt ?? null,
+      // A Move's "Done 8:15": when the machine got there.
+      ...(route.work === 'move' ? { movedAt: moves.at(-1)?.arrivedAt ?? null } : {}),
       truckingHours: first && last ? round((ms(last.arrivedAt) - ms(first.leftAt)) / HOUR) : null,
     };
   });
@@ -683,8 +763,8 @@ function truckDayOf(input: TripDayInput, visits: CleanVisit[], trips: Trip[]): T
   };
 }
 
-/** "Nothing fits": rule 7, so no Assignments tied for the Trip either. */
-const fitsNone = (m: Match) => m.kind === null && m.rule === 7;
+/** "Nothing fits", so no Assignments tied for the Trip either. */
+const fitsNone = (m: Match) => m.kind === null && m.rule === NOTHING_FITS;
 
 /**
  * The drive back into a piece of Unplanned work's own Places. Where a piece
@@ -700,7 +780,7 @@ const fitsNone = (m: Match) => m.kind === null && m.rule === 7;
 const BACK_INTO_UNPLANNED: Match = {
   kind: null,
   assignmentId: null,
-  rule: 7,
+  rule: NOTHING_FITS,
   reason: 'Back to where this Unplanned work already went; Dave answers it with the rest',
 };
 
@@ -801,7 +881,7 @@ function answerRuns(trips: Trip[], runs: number[][], answers: UnplannedAnswers, 
   for (const no of answers.notAHauls ?? []) {
     const run = runs.find((r) => runId(trips, r) === no.unplannedId);
     for (const i of run ?? [])
-      out[i] = { ...trips[i], match: { kind: NOT_A_HAUL, assignmentId: null, rule: 7, reason: no.note ? `Not a haul: ${no.note}` : 'Not a haul' } };
+      out[i] = { ...trips[i], match: { kind: NOT_A_HAUL, assignmentId: null, rule: NOTHING_FITS, reason: no.note ? `Not a haul: ${no.note}` : 'Not a haul' } };
   }
   return out;
 }
@@ -873,7 +953,7 @@ export function buildTripDay(input: TripDayInput): TripDay {
     whichAssignment: trips
       .filter((t) => t.match.candidates)
       .map((trip) => ({ id: trip.leftAt, trip, candidates: trip.match.candidates! })),
-    shopTrips: trips.filter((t) => t.match.rule === 3),
+    shopTrips: trips.filter((t) => t.match.rule === SHOP_OR_YARD),
     truckDay: truckDayOf(input, visits, trips),
     unknownCodes,
     miles: {

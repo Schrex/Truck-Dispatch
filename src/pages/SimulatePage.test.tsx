@@ -49,8 +49,8 @@ const shopLog = () =>
     .queryAllByRole('listitem')
     .map((li) => li.textContent);
 
-const A1 = 'First · J25008 Los Flamboyanes → Villager · Fill · Truck 55 (his own)';
-const A2 = 'Then · Walworth Dolomite → J25008 Los Flamboyanes · 1&2 stone · Truck 55 (his own)';
+const A1 = 'First · Haul · J25008 Los Flamboyanes → Villager · Fill · Truck 55 (his own)';
+const A2 = 'Then · Haul · Walworth Dolomite → J25008 Los Flamboyanes · 1&2 stone · Truck 55 (his own)';
 
 /** The Trip log's rows: Left, From → To, Miles, Kind, Assignment, Why. */
 const tripLog = () =>
@@ -104,38 +104,39 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
   it('the other way round gives A1 3 Loads', () => {
     render(<SimulatePage />, { wrapper: MemoryRouter });
     choose('other-way');
-    expect(randy()[0]).toBe('First · Villager → J25008 Los Flamboyanes · Fill · Truck 55 (his own) · 3 Loads · Done · since 08:24');
+    expect(randy()[0]).toBe('First · Haul · Villager → J25008 Los Flamboyanes · Fill · Truck 55 (his own) · 3 Loads · Done · since 08:24');
   });
 
   it('the reroute at 11:20 gives A1 5 Loads, counting the ones before it, and shows A1 as it was before 11:20', () => {
     render(<SimulatePage />, { wrapper: MemoryRouter });
     choose('reroute');
-    expect(randy()[0]).toBe('First · Changed · J25008 Los Flamboyanes → J611 Bishop Kearney · Fill · Truck 55 (his own) · 5 Loads · Done · since 08:24');
+    expect(randy()[0]).toBe('First · Haul · Changed · J25008 Los Flamboyanes → J611 Bishop Kearney · Fill · Truck 55 (his own) · 5 Loads · Done · since 08:24');
     setClock(11 * 60);
     expect(randy()[0]).toBe(`${A1} · 3 Loads · Now · since 08:24`);
   });
 
   describe('Driver view: Randy’s Today on his phone', () => {
+    // What each card says after its place in his day and its kind pill ("1 ·Haul") and its Loads.
     const CARD_A1 = 'FillPick upJ25008 Los FlamboyanesDrop offVillager';
     const CARD_A2 = '1&2 stonePick upWalworth DolomiteDrop offJ25008 Los Flamboyanes';
 
     it('at end of day shows A1 with 4 Loads, last 11:25, and A2 with 2 Loads, last 13:54', () => {
       render(<SimulatePage />, { wrapper: MemoryRouter });
       expect(within(driverView()).getAllByRole('article').map((c) => c.getAttribute('aria-label'))).toEqual(['Fill', '1&2 stone']);
-      expect(cards()).toEqual([`4 Loads · last 11:25${CARD_A1}`, `2 Loads · last 13:54${CARD_A2}`]);
+      expect(cards()).toEqual([`1 ·Haul4 Loads · last 11:25${CARD_A1}`, `2 ·Haul2 Loads · last 13:54${CARD_A2}`]);
     });
 
     it('at 10:02 shows A1 with 2 Loads, marked Now, and nothing new on A2', () => {
       render(<SimulatePage />, { wrapper: MemoryRouter });
       setClock(10 * 60 + 2);
-      expect(cards()[0]).toBe(`Now2 Loads · last 09:46${CARD_A1}`);
-      expect(cards()[1]).toBe(CARD_A2);
+      expect(cards()[0]).toBe(`1 ·HaulNow2 Loads · last 09:46${CARD_A1}`);
+      expect(cards()[1]).toBe(`2 ·Haul${CARD_A2}`);
     });
 
     it('before the Truck leaves the shop, shows the cards as his phone does today', () => {
       render(<SimulatePage />, { wrapper: MemoryRouter });
       setClock(6 * 60);
-      expect(cards()).toEqual([CARD_A1, CARD_A2]);
+      expect(cards()).toEqual([`1 ·Haul${CARD_A1}`, `2 ·Haul${CARD_A2}`]);
     });
   });
 
@@ -355,7 +356,7 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
       expect(columnNames()).toEqual(['Assignment 1', 'Assignment 2', 'Assignment 3 · From the Truck']);
       expect(columns()[2]).toEqual(A3_COLUMN);
       // Assigned, not Added: on the lane it is marked From the Truck and nothing else.
-      expect(randy()[2]).toBe('Then · From the Truck · J611 Bishop Kearney → J25008 Los Flamboyanes · Top soil · Truck 55 (his own) · 1 Load · Done · since 14:15');
+      expect(randy()[2]).toBe('Then · Haul · From the Truck · J611 Bishop Kearney → J25008 Los Flamboyanes · Top soil · Truck 55 (his own) · 1 Load · Done · since 14:15');
       expect(within(scheduler()).queryByText('Added')).toBeNull();
       // Randy gets no notice: it is not on his phone.
       expect(cards()).toHaveLength(2);
@@ -532,7 +533,7 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
         ['10:10', 'load', 'A2'],
       ]);
       // Made afterwards, so never Added or Changed: on the lane it is marked From the Truck and nothing else.
-      expect(randy()[1]).toMatch(/^Then · From the Truck · Villager → J25008 Los Flamboyanes · Top soil · /);
+      expect(randy()[1]).toMatch(/^Then · Haul · From the Truck · Villager → J25008 Los Flamboyanes · Top soil · /);
     });
 
     it('from the lane, skips a piece Dave already answered that its answer did not wholly explain', () => {
@@ -583,7 +584,7 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
       fireEvent.click(within(answer()).getByRole('button', { name: 'Save' }));
       expect(lane('Randy')).toHaveLength(1);
       expect(lane('Sam')).toHaveLength(2);
-      expect(lane('Sam')[1]).toMatch(/^Then · From the Truck · J611 Bishop Kearney → J25008 Los Flamboyanes · Top soil · Truck 55 · 1 Load/);
+      expect(lane('Sam')[1]).toMatch(/^Then · Haul · From the Truck · J611 Bishop Kearney → J25008 Los Flamboyanes · Top soil · Truck 55 · 1 Load/);
       expect(truckLog().Driver).toBe('Sam');
       expect(columns()[2]).toMatchObject({ 'Pick up': 'J611 Bishop Kearney', '# of loads': '1', 'Trucking hours': '0.46' });
     });
@@ -675,7 +676,7 @@ describe('Simulation page: Truck 55 (MCK-55-17), Randy, Mon 16 Nov 2026', () => 
       expect(laneUnplanned()).toBeNull();
       expect(randy()).toEqual([
         `${A1} · 4 Loads · Done · since 08:24`,
-        'Then · Changed · J611 Bishop Kearney → J25008 Los Flamboyanes · 1&2 stone · Truck 55 (his own) · 3 Loads · Done · since 11:30',
+        'Then · Haul · Changed · J611 Bishop Kearney → J25008 Los Flamboyanes · 1&2 stone · Truck 55 (his own) · 3 Loads · Done · since 11:30',
       ]);
       expect(columnNames()).toEqual(['Assignment 1', 'Assignment 2']);
       expect(columns()[1]).toMatchObject({ 'Pick up': 'J611 Bishop Kearney', 'Drop off': 'J25008 Los Flamboyanes', '# of loads': '3', 'Trucking hours': '3.21' });

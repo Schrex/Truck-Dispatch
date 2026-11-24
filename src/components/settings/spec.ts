@@ -22,7 +22,15 @@ export type FormValues = Record<string, string | boolean | null>;
  */
 export type ListField<L extends ListName> = (
   | { key: Key<L>; label: string; kind: 'text' }
-  | { key: Key<L>; label: string; kind: 'pick'; list: ListName; empty: string }
+  | {
+      key: Key<L>;
+      label: string;
+      kind: 'pick';
+      list: ListName;
+      empty: string;
+      /** A line under the picker saying what the choice does, from what the panel holds now. */
+      hint?: (form: FormValues) => string;
+    }
   | {
       key: Key<L>;
       label: string;

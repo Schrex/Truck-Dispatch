@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Loader2, Settings, Upload } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
-import type { Assignment, BusinessDay, DayTruck, CheckIn, Driver, Foreman, Material, PaperLogPhoto, Place, Truck, TruckProblem } from '../../shared/types';
+import type { Assignment, BusinessDay, DayTruck, CheckIn, Customer, Driver, Foreman, Material, PaperLogPhoto, Place, Truck, TruckProblem } from '../../shared/types';
 import { isCalendarDate } from '../../shared/days';
 import { AssignmentEditor } from '@/components/AssignmentEditor';
 import { Composer, EMPTY_DRAFT, type Draft } from '@/components/Composer';
@@ -61,6 +61,7 @@ export function BoardPage() {
   const [places, setPlaces] = useState<Place[] | null>(null);
   const [materials, setMaterials] = useState<Material[] | null>(null);
   const [foremen, setForemen] = useState<Foreman[] | null>(null);
+  const [customers, setCustomers] = useState<Customer[] | null>(null);
   const [listsFailed, setListsFailed] = useState(false);
   const [assignments, setAssignments] = useState<Assignment[] | null>(null);
   /** Each Truck's Unplanned work and ties from its stored Trips, as the day read sends them; none without stored visits. */
@@ -129,6 +130,7 @@ export function BoardPage() {
     fetchList('places', { includeInactive: true }).catch(failed).then(setPlaces);
     fetchList('materials', { includeInactive: true }).catch(failed).then(setMaterials);
     fetchList('foremen', { includeInactive: true }).catch(failed).then(setForemen);
+    fetchList('customers', { includeInactive: true }).catch(failed).then(setCustomers);
   }, []);
 
   useEffect(() => {
@@ -247,7 +249,7 @@ export function BoardPage() {
       <main className="container space-y-4 py-6">
         {listsFailed && (
           <p className="text-sm text-destructive">
-            Could not load the Drivers, Trucks, Places, Materials and Foremen to pick from. Reload the page to try again.
+            Could not load the Drivers, Trucks, Places, Materials, Foremen and Customers to pick from. Reload the page to try again.
           </p>
         )}
         {live > 0 && (
@@ -281,7 +283,6 @@ export function BoardPage() {
             assignments={assignments}
             drivers={drivers}
             trucks={trucks}
-            places={places}
             checkIns={onToday ? (checkIns ?? undefined) : undefined}
             problems={onToday ? problems : undefined}
             stored={stored}
@@ -294,7 +295,7 @@ export function BoardPage() {
             editor={(assignment, { first, last }) => (
               <AssignmentEditor
                 assignment={assignment}
-                lists={{ drivers, trucks, places, materials, foremen }}
+                lists={{ drivers, trucks, places, materials, foremen, customers }}
                 first={first}
                 last={last}
                 onSaved={({ assignment: saved, cancelled }) => {
@@ -326,7 +327,7 @@ export function BoardPage() {
                   driverId={composingFor ?? null}
                   driverName={composerLane?.name ?? null}
                   usualTruckId={composerLane?.defaultTruckId ?? null}
-                  lists={{ drivers, places, materials, trucks, foremen }}
+                  lists={{ drivers, places, materials, trucks, foremen, customers }}
                   problems={problems}
                   draft={draft}
                   onDraft={setDraft}
