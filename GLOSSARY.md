@@ -58,6 +58,10 @@ The paper a plant or supplier gives the Driver for one Load. The Driver photogra
 The finished record of one Truck for one day: who drove it, its Inspection, its Trips and Loads with their Tickets, its miles and hours, and the sign-offs. Built from what the Truck, the Driver and Dave recorded; nobody types it. It replaces the paper Daily Truck Log, whose Orders are that day's Assignments.
 _Avoid_: daily log, timesheet
 
+**Paper log**:
+A photo of the paper Daily Truck Log for one Truck on one day, attached by its Driver or by Dave as a backup. Any Truck can have one on today or a past day, in as many photos as it takes; each is kept and only ever followed by more. Nobody types what is on it. It is asked for only when a Truck cannot record its own Trips. Where the Truck did record Trips, they stay the record and the Paper log is only shown beside them. Attaching one is not a Check-in.
+_Avoid_: manual truck log, manual log, log photo
+
 **Total hours**:
 A Truck's working time for one day, from its first start to its last stop. Worked out from the Truck, never typed.
 
