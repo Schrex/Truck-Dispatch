@@ -20,6 +20,8 @@ export function localD1() {
           d1_databases: [
             { binding: 'DB', database_name: 'truck-dispatch', database_id: 'test', migrations_dir: './migrations' },
           ],
+          // The photos bucket (Paper log pictures), local like the database.
+          r2_buckets: [{ binding: 'PHOTOS', bucket_name: 'truck-dispatch-photos-test' }],
         },
       },
     ],
@@ -27,17 +29,18 @@ export function localD1() {
   // The reference data every environment loads, then the synthetic test data.
   const seeds = ['seed/inspection-items.sql', 'seed/fixture.sql'].map((file) => readFileSync(file, 'utf8'));
   let db: D1Database | undefined;
+  let photos: R2Bucket | undefined;
 
   beforeAll(async () => {
     await harness.listen();
     await harness.getWorker().applyD1Migrations('DB');
-    db = (await harness.getWorker<{ DB: D1Database }>().getEnv()).DB;
+    ({ DB: db, PHOTOS: photos } = await harness.getWorker<{ DB: D1Database; PHOTOS: R2Bucket }>().getEnv());
   }, 60_000);
   afterAll(() => harness.close());
   beforeEach(async () => {
     const DB = database();
-    // Rows that point at others go first: Fleet visits and Import days at Imports, and Imports at Trucks; Truck problems at Inspections, Drivers and Trucks, an Inspection's answers at it and Inspections at Drivers, Trucks and items, an Assignment's earlier fields at it, Assignments and orders at the lists, Drivers at Trucks, Places at Jobs.
-    await DB.batch(['fleet_visits', 'fleet_import_days', 'fleet_imports', 'truck_problems', 'inspection_answers', 'inspections', 'assignment_changes', 'day_sends', 'assignments', 'orders', 'drivers', 'trucks', 'places', 'jobs', 'materials', 'foremen', 'inspection_items', 'not_considered', 'geofences'].map((table) => DB.prepare(`DELETE FROM ${table}`)));
+    // Rows that point at others go first: Paper log photos at Trucks and Drivers, Fleet visits and Import days at Imports, and Imports at Trucks; Truck problems at Inspections, Drivers and Trucks, an Inspection's answers at it and Inspections at Drivers, Trucks and items, an Assignment's earlier fields at it, Assignments and orders at the lists, Drivers at Trucks, Places at Jobs.
+    await DB.batch(['paper_log_photos', 'fleet_visits', 'fleet_import_days', 'fleet_imports', 'truck_problems', 'inspection_answers', 'inspections', 'assignment_changes', 'day_sends', 'assignments', 'orders', 'drivers', 'trucks', 'places', 'jobs', 'materials', 'foremen', 'inspection_items', 'not_considered', 'geofences'].map((table) => DB.prepare(`DELETE FROM ${table}`)));
     await reseed();
   });
 
@@ -51,13 +54,14 @@ export function localD1() {
     return db;
   };
 
-  /** An environment for handle(), with the local D1 and a stand-in for the page files. */
+  /** An environment for handle(), with the local D1, the local photos bucket and a stand-in for the page files. */
   const env = (vars: Partial<Env> = {}): Env => ({
     ASSETS: { fetch: async (input: Request | string) => {
       const { pathname, search } = new URL(input instanceof Request ? input.url : input);
       return new Response(`asset ${pathname}${search}`);
     } } as unknown as Fetcher,
     DB: database(),
+    PHOTOS: photos,
     ENVIRONMENT: 'test',
     ...vars,
   });
