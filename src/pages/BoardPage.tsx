@@ -265,8 +265,9 @@ export function BoardPage() {
             onAdd={
               editable
                 ? (driverId) => {
-                    // Another lane's + starts a blank composer: nothing is carried over from the last one.
-                    if (driverId !== composingFor) setDraft(EMPTY_DRAFT);
+                    // The open lane's + (shown as ×) closes the composer; another lane's starts a blank one.
+                    if (driverId === composingFor) return closeComposer();
+                    setDraft(EMPTY_DRAFT);
                     setComposingFor(driverId);
                   }
                 : undefined
