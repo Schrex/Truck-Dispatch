@@ -101,6 +101,21 @@ describe('a repeated attach', () => {
   });
 });
 
+describe('the same attach arriving twice at once', () => {
+  it('keeps one photo whose picture is the one its row describes', async () => {
+    for (let round = 0; round < 5; round += 1) {
+      const id = crypto.randomUUID();
+      const [a, b] = await Promise.all([attach({ id, type: 'image/png', body: PNG }), attach({ id, type: 'image/webp', body: WEBP })]);
+      expect([a.status, b.status].sort()).toEqual([200, 201]);
+      const kept = await photoOf(a);
+      expect(await photoOf(b)).toEqual(kept);
+      const served = await picture(id);
+      expect(served.headers.get('Content-Type')).toBe(kept.contentType);
+      expect(new Uint8Array(await served.arrayBuffer())).toEqual(kept.contentType === 'image/png' ? PNG : WEBP);
+    }
+  });
+});
+
 describe('a day\'s photos', () => {
   it('lists several for one Truck and day oldest first, and one Driver\'s alone with driverId', async () => {
     const late = await photoOf(await attach({ vars: { NOW: '2026-11-19T21:05:00.000Z' } }));
@@ -111,8 +126,9 @@ describe('a day\'s photos', () => {
     expect((await day(TODAY, 'drv-a')).photos).toEqual([early, late]);
   });
 
-  it('refuses a date that is not one', async () => {
+  it('refuses a date that is not one, in the same words as an attach does', async () => {
     expect(await fields(await send('GET', '/api/paper-logs?date=19-11-2026'))).toEqual({ date: 'Pick a date.' });
+    expect((await fields(await attach({ date: '19-11-2026' }))).date).toBe('Pick a date.');
   });
 });
 
@@ -209,6 +225,14 @@ describe('taking a photo off', () => {
     const again = await takeOff(photo.id, '2026-11-19T18:00:00.000Z');
     expect(again.status).toBe(200);
     expect((await photoOf(again)).takenOffAt).toBe('2026-11-19T15:30:00.000Z');
+  });
+
+  it('refuses a retried attach of a photo since taken off, plainly, and keeps it off', async () => {
+    const id = crypto.randomUUID();
+    await attach({ id });
+    await takeOff(id);
+    expect(await fields(await attach({ id }))).toEqual({ id: 'This photo was taken off. Take it again if it is the right sheet.' });
+    expect((await day(TODAY)).photos).toEqual([]);
   });
 
   it('answers 404 for a photo never attached, and 405 to anything but a POST', async () => {

@@ -53,6 +53,9 @@ function readPhoto(env: Env, id: string): Promise<PaperLogPhoto | null> {
   return env.DB.prepare(`${SELECT_PHOTO} WHERE p.id = ?`).bind(id).first<PaperLogPhoto>();
 }
 
+/** A retried attach of a photo Dave has since taken off. */
+const TAKEN_OFF = 'This photo was taken off. Take it again if it is the right sheet.';
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ATTACHERS: readonly string[] = PAPER_LOG_ATTACHERS;
 const TYPES: readonly string[] = PAPER_LOG_TYPES;
@@ -72,8 +75,11 @@ function looksLike(type: string, bytes: Uint8Array): boolean {
 /**
  * Attaches one photo. An id already kept answers that photo and stores
  * nothing, whatever was sent, so a send retried after a lost reply is kept
- * once. The picture goes to the bucket first and the row after, so a row
- * never points at a missing picture.
+ * once; one since taken off is refused, so it never comes back. The picture
+ * goes to the bucket first, under a key of its own for this attempt, and the
+ * row after, so a row never points at a missing picture, and when the same id
+ * arrives twice at once the loser's picture is deleted and the row keeps the
+ * winner's.
  */
 async function attach(request: Request, env: Env, query: URLSearchParams): Promise<Response> {
   const { now, today } = clock(env);
@@ -81,13 +87,14 @@ async function attach(request: Request, env: Env, query: URLSearchParams): Promi
   const id = query.get('id') ?? '';
   if (!UUID.test(id)) return refuse({ id: 'Take the photo again.' });
   const stored = await readPhoto(env, id);
+  if (stored?.takenOffAt) return refuse({ id: TAKEN_OFF });
   if (stored) return json({ photo: stored });
 
   if (!env.PHOTOS) return refuse({ picture: 'Photos cannot be kept here yet. Give the paper sheet to Dave.' });
 
   const errors: Record<string, string> = {};
   const date = query.get('date');
-  if (!isCalendarDate(date)) errors.date = 'Pick a day.';
+  if (!isCalendarDate(date)) errors.date = 'Pick a date.';
   else if (date > today) errors.date = 'A Paper log is for today or a past day.';
   const truckId = query.get('truckId') ?? '';
   if (!truckId || !(await exists(env, 'trucks', truckId))) errors.truckId = 'Pick a Truck from the list.';
@@ -110,7 +117,8 @@ async function attach(request: Request, env: Env, query: URLSearchParams): Promi
 
   if (Object.keys(errors).length > 0 || !bytes) return refuse(errors);
 
-  const key = `paper-logs/${date}/${id}`;
+  // A key for this attempt alone, so a second send of the same id at once never overwrites the kept picture.
+  const key = `paper-logs/${date}/${id}/${crypto.randomUUID()}`;
   await env.PHOTOS.put(key, bytes, { httpMetadata: { contentType: type } });
   try {
     await env.DB.prepare(
@@ -120,9 +128,12 @@ async function attach(request: Request, env: Env, query: URLSearchParams): Promi
       .bind(id, date, truckId, driverId, attachedBy, now.toISOString(), key, type, bytes.length)
       .run();
   } catch (error) {
-    // The same send arriving twice at once: the first one kept it, and it stands.
+    // The same send arriving twice at once: the first one kept it, and it stands; this picture is not needed.
+    await env.PHOTOS.delete(key);
     if (!String(error).includes('UNIQUE constraint failed: paper_log_photos.id')) throw error;
-    return json({ photo: await readPhoto(env, id) });
+    const kept = await readPhoto(env, id);
+    if (kept?.takenOffAt) return refuse({ id: TAKEN_OFF });
+    return json({ photo: kept });
   }
   return json({ photo: await readPhoto(env, id) }, 201);
 }
