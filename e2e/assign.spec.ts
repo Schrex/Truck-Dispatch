@@ -23,6 +23,8 @@ test('Dave Assigns an Assignment on the Board and the Driver sees it on his phon
   await composer.getByRole('group', { name: 'For', exact: true }).getByRole('button', { name: 'Or type it' }).click();
   await composer.getByRole('textbox', { name: 'For, typed' }).fill('Sample Customer A');
   await composer.getByRole('button', { name: 'Save' }).click();
+  // Saved: the composer folds, so only the block names it.
+  await expect(composer).toBeHidden();
 
   const lane = board.getByRole('article', { name: /Sample Driver A/ });
   await expect(lane.getByText('For Sample Customer A')).toBeVisible();
@@ -59,6 +61,8 @@ test('Dave Assigns a Move and the Driver sees the machine, From and To on his ph
   await sentence.getByRole('button', { name: 'To', exact: true }).click();
   await composer.getByRole('group', { name: 'To', exact: true }).getByRole('button', { name: 'Sample Site North' }).click();
   await composer.getByRole('button', { name: 'Save' }).click();
+  // Saved: the composer folds, so only the block names it.
+  await expect(composer).toBeHidden();
 
   const lane = board.getByRole('article', { name: /Sample Driver B/ });
   await expect(lane.getByText('the 260 + big bucket')).toBeVisible();
