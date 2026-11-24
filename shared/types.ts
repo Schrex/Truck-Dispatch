@@ -75,6 +75,18 @@ export interface Foreman {
 }
 
 /**
+ * Someone outside the company we haul for, e.g. Jaus; never a Foreman. No
+ * name is both a Foreman's and a Customer's, ignoring case.
+ */
+export interface Customer {
+  id: string;
+  name: string;
+  /** The Place their work usually is at, which picking them fills in as At; null when their sites change. Picked from the Places in use. */
+  usualPlaceId: string | null;
+  active: boolean;
+}
+
+/**
  * One line of the Inspection checklist ("Lights"), kept in Settings. A Driver
  * may leave an optional item unanswered.
  */
@@ -109,6 +121,7 @@ export interface Lists {
   places: Place;
   materials: Material;
   foremen: Foreman;
+  customers: Customer;
   'inspection-items': InspectionItem;
 }
 export type ListName = keyof Lists;

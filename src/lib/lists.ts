@@ -8,6 +8,7 @@ const DISPLAY: { [L in ListName]: (entry: Lists[L]) => string } = {
   places: (place) => place.shortName,
   materials: (material) => material.name,
   foremen: (foreman) => foreman.name,
+  customers: (customer) => customer.name,
   'inspection-items': (item) => item.label,
 };
 
@@ -19,6 +20,7 @@ export const LIST_TITLES: Record<ListName, string> = {
   places: 'Places',
   materials: 'Materials',
   foremen: 'Foremen',
+  customers: 'Customers',
   'inspection-items': 'Inspection checklist',
 };
 

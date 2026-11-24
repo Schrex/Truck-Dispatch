@@ -24,7 +24,7 @@ const problem = (fields: Partial<TruckProblem>): TruckProblem => ({
  * first to last, the rest after.
  */
 type Entry = Record<string, unknown> & { id: string; active: boolean };
-const NAME: Record<string, string> = { drivers: 'name', trucks: 'number', jobs: 'name', places: 'shortName', materials: 'name', foremen: 'name', 'inspection-items': 'label' };
+const NAME: Record<string, string> = { drivers: 'name', trucks: 'number', jobs: 'name', places: 'shortName', materials: 'name', foremen: 'name', customers: 'name', 'inspection-items': 'label' };
 /** The Geofences as the Worker holds them, by code: a PATCH turns one to Not considered or back. */
 let geofences: Geofence[];
 let lists: Record<string, Entry[]>;
@@ -69,7 +69,7 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     geofences = geofences.map((g) => (g.code === code ? { ...g, notConsidered: body.notConsidered } : g));
     return answer({ geofence: geofences.find((g) => g.code === code) });
   }
-  const [, list, id] = /\/api\/(drivers|trucks|jobs|places|materials|foremen|inspection-items)(?:\/([^/]+))?$/.exec(url.pathname) ?? [];
+  const [, list, id] = /\/api\/(drivers|trucks|jobs|places|materials|foremen|customers|inspection-items)(?:\/([^/]+))?$/.exec(url.pathname) ?? [];
   if (!list) return answer({ error: 'not_found' }, 404);
   const method = init?.method ?? 'GET';
   if (method === 'GET' && list === failing) return answer({ error: 'oops' }, 500);
@@ -93,6 +93,10 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   if (named && (named.active || method === 'PATCH')) {
     return answer({ error: 'invalid', fields: { [name]: 'That one is already in the list.' } }, 400);
   }
+  // Like the Worker, one name across Foremen and Customers, removed ones too.
+  const across = { foremen: ['customers', 'Customer'], customers: ['foremen', 'Foreman'] }[list];
+  const other = across && 'name' in body ? lists[across[0]].find((e) => String(e.name).toLowerCase() === String(body.name).toLowerCase()) : undefined;
+  if (across && other) return answer({ error: 'invalid', fields: { name: `${other.name} is a ${across[1]} already.` } }, 400);
   // Like the Worker, a geofence code another active Place has is refused, and On the truck map follows from it.
   const holder = list === 'places' && body.geofenceCode ? entries.find((e) => e.id !== id && e.active && String(e.geofenceCode).toLowerCase() === body.geofenceCode.toLowerCase()) : undefined;
   if (holder) return answer({ error: 'invalid', fields: { geofenceCode: `This geofence code is on ${holder.shortName} already. Clear it there first.` } }, 400);
@@ -150,6 +154,11 @@ beforeEach(() => {
       { id: 'frm-a', name: 'Sample Foreman A', active: true },
       { id: 'frm-x', name: 'Sample Foreman X', active: false },
     ],
+    customers: [
+      { id: 'cus-jaus', name: 'Sample Customer Jaus', usualPlaceId: null, active: true },
+      { id: 'cus-empire', name: 'Sample Customer Empire', usualPlaceId: 'plc-north', active: true },
+      { id: 'cus-x', name: 'Sample Customer Gone', usualPlaceId: null, active: false },
+    ],
     'inspection-items': [
       { id: 'insp-01', label: 'Dump box clean', optional: false, active: true },
       { id: 'insp-07', label: 'Lights', optional: false, active: true },
@@ -182,7 +191,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-type Title = 'Drivers' | 'Trucks' | 'Places' | 'Materials' | 'Jobs' | 'Foremen' | 'Inspection checklist';
+type Title = 'Drivers' | 'Trucks' | 'Places' | 'Materials' | 'Jobs' | 'Foremen' | 'Customers' | 'Inspection checklist';
 
 /** Opens Settings and waits until every section has its chips. */
 const settings = async () => {
@@ -227,6 +236,7 @@ describe('Settings', () => {
       'Materials',
       'Jobs',
       'Foremen',
+      'Customers',
       'Inspection checklist',
       'Geofences',
     ]);
@@ -250,6 +260,8 @@ describe('Settings', () => {
     expect(chip('Jobs', 'Sample Job North').textContent).toContain('S-1001');
     expect(chips('Materials')).toEqual(['2" minus']);
     expect(chips('Foremen')).toEqual(['Sample Foreman A']);
+    expect(chips('Customers')).toEqual(['Sample Customer Jaus', 'Sample Customer Empire']);
+    expect(screen.queryByText('Sample Customer Gone')).toBeNull();
 
     expect(chips('Inspection checklist')).toEqual(['Dump box clean', 'Lights', 'Air tank (drain)']);
     expect(chip('Inspection checklist', 'Air tank (drain)').textContent).toContain('Optional');
@@ -493,6 +505,71 @@ describe('Settings', () => {
     });
   });
 
+  describe('a Customer', () => {
+    it('picks a usual Place from the Places in use, saved on Save, and says what it does', async () => {
+      await settings();
+      const panel = open('Customers', 'Sample Customer Jaus');
+      expect(within(panel).getByText('Usual Place')).toBeTruthy();
+      expect(within(panel).getByText('Picking Sample Customer Jaus on an Assignment fills At with this Place, if set.')).toBeTruthy();
+      expect(options(pick(panel, 'usualPlaceId'))).toEqual(['No usual Place', 'Sample Plant', 'Sample Site North', 'Sample Yard']);
+      fireEvent.change(pick(panel, 'usualPlaceId'), { target: { value: 'plc-yard' } });
+      expect(sent).toEqual([]);
+      save(panel);
+      await closed();
+      expect(sent).toEqual([{ method: 'PATCH', path: '/api/customers/cus-jaus', body: { usualPlaceId: 'plc-yard' } }]);
+      expect(pick(open('Customers', 'Sample Customer Jaus'), 'usualPlaceId').value).toBe('plc-yard');
+    });
+
+    it('clears a usual Place', async () => {
+      await settings();
+      const panel = open('Customers', 'Sample Customer Empire');
+      expect(pick(panel, 'usualPlaceId').value).toBe('plc-north');
+      fireEvent.change(pick(panel, 'usualPlaceId'), { target: { value: 'none' } });
+      save(panel);
+      await closed();
+      expect(sent).toEqual([{ method: 'PATCH', path: '/api/customers/cus-empire', body: { usualPlaceId: null } }]);
+    });
+
+    it('drops a picked Place on Cancel', async () => {
+      await settings();
+      const panel = open('Customers', 'Sample Customer Jaus');
+      fireEvent.change(pick(panel, 'usualPlaceId'), { target: { value: 'plc-yard' } });
+      cancel(panel);
+      await closed();
+      expect(sent).toEqual([]);
+      expect(pick(open('Customers', 'Sample Customer Jaus'), 'usualPlaceId').value).toBe('none');
+    });
+
+    it('is added with its name and usual Place in one request', async () => {
+      await settings();
+      const panel = add('Customers', 'Customer');
+      expect(within(panel).getByText('Picking this Customer on an Assignment fills At with this Place, if set.')).toBeTruthy();
+      type(panel, 'Name', 'Sample Customer Zoladz');
+      fireEvent.change(pick(panel, 'usualPlaceId'), { target: { value: 'plc-plant' } });
+      save(panel);
+      await closed();
+      expect(sent).toEqual([{ method: 'POST', path: '/api/customers', body: { name: 'Sample Customer Zoladz', usualPlaceId: 'plc-plant' } }]);
+      expect(chips('Customers').at(-1)).toBe('Sample Customer Zoladz');
+    });
+
+    it('shows why a Foreman\'s name is refused, next to the name, and a Foreman named as a Customer the same way', async () => {
+      await settings();
+      const panel = add('Customers', 'Customer');
+      type(panel, 'Name', 'sample foreman x');
+      save(panel);
+      const message = await within(panel).findByText('Sample Foreman X is a Foreman already.');
+      expect(message.closest('div')?.querySelector('input')).toBe(within(panel).getByLabelText('Name'));
+      cancel(panel);
+      await closed();
+
+      const foreman = add('Foremen', 'Foreman');
+      type(foreman, 'Name', 'Sample Customer Jaus');
+      save(foreman);
+      expect(await within(foreman).findByText('Sample Customer Jaus is a Customer already.')).toBeTruthy();
+      expect(chips('Foremen')).toEqual(['Sample Foreman A']);
+    });
+  });
+
   describe('an Inspection item', () => {
     const optional = (panel: HTMLElement) => within(panel).getByRole('switch', { name: 'Optional' });
 
@@ -537,6 +614,7 @@ describe('Settings', () => {
       ['Materials', 'Material', 'Name', 'Sample Fill', '/api/materials', { name: 'Sample Fill' }],
       ['Jobs', 'Job', 'Name', 'Sample Job East', '/api/jobs', { name: 'Sample Job East' }],
       ['Foremen', 'Foreman', 'Name', 'Sample Foreman D', '/api/foremen', { name: 'Sample Foreman D' }],
+      ['Customers', 'Customer', 'Name', 'Sample Customer Zoladz', '/api/customers', { name: 'Sample Customer Zoladz' }],
       ['Inspection checklist', 'Inspection item', 'Item', 'Horn', '/api/inspection-items', { label: 'Horn' }],
     ] as const)('adds to %s on Save, last in the section', async (title, noun, label, name, path, body) => {
       await settings();

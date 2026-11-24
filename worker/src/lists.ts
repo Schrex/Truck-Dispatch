@@ -59,6 +59,12 @@ interface List {
   /** The response key for one entry, e.g. { truck }. */
   one: string;
   name: { key: string; column: string; missing: string; taken: string };
+  /**
+   * Other lists that may not hold this name either, active or removed,
+   * ignoring case, with the reason given the holder's name: one name across
+   * Foremen and Customers keeps a typed For unambiguous.
+   */
+  sharesNamesWith?: { list: ListName; taken: (holder: string) => string }[];
   fields: Field[];
   /**
    * Yes-or-no facts read from columns Settings does not edit, e.g. whether a
@@ -133,7 +139,24 @@ export const LISTS: Record<ListName, List> = {
     table: 'foremen',
     one: 'foreman',
     name: { key: 'name', column: 'name', missing: 'Write the Foreman\'s name.', taken: 'There is already a Foreman with this name.' },
+    sharesNamesWith: [{ list: 'customers', taken: (holder) => `${holder} is a Customer already.` }],
     fields: [],
+  },
+  customers: {
+    table: 'customers',
+    one: 'customer',
+    name: { key: 'name', column: 'name', missing: 'Write the Customer\'s name.', taken: 'There is already a Customer with this name.' },
+    sharesNamesWith: [{ list: 'foremen', taken: (holder) => `${holder} is a Foreman already.` }],
+    fields: [
+      {
+        key: 'usualPlaceId',
+        column: 'usual_place_id',
+        kind: 'ref',
+        list: 'places',
+        message: 'Pick a Place from the list.',
+        removed: 'This Place was removed. Bring it back in Places, or pick another.',
+      },
+    ],
   },
   'inspection-items': {
     table: 'inspection_items',
@@ -167,6 +190,16 @@ export async function exists(env: Env, list: ListName, id: string): Promise<bool
 export function entryNamed(env: Env, list: ListName, name: string): Promise<{ id: string; active: number } | null> {
   const { table, name: display } = LISTS[list];
   return env.DB.prepare(`SELECT id, active FROM ${table} WHERE ${display.column} = ? COLLATE NOCASE`).bind(name).first();
+}
+
+/** Why a name is refused because another list sharing names with this one holds it (active or removed), or null. */
+async function nameElsewhere(env: Env, list: ListName, name: string): Promise<string | null> {
+  for (const other of LISTS[list].sharesNamesWith ?? []) {
+    const { table, name: display } = LISTS[other.list];
+    const holder = await env.DB.prepare(`SELECT ${display.column} AS name FROM ${table} WHERE ${display.column} = ? COLLATE NOCASE`).bind(name).first<{ name: string }>();
+    if (holder) return other.taken(holder.name);
+  }
+  return null;
 }
 
 /** Whether a write failed because the list's unique index already has the name. */
@@ -280,7 +313,9 @@ async function save(request: Request, env: Env, list: ListName, id: string | nul
     else if (name.length > TEXT_LIMIT) errors[spec.name.key] = `Keep it to ${TEXT_LIMIT} characters or fewer.`;
     else {
       const named = await entryNamed(env, list, name);
+      const elsewhere = await nameElsewhere(env, list, name);
       if (named && named.id !== id && (named.active || !adding)) errors[spec.name.key] = spec.name.taken;
+      else if (elsewhere) errors[spec.name.key] = elsewhere;
       else {
         values[spec.name.column] = name;
         // Adding a removed entry's name brings that entry back instead (as typing it on an Assignment does).

@@ -38,6 +38,10 @@ A person who drives a company Truck and receives Assignments. Each has a usual T
 The person running a Job on a given day. Changes from day to day, so an Assignment names one, not a Place. A job-site Place can have a usual Foreman, who is suggested for new Assignments that drop off there, or pick up there when the drop-off is not a job site.
 _Avoid_: project lead, super
 
+**Customer**:
+Someone outside the company we haul for, e.g. Jaus; never a Foreman. Kept in Settings beside Foremen, each with an optional usual Place where their work usually is. No name is both a Foreman's and a Customer's (ignoring case, removed ones included).
+_Avoid_: client, contractor
+
 ## Trucks
 
 **Check-in**:

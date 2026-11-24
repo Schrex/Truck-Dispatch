@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { handle } from './app';
 import { localD1 } from './testing/localD1';
 import type { Assignment, DriverDay } from '../../shared/types';
@@ -243,9 +243,14 @@ describe.each([
   { route: 'materials', one: 'material', name: 'name', seeded: 'mat-minus', seededName: '2" minus', fresh: 'Sample Fill' },
   { route: 'foremen', one: 'foreman', name: 'name', seeded: 'frm-a', seededName: 'Sample Foreman A', fresh: 'Sample Foreman D' },
   { route: 'inspection-items', table: 'inspection_items', one: 'inspectionItem', name: 'label', seeded: 'insp-07', seededName: 'Lights', fresh: 'Horn' },
-])('the $route list', ({ route, table = route, one, name, seeded, seededName, fresh }) => {
+  // Nothing is seeded for Customers, so the test puts one in first.
+  { route: 'customers', one: 'customer', name: 'name', seeded: 'cus-a', seededName: 'Sample Customer A', fresh: 'Sample Customer D', setup: "INSERT INTO customers (id, name) VALUES ('cus-a', 'Sample Customer A')" },
+])('the $route list', ({ route, table = route, one, name, seeded, seededName, fresh, setup }) => {
   const names = async (search = '') => (await list(`/api/${route}${search}`)).map((e) => e[name]);
   const change = (id: string, body: unknown) => send('PATCH', `/api/${route}/${id}`, body);
+  beforeEach(async () => {
+    if (setup) await d1.database().prepare(setup).run();
+  });
 
   it('adds an entry, active, and lists it', async () => {
     const response = await post(`/api/${route}`, { [name]: `  ${fresh}  ` });
@@ -351,6 +356,87 @@ describe('adding a removed entry again', () => {
     expect(await refusal(await post('/api/drivers', { name: 'Sample Driver A', defaultTruckId: 'trk-nothing' }))).toEqual({ defaultTruckId: 'Pick a Truck from the list.' });
     const { drivers } = (await (await get('/api/drivers')).json()) as { drivers: { id: string }[] };
     expect(drivers.map((d) => d.id)).not.toContain('drv-a');
+  });
+});
+
+describe('Customers', () => {
+  const customer = async (response: Response) => ((await response.json()) as { customer: Entry }).customer;
+  const addCustomer = (body: unknown) => post('/api/customers', body);
+
+  it('start as an empty list: none are seeded', async () => {
+    expect(await list('/api/customers?include=inactive')).toEqual([]);
+  });
+
+  it('are added with a name alone, with no usual Place and no order', async () => {
+    const response = await addCustomer({ name: ' Sample Customer Jaus ' });
+    expect(response.status).toBe(201);
+    expect(await customer(response)).toEqual({ id: expect.any(String), name: 'Sample Customer Jaus', usualPlaceId: null, active: true });
+  });
+
+  it('save a usual Place, and change or clear it', async () => {
+    const added = await customer(await addCustomer({ name: 'Sample Customer Jaus', usualPlaceId: 'plc-north' }));
+    expect(added).toMatchObject({ usualPlaceId: 'plc-north' });
+    expect(await customer(await send('PATCH', `/api/customers/${added.id}`, { usualPlaceId: 'plc-plant' }))).toMatchObject({ usualPlaceId: 'plc-plant' });
+    expect(await customer(await send('PATCH', `/api/customers/${added.id}`, { usualPlaceId: null }))).toMatchObject({ name: 'Sample Customer Jaus', usualPlaceId: null });
+    expect(await list('/api/customers')).toEqual([expect.objectContaining({ id: added.id, usualPlaceId: null })]);
+  });
+
+  it('refuse a usual Place that does not exist or was removed, with a message on it', async () => {
+    expect(await refusal(await addCustomer({ name: 'Sample Customer Jaus', usualPlaceId: 'nowhere' }))).toEqual({ usualPlaceId: 'Pick a Place from the list.' });
+    await send('PATCH', '/api/places/plc-yard', { active: false });
+    expect(await refusal(await addCustomer({ name: 'Sample Customer Jaus', usualPlaceId: 'plc-yard' }))).toEqual({
+      usualPlaceId: 'This Place was removed. Bring it back in Places, or pick another.',
+    });
+    expect(await list('/api/customers?include=inactive')).toEqual([]);
+  });
+
+  it('keep a usual Place removed later, and their other fields still save', async () => {
+    const added = await customer(await addCustomer({ name: 'Sample Customer Jaus', usualPlaceId: 'plc-yard' }));
+    await send('PATCH', '/api/places/plc-yard', { active: false });
+    expect(await customer(await send('PATCH', `/api/customers/${added.id}`, { name: 'Sample Customer Jaus 2' }))).toMatchObject({ usualPlaceId: 'plc-yard' });
+  });
+
+  it('come back when a removed one is added again, keeping its usual Place unless the add sends one', async () => {
+    const added = await customer(await addCustomer({ name: 'Sample Customer Jaus', usualPlaceId: 'plc-north' }));
+    await send('PATCH', `/api/customers/${added.id}`, { active: false });
+    const again = await addCustomer({ name: 'sample customer jaus' });
+    expect(again.status).toBe(200);
+    expect(await again.json()).toEqual({ customer: { id: added.id, name: 'sample customer jaus', usualPlaceId: 'plc-north', active: true }, broughtBack: true });
+  });
+
+  it('cannot be put in order', async () => {
+    expect((await send('PUT', '/api/customers/order', { order: [] })).status).toBe(405);
+  });
+});
+
+describe('one name across Foremen and Customers', () => {
+  const addCustomer = async (name: string) => ((await (await post('/api/customers', { name })).json()) as { customer: Entry }).customer;
+
+  it('refuses a Customer named as a Foreman, in use or removed, ignoring case, with the reason on the name', async () => {
+    expect(await refusal(await post('/api/customers', { name: 'sample foreman a' }))).toEqual({ name: 'Sample Foreman A is a Foreman already.' });
+    await send('PATCH', '/api/foremen/frm-b', { active: false });
+    expect(await refusal(await post('/api/customers', { name: 'SAMPLE FOREMAN B' }))).toEqual({ name: 'Sample Foreman B is a Foreman already.' });
+    expect(await list('/api/customers?include=inactive')).toEqual([]);
+  });
+
+  it('refuses renaming a Customer to a Foreman\'s name', async () => {
+    const jaus = await addCustomer('Sample Customer Jaus');
+    expect(await refusal(await send('PATCH', `/api/customers/${jaus.id}`, { name: 'Sample Foreman C' }))).toEqual({ name: 'Sample Foreman C is a Foreman already.' });
+  });
+
+  it('refuses a Foreman named as a Customer, in use or removed, ignoring case, when added or renamed', async () => {
+    const jaus = await addCustomer('Sample Customer Jaus');
+    expect(await refusal(await post('/api/foremen', { name: 'sample customer jaus' }))).toEqual({ name: 'Sample Customer Jaus is a Customer already.' });
+    await send('PATCH', `/api/customers/${jaus.id}`, { active: false });
+    expect(await refusal(await send('PATCH', '/api/foremen/frm-a', { name: 'Sample Customer Jaus' }))).toEqual({ name: 'Sample Customer Jaus is a Customer already.' });
+    expect((await list('/api/foremen')).map((f) => f.name)).toEqual(['Sample Foreman A', 'Sample Foreman B', 'Sample Foreman C']);
+  });
+
+  it('still brings back a removed Foreman by his own name', async () => {
+    await send('PATCH', '/api/foremen/frm-a', { active: false });
+    const again = await post('/api/foremen', { name: 'Sample Foreman A' });
+    expect(again.status).toBe(200);
+    expect(await again.json()).toMatchObject({ foreman: { id: 'frm-a', active: true }, broughtBack: true });
   });
 });
 
@@ -910,7 +996,7 @@ describe.each([
 });
 
 describe('the lists Dave does not order', () => {
-  it.each(['trucks', 'jobs', 'foremen'])('have no order: the %s cannot be reordered and come by name', async (route) => {
+  it.each(['trucks', 'jobs', 'foremen', 'customers'])('have no order: the %s cannot be reordered and come by name', async (route) => {
     expect((await send('PUT', `/api/${route}/order`, { order: [] })).status).toBe(405);
     expect((await list(`/api/${route}`)).every((e) => !('sortOrder' in e))).toBe(true);
   });

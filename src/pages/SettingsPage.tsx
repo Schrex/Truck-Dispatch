@@ -80,6 +80,23 @@ const SECTIONS: SectionSpec<ListName>[] = [
     detail: (job) => job.jobNumber,
   }),
   section({ list: 'foremen', title: 'Foremen', noun: 'Foreman', name: { key: 'name', label: 'Name' }, fields: [] }),
+  // Beside Foremen: both are who an Assignment is For, so no name is in both (the Worker says so on the name).
+  section({
+    list: 'customers',
+    title: 'Customers',
+    noun: 'Customer',
+    name: { key: 'name', label: 'Name' },
+    fields: [
+      {
+        key: 'usualPlaceId',
+        label: 'Usual Place',
+        kind: 'pick',
+        list: 'places',
+        empty: 'No usual Place',
+        hint: (form) => `Picking ${String(form.name ?? '').trim() || 'this Customer'} on an Assignment fills At with this Place, if set.`,
+      },
+    ],
+  }),
   section({
     list: 'inspection-items',
     title: 'Inspection checklist',
