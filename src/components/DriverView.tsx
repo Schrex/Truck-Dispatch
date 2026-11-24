@@ -23,8 +23,8 @@ export function DriverView({ date, phones }: { date: string; phones: DriverPhone
             <p className="text-sm text-muted-foreground">
               {phone.driverName} · Today, {shortDate(date)}
             </p>
-            {cards.map((assignment) => (
-              <DriverCard key={assignment.id} assignment={assignment} />
+            {cards.map((assignment, i) => (
+              <DriverCard key={assignment.id} assignment={assignment} index={i} />
             ))}
           </div>
         );

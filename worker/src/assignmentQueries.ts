@@ -17,7 +17,7 @@ export const SELECT_ASSIGNMENT = `SELECT a.id, a.date, a.driver_id AS driverId, 
        a.to_place_id AS toPlaceId, pt.short_name AS toPlaceName,
        a.at_place_id AS atPlaceId, pa.short_name AS atPlaceName,
        a.material_id AS materialId, m.name AS materialName,
-       a.foreman_id AS foremanId, f.name AS foremanName, a.customer_id AS customerId, c.name AS customerName, a.note,
+       a.foreman_id AS foremanId, f.name AS foremanName, a.customer_id AS customerId, c.name AS customerName, a.note, a.work, a.machine,
        a.position, a.created_at AS createdAt, a.updated_at AS updatedAt, a.changed_at AS changedAt, a.cancelled_at AS cancelledAt,
        a.assigned_at AS assignedAt, a.handed_from AS handedFromId
   FROM assignments a LEFT JOIN drivers d ON d.id = a.driver_id LEFT JOIN trucks t ON t.id = a.truck_id

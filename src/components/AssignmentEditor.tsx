@@ -1,8 +1,12 @@
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import { ArrowDown, ArrowUp, Loader2, X } from 'lucide-react';
-import { NOTE_LIMIT, type Assignment, type AssignmentChange, type ChangedAssignment, type Customer, type Driver, type Foreman, type Material, type Place, type Truck, type TypedNames } from '../../shared/types';
+import { NOTE_LIMIT, WORK_FIELDS, type Work, type WorkField, type Assignment, type AssignmentChange, type ChangedAssignment, type Customer, type Driver, type Foreman, type Material, type Place, type Truck, type TypedNames } from '../../shared/types';
 import { chipClass, OrTypeIt, TypedBox } from '@/components/TypedName';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { SegmentedToggle } from '@/components/SegmentedToggle';
+import { WORK_OPTIONS } from '@/components/Composer';
+import { WORK_PILL } from '@/components/AssignmentBlock';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { changeAssignment, FieldErrors, moveAssignment, Refused } from '@/lib/api';
@@ -19,7 +23,7 @@ export interface EditorLists {
 }
 
 /** A part of the sentence that is picked from a list: For from two, Foremen and Customers. */
-type PartKey = 'driverId' | 'materialId' | 'fromPlaceId' | 'toPlaceId' | 'truckId' | 'for' | 'atPlaceId';
+type PartKey = 'driverId' | 'materialId' | 'fromPlaceId' | 'toPlaceId' | 'truckId' | 'for' | 'atPlaceId' | 'machine';
 
 interface Choice {
   id: string;
@@ -48,8 +52,10 @@ interface Part {
   value: string | null;
   /** What saving a choice (null: the blank one) sends. */
   changeTo: (id: string | null) => AssignmentChange;
-  /** For a Place or Material, the field that sends a name typed with "Or type it". */
-  typedKey?: keyof TypedNames;
+  /** For a Place, Material or For, the field that sends a name typed with "Or type it"; for the machine, the machine. */
+  typedKey?: keyof TypedNames | 'machine';
+  /** Only typed, never picked (a Move's machine): tapping it opens the box at once. */
+  typedOnly?: boolean;
 }
 
 function partsOf(assignment: Assignment, lists: EditorLists): Part[] {
@@ -57,12 +63,24 @@ function partsOf(assignment: Assignment, lists: EditorLists): Part[] {
     entries && entries.map((e) => ({ id: e.id, label: label(e), active: e.active }));
   const places = choices(lists.places, (p) => p.shortName);
   const one = (key: Exclude<PartKey, 'for'>) => ({ value: assignment[key], changeTo: (id: string | null) => ({ [key]: id }) });
+  const driver: Part = { key: 'driverId', name: 'Driver', choices: choices(lists.drivers, (d) => d.name), blankWords: 'Unassigned', blankChoice: 'Unassigned', saved: assignment.driverName, ...one('driverId') };
+  const truck: Part = { key: 'truckId', name: 'Truck', lead: 'in', choices: choices(lists.trucks, (t) => t.number), blankWords: 'His own', blankChoice: 'His own', blankFirst: true, saved: assignment.truckNumber, ...one('truckId') };
+  if (assignment.work === 'move') {
+    // A Move: "Driver moves machine from From to To in Truck"; the machine is typed, never picked.
+    return [
+      driver,
+      { key: 'machine', name: 'Machine', lead: 'moves', choices: [], blankWords: 'no machine', blankChoice: 'Leave blank', saved: assignment.machine, typedKey: 'machine', typedOnly: true, ...one('machine') },
+      { key: 'fromPlaceId', name: 'From', lead: 'from', choices: places, blankWords: 'no Place', blankChoice: 'Leave blank', saved: assignment.fromPlaceName, typedKey: 'fromPlaceName', ...one('fromPlaceId') },
+      { key: 'toPlaceId', name: 'To', lead: 'to', choices: places, blankWords: 'no Place', blankChoice: 'Leave blank', saved: assignment.toPlaceName, typedKey: 'toPlaceName', ...one('toPlaceId') },
+      truck,
+    ];
+  }
   return [
-    { key: 'driverId', name: 'Driver', choices: choices(lists.drivers, (d) => d.name), blankWords: 'Unassigned', blankChoice: 'Unassigned', saved: assignment.driverName, ...one('driverId') },
+    driver,
     { key: 'materialId', name: 'Material', lead: 'hauls', choices: choices(lists.materials, (m) => m.name), blankWords: 'no Material', blankChoice: 'Leave blank', saved: assignment.materialName, typedKey: 'materialName', ...one('materialId') },
     { key: 'fromPlaceId', name: 'From', lead: 'from', choices: places, blankWords: 'no Place', blankChoice: 'Leave blank', saved: assignment.fromPlaceName, typedKey: 'fromPlaceName', ...one('fromPlaceId') },
     { key: 'toPlaceId', name: 'To', lead: 'to', choices: places, blankWords: 'no Place', blankChoice: 'Leave blank', saved: assignment.toPlaceName, typedKey: 'toPlaceName', ...one('toPlaceId') },
-    { key: 'truckId', name: 'Truck', lead: 'in', choices: choices(lists.trucks, (t) => t.number), blankWords: 'His own', blankChoice: 'His own', blankFirst: true, saved: assignment.truckNumber, ...one('truckId') },
+    truck,
     { key: 'for', name: 'For', lead: 'for', blankWords: 'no one', blankChoice: 'Leave blank', typedKey: 'forName', ...forPart(assignment, lists) },
     { key: 'atPlaceId', name: 'At', lead: 'at', choices: places, blankWords: 'no Place', blankChoice: 'Leave blank', saved: assignment.atPlaceName, typedKey: 'atPlaceName', ...one('atPlaceId') },
   ];
@@ -91,6 +109,26 @@ function forPart(assignment: Assignment, lists: EditorLists): Pick<Part, 'choice
   return { choices, saved: assignment.foremanName ?? assignment.customerName, value, changeTo };
 }
 
+/** Each field only some kinds use, as the question before a change of kind names it, in the order it names them. */
+const CLEARED_WORDS: [WorkField, string][] = [
+  ['material', 'Material'],
+  ['for', 'For'],
+  ['at', 'At'],
+  ['from', 'From'],
+  ['to', 'To'],
+  ['machine', 'the machine'],
+];
+
+/** What changing the kind clears, as the question says it: "Material, For and At will be cleared." */
+export function clearedBy(from: Work, to: Work): string {
+  const used: readonly WorkField[] = WORK_FIELDS[to];
+  const had: readonly WorkField[] = WORK_FIELDS[from];
+  const words = CLEARED_WORDS.filter(([field]) => had.includes(field) && !used.includes(field)).map(([, word]) => word);
+  if (words.length === 0) return 'Nothing will be cleared.';
+  const list = words.length === 1 ? words[0] : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
+  return `${list.charAt(0).toUpperCase()}${list.slice(1)} will be cleared.`;
+}
+
 /** Which way a move goes, and its button's words. */
 const MOVES = [
   { direction: 'earlier', words: 'Do this first', icon: ArrowUp },
@@ -105,8 +143,11 @@ function messageOf(error: unknown, key: string | null, fallback: string): string
 }
 
 /**
- * An Assignment opened in its lane (F2): a sentence of chips, "Driver hauls
- * Material from From to To in Truck for For at At", and its note. Tapping a chip
+ * An Assignment opened in its lane (F2): Haul | Move | Other, then a sentence
+ * of chips, "Driver hauls Material from From to To in Truck for For at At"
+ * (a Move: "Driver moves machine from From to To in Truck", the machine
+ * typed), and its note. Changing the kind asks first, naming what it clears,
+ * and saves only the kind: the Worker clears the rest in the same save. Tapping a chip
  * offers that part's list as a row of chips (one row at a time): active
  * entries, plus the one the Assignment uses if it was removed since, and a
  * choice that leaves it blank (Unassigned for the Driver, His own for the
@@ -147,8 +188,10 @@ export function AssignmentEditor({
   actions?: ReactNode;
 }) {
   const [tapped, setTapped] = useState<PartKey | null>(null);
-  const [saving, setSaving] = useState<PartKey | 'note' | 'move' | null>(null);
-  const [failed, setFailed] = useState<{ on: PartKey | 'note' | 'move'; message: string } | null>(null);
+  const [saving, setSaving] = useState<PartKey | 'note' | 'move' | 'work' | null>(null);
+  const [failed, setFailed] = useState<{ on: PartKey | 'note' | 'move' | 'work'; message: string } | null>(null);
+  /** The kind Dave tapped, while he is asked whether to switch to it. */
+  const [asking, setAsking] = useState<Work | null>(null);
   const [note, setNote] = useState(assignment.note ?? '');
   const noteId = useId();
   const parts = partsOf(assignment, lists);
@@ -158,7 +201,7 @@ export function AssignmentEditor({
     setNote((current) => (document.activeElement?.id === noteId ? current : (assignment.note ?? '')));
   }, [assignment.note, noteId]);
 
-  async function save(on: PartKey | 'note', change: AssignmentChange, name: string) {
+  async function save(on: PartKey | 'note' | 'work', change: AssignmentChange, name: string) {
     setSaving(on);
     setFailed(null);
     try {
@@ -207,7 +250,7 @@ export function AssignmentEditor({
   }
 
   const open = parts.find((part) => part.key === tapped);
-  const alert = (on: PartKey | 'note' | 'move') =>
+  const alert = (on: PartKey | 'note' | 'move' | 'work') =>
     failed?.on === on && (
       <p className="text-sm text-destructive" role="alert">
         {failed.message}
@@ -216,6 +259,34 @@ export function AssignmentEditor({
 
   return (
     <section aria-label="Open Assignment" className="animate-unfold space-y-4 rounded-md border border-primary/40 bg-background p-4 shadow-md">
+      {/* The kind, asked first: a change of kind clears what the new kind does not use. */}
+      <SegmentedToggle ariaLabel="Kind" options={WORK_OPTIONS} value={assignment.work} onChange={(work) => work !== assignment.work && setAsking(work)} />
+      {alert('work')}
+      {asking && (
+        <Dialog open onOpenChange={(open) => !open && setAsking(null)}>
+          <DialogContent role="alertdialog">
+            <DialogHeader>
+              <DialogTitle className="font-display text-xl uppercase tracking-wide">Switch to {WORK_PILL[asking].word}?</DialogTitle>
+              <DialogDescription>{clearedBy(assignment.work, asking)}</DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="gap-2">
+              <Button type="button" variant="outline" onClick={() => setAsking(null)}>
+                Keep {WORK_PILL[assignment.work].word}
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  const work = asking;
+                  setAsking(null);
+                  save('work', { work }, 'kind');
+                }}
+              >
+                Switch to {WORK_PILL[asking].word}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
       <p className="flex flex-wrap items-center gap-x-2 gap-y-2 text-base">
         {parts.map((part) => {
           const value = part.value;
@@ -308,7 +379,8 @@ function ChoiceRow({
   onTyped: (name: string) => void;
 }) {
   const labelId = useId();
-  const [typed, setTyped] = useState<string | null>(null);
+  // A part that is only typed (the machine) opens with its box, holding what it has now.
+  const [typed, setTyped] = useState<string | null>(part.typedOnly ? (part.saved ?? '') : null);
   const typing = typed !== null;
   const entries = (part.choices ?? [])
     .filter((choice) => choice.active || choice.id === value)
@@ -348,7 +420,7 @@ function ChoiceRow({
           </div>
         ))}
         {chips.filter((choice) => !choice.group).map(chip)}
-        {part.typedKey && <OrTypeIt typing={typing} onClick={() => setTyped(typing ? null : '')} />}
+        {part.typedKey && !part.typedOnly && <OrTypeIt typing={typing} onClick={() => setTyped(typing ? null : '')} />}
       </div>
       {typing && (
         <TypedBox

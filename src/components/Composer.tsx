@@ -1,7 +1,8 @@
 import { useId, useState, type FormEvent, type ReactNode } from 'react';
 import { ChevronDown, ChevronUp, Loader2, X } from 'lucide-react';
-import { NOTE_LIMIT, type AddAssignment, type Assignment, type Customer, type Driver, type Foreman, type Material, type Place, type Truck, type TruckProblem } from '../../shared/types';
+import { NOTE_LIMIT, type AddAssignment, type Work, type Assignment, type Customer, type Driver, type Foreman, type Material, type Place, type Truck, type TruckProblem } from '../../shared/types';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/sonner';
@@ -10,6 +11,7 @@ import { foremanSite } from '@/lib/lists';
 import { chipClass, OrTypeIt, TypedBox } from '@/components/TypedName';
 import { ChipProblems, openOn } from '@/components/ProblemMark';
 import { Loading } from '@/components/States';
+import { SegmentedToggle } from '@/components/SegmentedToggle';
 
 /**
  * A Place or Material row of the composer: a chip picked from the list (its
@@ -37,6 +39,10 @@ export interface ForSlot {
  * blank one each time a + opens the composer.
  */
 export interface Draft {
+  /** The kind of work, which decides the rows shown and the fields saved. Switching keeps what each kind's rows hold until Save. */
+  work: Work;
+  /** A Move's machine, as typed. */
+  machine: string;
   /** The other Drivers who each get this Assignment too, beside the lane's own. */
   alsoDriverIds: string[];
   from: Slot;
@@ -56,7 +62,7 @@ export interface Draft {
 const BLANK: Slot = { id: null, typed: null };
 
 /** A composer with nothing picked: the Truck on His own. */
-export const EMPTY_DRAFT: Draft = { alsoDriverIds: [], from: BLANK, to: BLANK, at: BLANK, material: BLANK, truckId: null, note: '', more: false };
+export const EMPTY_DRAFT: Draft = { work: 'haul', machine: '', alsoDriverIds: [], from: BLANK, to: BLANK, at: BLANK, material: BLANK, truckId: null, note: '', more: false };
 
 /** The lists the composer offers as chips, each in the order the API gave it; null while loading. */
 export interface ComposerLists {
@@ -145,14 +151,21 @@ function nameIn<T extends { id: string }>(slot: Slot, entries: T[] | null, name:
 export function sentence(drivers: string[], draft: Draft, lists: ComposerLists): string {
   const who = drivers.length === 0 ? 'Someone' : drivers.length === 1 ? drivers[0] : `${drivers.slice(0, -1).join(', ')} and ${drivers[drivers.length - 1]}`;
   const several = drivers.length > 1;
-  const material = nameIn(draft.material, lists.materials, (m) => m.name);
+  const haul = draft.work === 'haul';
+  // Only what the chosen kind saves: a Move has no Material, For or At; a Haul no machine.
+  const material = haul ? nameIn(draft.material, lists.materials, (m) => m.name) : null;
   const from = nameIn(draft.from, lists.places, (p) => p.shortName);
   const to = nameIn(draft.to, lists.places, (p) => p.shortName);
-  const at = nameIn(draft.at, lists.places, (p) => p.shortName);
-  const forWho = forName(forOf(draft, lists), lists);
+  const at = haul ? nameIn(draft.at, lists.places, (p) => p.shortName) : null;
+  const forWho = haul ? forName(forOf(draft, lists), lists) : null;
+  const machine = haul ? null : draft.machine.trim() || null;
   const truck = (!several && lists.trucks?.find((t) => t.id === draft.truckId)?.number) || null;
   const note = draft.note.trim();
-  if (!material && !from && !to && !at && !forWho && !truck) return note ? `${who}: ${note}` : `${who}: just the day so far`;
+  if (!material && !from && !to && !at && !forWho && !machine && !truck) return note ? `${who}: ${note}` : `${who}: just the day so far`;
+  if (!haul) {
+    const move = [`${who} ${several ? 'move' : 'moves'}`, machine, from && `from ${from}`, to && `to ${to}`, truck && `in Truck ${truck}`].filter(Boolean).join(' ');
+    return move + (note ? ` · ${note}` : '');
+  }
   const head = `${who} ${several ? 'haul' : 'hauls'}${forWho ? ` for ${forWho}` : ''}${at ? ` at ${at}` : ''}`;
   const rest = [material, from && `from ${from}`, to && `to ${to}`, truck && `in Truck ${truck}`].filter(Boolean).join(' ');
   return [head, rest].filter(Boolean).join(forWho || at ? ' · ' : ' ') + (note ? ` · ${note}` : '');
@@ -177,19 +190,37 @@ function forFields(slot: ForSlot): Pick<AddAssignment, 'foremanId' | 'customerId
  */
 function requestOf(date: string, driverIds: string[], draft: Draft, lists: ComposerLists): AddAssignment {
   const [driverId = null, ...alsoDriverIds] = driverIds;
+  // Only the fields the chosen kind uses: what another kind's rows still hold is left out.
+  const kind =
+    draft.work === 'move'
+      ? { machine: draft.machine.trim() || null }
+      : {
+          ...slotFields(draft.at, 'atPlaceId', 'atPlaceName'),
+          ...slotFields(draft.material, 'materialId', 'materialName'),
+          ...forFields(forOf(draft, lists)),
+        };
   return {
     date,
     driverId,
     ...(alsoDriverIds.length > 0 && { alsoDriverIds }),
     truckId: alsoDriverIds.length > 0 ? null : draft.truckId,
+    work: draft.work,
     ...slotFields(draft.from, 'fromPlaceId', 'fromPlaceName'),
     ...slotFields(draft.to, 'toPlaceId', 'toPlaceName'),
-    ...slotFields(draft.at, 'atPlaceId', 'atPlaceName'),
-    ...slotFields(draft.material, 'materialId', 'materialName'),
-    ...forFields(forOf(draft, lists)),
+    ...kind,
     note: draft.note.trim() || null,
   };
 }
+
+/** The kinds the composer and the open Assignment offer; Other is not offered yet. */
+export const WORK_OPTIONS: { value: Work; label: string; disabled?: boolean }[] = [
+  { value: 'haul', label: 'Haul' },
+  { value: 'move', label: 'Move' },
+  { value: 'other', label: 'Other', disabled: true },
+];
+
+/** The most characters a Move's machine may have, as the Worker allows. */
+const MACHINE_LIMIT = 100;
 
 /** Which row shows a refused field's message. */
 const ROW_OF: Record<string, string> = {
@@ -208,6 +239,7 @@ const ROW_OF: Record<string, string> = {
   customerId: 'for',
   forName: 'for',
   note: 'note',
+  machine: 'machine',
 };
 
 interface Chip {
@@ -362,7 +394,11 @@ function WhoRow({
 
 /**
  * The F1 composer, opened by a lane's +, always blank: it adds one Assignment
- * to that lane (Unassigned when driverId is null), last in the lane. "Who?"
+ * to that lane (Unassigned when driverId is null), last in the lane. Haul |
+ * Move | Other at the top picks its kind (Other not yet offered), which
+ * decides the rows: a Move asks for the machine, typed, with From and To. A
+ * switch keeps what each kind's rows hold, and Save sends only the chosen
+ * kind's fields. "Who?"
  * adds other Drivers, who each get the same Assignment as their own Draft, all
  * saved together or none; the lane's own Driver cannot be dropped, and with
  * several Drivers each takes his own Truck, so the Truck chips are hidden. Pick up and Drop off
@@ -403,6 +439,7 @@ export function Composer({
   const [failed, setFailed] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const noteId = useId();
+  const machineId = useId();
   const { places, materials, trucks, foremen, customers } = lists;
   // The lane's own Driver first (the Assignment is his), then the others picked, in the list's order.
   const offered = (lists.drivers ?? []).filter((d) => d.active);
@@ -488,6 +525,7 @@ export function Composer({
       noValidate
       className="animate-unfold space-y-4 rounded-md border border-primary/40 bg-background p-4 shadow-md"
     >
+      <SegmentedToggle ariaLabel="Kind" options={WORK_OPTIONS} value={draft.work} onChange={(work) => change('work', (d) => ({ ...d, work }))} />
       {offered.length > 0 && (
         <WhoRow
           drivers={offered}
@@ -499,20 +537,49 @@ export function Composer({
           error={errors.alsoDriverIds ?? errors.driverId}
         />
       )}
-      <ChipRow
-        label="For"
-        groups={forGroups}
-        picked={forPicked}
-        onPick={pickFor}
-        typed={forNow.typed}
-        onTyped={(typed) => change('for', (d) => ({ ...d, for: { foremanId: null, customerId: null, typed } }))}
-        error={Object.entries(errors).find(([field]) => ROW_OF[field] === 'for')?.[1]}
-      />
-      {forHint && <p className="-mt-2 text-xs text-muted-foreground">{forHint}</p>}
-      <ChipRow label="At" chips={placeChips} {...slotRow('at')} />
-      <ChipRow label="Hauling what?" chips={active(materials, (m) => m.name)} {...slotRow('material')} />
-      <ChipRow label="Pick up" chips={placeChips} {...slotRow('from')} />
-      <ChipRow label="Drop off" chips={placeChips} {...slotRow('to')} />
+      {draft.work === 'move' ? (
+        <>
+          <div className="space-y-2">
+            <Label htmlFor={machineId}>Machine</Label>
+            <Input
+              id={machineId}
+              className="h-11"
+              maxLength={MACHINE_LIMIT}
+              placeholder="the 260 + big bucket"
+              value={draft.machine}
+              onChange={(event) => {
+                const machine = event.target.value;
+                change('machine', (d) => ({ ...d, machine }));
+              }}
+            />
+            {errors.machine && (
+              <p className="text-xs text-destructive" role="alert">
+                {errors.machine}
+              </p>
+            )}
+          </div>
+          <ChipRow label="From" chips={placeChips} {...slotRow('from')} />
+          <ChipRow label="To" chips={placeChips} {...slotRow('to')} />
+          <p className="-mt-2 text-xs text-muted-foreground">The machine is typed. No Material, no For. Not counted as Loads.</p>
+        </>
+      ) : (
+        <>
+          <ChipRow
+            label="For"
+            groups={forGroups}
+            picked={forPicked}
+            onPick={pickFor}
+            typed={forNow.typed}
+            onTyped={(typed) => change('for', (d) => ({ ...d, for: { foremanId: null, customerId: null, typed } }))}
+            error={Object.entries(errors).find(([field]) => ROW_OF[field] === 'for')?.[1]}
+          />
+          {forHint && <p className="-mt-2 text-xs text-muted-foreground">{forHint}</p>}
+          <ChipRow label="At" chips={placeChips} {...slotRow('at')} />
+          <ChipRow label="Hauling what?" chips={active(materials, (m) => m.name)} {...slotRow('material')} />
+          <ChipRow label="Pick up" chips={placeChips} {...slotRow('from')} />
+          <ChipRow label="Drop off" chips={placeChips} {...slotRow('to')} />
+        </>
+      )}
 
       <Button
         type="button"

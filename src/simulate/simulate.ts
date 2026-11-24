@@ -62,6 +62,8 @@ function asAssignment(planned: PlannedAssignment | PlannedMadeAssignment, positi
     customerId: null,
     customerName: null,
     note: null,
+    work: 'haul',
+    machine: null,
     position,
     createdAt: assignedAt,
     updatedAt: changed ?? assignedAt,

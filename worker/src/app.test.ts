@@ -110,7 +110,7 @@ describe('Assignments', () => {
     const response = await post('/api/assignments', { date: '2026-11-20', startTime: '07:30', job: 'Sample Job' });
     expect(response.status).toBe(201);
     expect(Object.keys(((await response.json()) as { assignment: object }).assignment).sort()).toEqual(
-      ['assignedAt', 'atPlaceId', 'atPlaceName', 'cancelledAt', 'changedAt', 'createdAt', 'customerId', 'customerName', 'date', 'driverId', 'driverName', 'foremanId', 'foremanName', 'fromPlaceId', 'fromPlaceName', 'handedFromId', 'id', 'materialId', 'materialName', 'note', 'position', 'sinceSent', 'toPlaceId', 'toPlaceName', 'truckId', 'truckNumber', 'updatedAt'],
+      ['assignedAt', 'atPlaceId', 'atPlaceName', 'cancelledAt', 'changedAt', 'createdAt', 'customerId', 'customerName', 'date', 'driverId', 'driverName', 'foremanId', 'foremanName', 'fromPlaceId', 'fromPlaceName', 'handedFromId', 'id', 'machine', 'materialId', 'materialName', 'note', 'position', 'sinceSent', 'toPlaceId', 'toPlaceName', 'truckId', 'truckNumber', 'updatedAt', 'work'],
     );
   });
 
@@ -1314,6 +1314,115 @@ describe('At: where the Truck works', () => {
   });
 });
 
+describe('Haul and Move: the kind of work', () => {
+  beforeEach(addCustomers);
+  const ASSIGNED = { NOW: '2026-11-19T21:15:00.000Z' };
+  const LATER = { NOW: '2026-11-19T22:00:00.000Z' };
+  const kindOf = (a: Assignment) => [a.work, a.machine];
+  const changed = async (id: string, body: unknown, vars = {}) => ((await (await change(id, body, vars)).json()) as { assignment: Assignment }).assignment;
+  const HAUL = { date: '2026-11-20', driverId: 'drv-a', truckId: 'trk-24', fromPlaceId: 'plc-plant', toPlaceId: 'plc-north', atPlaceId: 'plc-yard', materialId: 'mat-stone', foremanId: 'frm-a', note: 'Haul stone' };
+  const MOVE = { date: '2026-11-20', driverId: 'drv-a', work: 'move', machine: 'the 260 + big bucket', fromPlaceId: 'plc-yard', toPlaceId: 'plc-north' };
+
+  it('reads every Assignment saved without a kind as a Haul with no machine', async () => {
+    const plain = await add({ date: '2026-11-20', driverId: 'drv-a', materialId: 'mat-stone' });
+    expect(kindOf(plain)).toEqual(['haul', null]);
+    expect((await day('2026-11-20')).map(kindOf)).toEqual([['haul', null]]);
+  });
+
+  it('saves a Move with its machine typed, trimmed, and From → To, and the day read returns them', async () => {
+    const move = await add({ ...MOVE, machine: '  the 260 + big bucket ' });
+    expect(move).toMatchObject({ work: 'move', machine: 'the 260 + big bucket', fromPlaceName: 'Sample Yard', toPlaceName: 'Sample Site North', materialId: null, foremanId: null });
+    expect((await day('2026-11-20')).map(kindOf)).toEqual([['move', 'the 260 + big bucket']]);
+  });
+
+  it('refuses an unknown kind on work, and a machine that is not text or over 100 characters on machine', async () => {
+    expect(await refusal(await post('/api/assignments', { date: '2026-11-20', work: 'lowboy' }))).toEqual({ work: 'Pick Haul, Move or Other.' });
+    expect(await refusal(await post('/api/assignments', { date: '2026-11-20', work: null }))).toEqual({ work: 'Pick Haul, Move or Other.' });
+    expect(await refusal(await post('/api/assignments', { date: '2026-11-20', work: 'move', machine: 6 }))).toEqual({ machine: 'Write the machine as text.' });
+    expect(await refusal(await post('/api/assignments', { date: '2026-11-20', work: 'move', machine: 'D'.repeat(101) }))).toEqual({ machine: 'Keep it to 100 characters or fewer.' });
+    const { id } = await add({ date: '2026-11-20', work: 'move', machine: 'D6' });
+    expect(await refusal(await change(id, { work: 'lowboy' }))).toEqual({ work: 'Pick Haul, Move or Other.' });
+  });
+
+  it('refuses a field the kind does not use, on that field, when the save keeps the kind', async () => {
+    expect(await refusal(await post('/api/assignments', { ...MOVE, materialId: 'mat-stone', customerId: 'cus-jaus', atPlaceName: 'Sample Pit' }))).toEqual({
+      materialId: 'A Move has no Material.',
+      customerId: 'A Move has no For.',
+      atPlaceName: 'A Move has no At.',
+    });
+    expect(await refusal(await post('/api/assignments', { date: '2026-11-20', machine: 'D6' }))).toEqual({ machine: 'A Haul has no machine.' });
+    const move = await add(MOVE);
+    expect(await refusal(await change(move.id, { materialName: 'Sample Stone' }))).toEqual({ materialName: 'A Move has no Material.' });
+    expect(await refusal(await change(move.id, { work: 'move', foremanId: 'frm-a' }))).toEqual({ foremanId: 'A Move has no For.' });
+    // Clearing a field the kind does not use is no harm.
+    expect((await change(move.id, { materialId: null, forName: null })).status).toBe(200);
+    expect(await day('2026-11-20')).toEqual([move]);
+  });
+
+  it('clears what a Move does not use when a Haul becomes one, in the same save, keeping the Driver, Truck, route and note', async () => {
+    const haul = await add(HAUL);
+    const move = await changed(haul.id, { work: 'move', machine: 'D6' });
+    expect(move).toMatchObject({
+      work: 'move', machine: 'D6', materialId: null, foremanId: null, customerId: null, atPlaceId: null,
+      driverId: 'drv-a', truckId: 'trk-24', fromPlaceId: 'plc-plant', toPlaceId: 'plc-north', note: 'Haul stone',
+    });
+    const jaus = await add({ ...HAUL, foremanId: null, customerId: 'cus-jaus' });
+    expect(await changed(jaus.id, { work: 'move' })).toMatchObject({ work: 'move', machine: null, customerId: null });
+  });
+
+  it('clears the machine when a Move becomes a Haul, and still refuses a field the new kind does not use', async () => {
+    const move = await add(MOVE);
+    expect(await changed(move.id, { work: 'haul', materialId: 'mat-stone' })).toMatchObject({ work: 'haul', machine: null, materialId: 'mat-stone', fromPlaceId: 'plc-yard' });
+    const other = await add(MOVE);
+    expect(await refusal(await change(other.id, { work: 'haul', machine: 'D6' }))).toEqual({ machine: 'A Haul has no machine.' });
+  });
+
+  it('gives each Driver of "Who?" the Move and its machine', async () => {
+    const created = await post('/api/assignments', { ...MOVE, alsoDriverIds: ['drv-b'] });
+    expect(((await created.json()) as { assignments: Assignment[] }).assignments.map((a) => [a.driverId, a.work, a.machine])).toEqual([
+      ['drv-a', 'move', 'the 260 + big bucket'],
+      ['drv-b', 'move', 'the 260 + big bucket'],
+    ]);
+  });
+
+  it('carries the kind and machine to the copy when an Assigned Move is handed to another Driver', async () => {
+    const move = await add(MOVE);
+    await assign(move.id);
+    const copy = await changed(move.id, { driverId: 'drv-b' }, { NOW: '2026-11-19T20:30:00.000Z' });
+    expect([copy.driverId, copy.work, copy.machine, copy.handedFromId]).toEqual(['drv-b', 'move', 'the 260 + big bucket', move.id]);
+  });
+
+  it('copies the kind and machine with Start from', async () => {
+    await add({ ...MOVE, date: '2026-11-19' });
+    const { assignments } = (await (await send('POST', '/api/days/2026-11-23/start-from')).json()) as { assignments: Assignment[] };
+    expect(assignments.map(kindOf)).toEqual([['move', 'the 260 + big bucket']]);
+  });
+
+  describe('Changed', () => {
+    const cards = async () => ((await (await get('/api/drivers/drv-a/days/2026-11-20')).json()) as DriverDay).assignments;
+
+    it('shows a Haul turned Move as Changed, with "was Haul" and what each cleared field was', async () => {
+      const haul = await add(HAUL);
+      await assign(haul.id, ASSIGNED);
+      await change(haul.id, { work: 'move', machine: 'D6' }, LATER);
+      const [card] = await cards();
+      expect(card).toMatchObject({ sinceSent: 'changed', work: 'move', machine: 'D6' });
+      expect(card.was).toEqual({ work: 'haul', machine: null, materialName: 'Sample Stone', forName: 'Sample Foreman A', atPlaceName: 'Sample Yard' });
+    });
+
+    it('shows no kind or machine changed from fields kept before there were kinds', async () => {
+      const haul = await add(HAUL);
+      await assign(haul.id, ASSIGNED);
+      await change(haul.id, { note: 'Haul stone, two loads' }, LATER);
+      const kept = await d1.database().prepare('SELECT rowid, before FROM assignment_changes WHERE assignment_id = ?').bind(haul.id).first<{ rowid: number; before: string }>();
+      const { work: _work, machine: _machine, ...older } = JSON.parse(kept!.before) as Record<string, unknown>;
+      await d1.database().prepare('UPDATE assignment_changes SET before = ? WHERE rowid = ?').bind(JSON.stringify(older), kept!.rowid).run();
+      const [card] = await cards();
+      expect(card.was).toEqual({ note: 'Haul stone' });
+    });
+  });
+});
+
 describe('one Assignment for several Drivers', () => {
   it('makes one for each Driver, the same but for the Driver, last in his lane', async () => {
     await add({ date: '2026-11-20', driverId: 'drv-b', note: 'Already his' });
@@ -1783,7 +1892,7 @@ describe('Assigning an Assignment', () => {
           fromPlaceId: 'plc-plant', fromPlaceName: 'Sample Plant', toPlaceId: 'plc-north', toPlaceName: 'Sample Site North',
           atPlaceId: null, atPlaceName: null,
           materialId: 'mat-stone', materialName: 'Sample Stone', foremanId: 'frm-a', foremanName: 'Sample Foreman A',
-          customerId: null, customerName: null, note: 'Haul stone', position: 0, cancelledAt: null,
+          customerId: null, customerName: null, note: 'Haul stone', work: 'haul', machine: null, position: 0, cancelledAt: null,
         },
       },
       {
@@ -2662,7 +2771,7 @@ describe('Start from', () => {
    * fails), and every column outside the named list must come out as on a
    * new Assignment, so a later column is never copied by accident.
    */
-  it('copies only the named columns: Driver, Truck, Places, Material and Foreman; the rest are as on a new Assignment', async () => {
+  it('copies only the named columns: Driver, Truck, Places, Material, For, kind and machine; the rest are as on a new Assignment', async () => {
     const first = await add({
       date: '2026-11-19', driverId: 'drv-a', truckId: 'trk-24', fromPlaceId: 'plc-plant', toPlaceId: 'plc-north', atPlaceId: 'plc-yard',
       materialId: 'mat-minus', foremanId: 'frm-a', note: 'Haul stone',
@@ -2681,10 +2790,11 @@ describe('Start from', () => {
     const [from, to, added] = [await row(source.id), await row(copy.id), await row(fresh.id)];
     // Only an Assignment that is not cancelled is copied, so its cancelled time is always empty.
     // For is a Foreman or a Customer, never both, so the source names a Foreman and its Customer stays empty.
-    const unfilled = Object.keys(from).filter((column) => from[column] == null && !['cancelled_at', 'customer_id'].includes(column));
+    // It is a Haul, which has no machine (Start from copies a Move's: see the kinds' tests).
+    const unfilled = Object.keys(from).filter((column) => from[column] == null && !['cancelled_at', 'customer_id', 'machine'].includes(column));
     expect(unfilled, 'fill these columns in this test\'s source Assignment').toEqual([]);
 
-    const copiedColumns = ['driver_id', 'truck_id', 'from_place_id', 'to_place_id', 'at_place_id', 'material_id', 'foreman_id', 'customer_id'];
+    const copiedColumns = ['driver_id', 'truck_id', 'from_place_id', 'to_place_id', 'at_place_id', 'material_id', 'foreman_id', 'customer_id', 'work', 'machine'];
     const only = (r: Record<string, unknown>, keep: (column: string) => boolean) => Object.fromEntries(Object.entries(r).filter(([c]) => keep(c)));
     expect(only(to, (c) => copiedColumns.includes(c))).toEqual(only(from, (c) => copiedColumns.includes(c)));
     // Its own: a new id and day, made now, first in its lane.

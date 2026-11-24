@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { Loader2, Trash2, UserCheck } from 'lucide-react';
-import type { Assignment, AssignmentTripPart, SinceSent } from '../../shared/types';
+import type { Assignment, AssignmentTripPart, SinceSent, Work } from '../../shared/types';
 import { easternTime } from '../../shared/days';
 import { Button } from '@/components/ui/button';
 import { cancelledText, cn, loadsText, shownTripPart } from '@/lib/utils';
@@ -70,6 +70,20 @@ export function forLine({ foremanName, customerName }: Pick<Assignment, 'foreman
   return null;
 }
 
+/**
+ * The kind pill that starts every block and Driver card: HAUL black, MOVE
+ * blue. It says only the kind: it never takes the place of a state colour
+ * (the outline, the edge and the marks keep those). Shared with the Driver card.
+ */
+export const WORK_PILL: Record<Work, { word: string; className: string }> = {
+  haul: { word: 'Haul', className: 'bg-foreground text-background' },
+  move: { word: 'Move', className: 'bg-move text-move-foreground' },
+  other: { word: 'Other', className: 'bg-foreground/10 text-foreground' },
+};
+
+/** A kind pill's shape: small capitals in a filled pill. */
+export const KIND_PILL = 'rounded-full px-2 py-0.5 text-[10px] font-bold uppercase leading-4 tracking-wider';
+
 /** The mark on a cancelled block, in place of Changed: greyed like the block itself. */
 const CANCELLED = { word: 'Cancelled', className: 'border border-muted-foreground/40 bg-background text-muted-foreground' };
 
@@ -111,7 +125,8 @@ const DRAFT = { word: 'Draft', className: 'border border-dashed border-muted-for
 
 /**
  * One Assignment as a block in its lane, marked First (the first in the lane that is not cancelled)
- * or Then. It leads with whom it is for, "For Jaus" in bold, with a grey
+ * or Then, beside its kind pill (HAUL black, MOVE blue). A Move leads with its
+ * machine in bold, then From → To, the note and the Truck. A Haul leads with whom it is for, "For Jaus" in bold, with a grey
  * Customer tag when For is a Customer (nothing when For is blank). With an
  * At it then reads like Dave's message, only the parts that are set: "at
  * TIUNY · Asphalt · → Villager"; without one, "From → To" (or the one Place
@@ -156,7 +171,10 @@ export function AssignmentBlock({
   /** Whether it is open in its lane; tapping it again closes it. */
   open?: boolean;
 }) {
-  const forWho = forLine(assignment);
+  const move = assignment.work === 'move';
+  // A Move carries a machine, not a For: it leads with the machine instead.
+  const machine = move ? assignment.machine : null;
+  const forWho = move ? null : forLine(assignment);
   const { atPlaceName: at, fromPlaceName: from, toPlaceName: to, materialName: material, note } = assignment;
   const places = [from, to].filter(Boolean).join(' → ');
   // With an At, the line reads like Dave's message, "at TIUNY · Asphalt · → Villager": the Material joins it and the route keeps its arrow.
@@ -174,7 +192,7 @@ export function AssignmentBlock({
   const forWords = forWho && [`For ${forWho.name}`, forWho.customer && CUSTOMER_TAG.word].filter(Boolean).join(' · ');
   // The edit button is named by what the Assignment itself says: his own Truck is not part of it, and his lane already names it.
   const words =
-    [forWords, ...[title, ...details].filter((part) => part && !part.hisOwn).map((part) => part?.words)]
+    [move && WORK_PILL.move.word, machine, forWords, ...[title, ...details].filter((part) => part && !part.hisOwn).map((part) => part?.words)]
       .filter(Boolean)
       .join(' · ') || 'No details yet';
   const draft = assignment.assignedAt === null && !assignment.cancelledAt;
@@ -186,10 +204,16 @@ export function AssignmentBlock({
     <>
       <span className="flex items-center gap-2">
         {/* A cancelled one is off the day, so it is neither First nor Then; its mark says Cancelled. */}
-        {!assignment.cancelledAt && <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{first ? 'First' : 'Then'}</span>}
+        {!assignment.cancelledAt && (
+          <>
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{first ? 'First' : 'Then'}</span>
+            {SEPARATOR}
+          </>
+        )}
+        <span className={cn(KIND_PILL, WORK_PILL[assignment.work].className)}>{WORK_PILL[assignment.work].word}</span>
         {mark && (
           <>
-            {!assignment.cancelledAt && SEPARATOR}
+            {SEPARATOR}
             <span className={cn(MARK_PILL, mark.className)}>{mark.word}</span>
           </>
         )}
@@ -214,6 +238,12 @@ export function AssignmentBlock({
           </span>
         </>
       )}
+      {machine && (
+        <>
+          {SEPARATOR}
+          <span className={cn('mt-0.5 block font-bold text-foreground', assignment.cancelledAt && cancelledText)}>{machine}</span>
+        </>
+      )}
       {noPlace && (
         <>
           {SEPARATOR}
@@ -221,7 +251,7 @@ export function AssignmentBlock({
         </>
       )}
       {/* With For set, a block with nothing else is not "No details yet". */}
-      {(title || !forWho) && (
+      {(title || !(forWho || machine)) && (
         <>
           {SEPARATOR}
           <span className={cn('block whitespace-pre-line font-medium', !title && 'font-normal text-muted-foreground', assignment.cancelledAt && cancelledText)}>

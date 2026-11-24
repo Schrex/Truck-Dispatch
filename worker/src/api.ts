@@ -6,12 +6,12 @@ import { handleTruckProblems } from './truckProblems';
 import { handleFleetImports } from './fleetImports';
 import { handleGeofences } from './geofences';
 import { driverTruck, handleTruckLogs, storedDay } from './truckLogs';
-import { exists, handleList, isActive, isList } from './lists';
+import { exists, handleList, isActive, isList, TEXT_LIMIT } from './lists';
 import { checkTyped, idKeysOf, saveLinked, typedIn, type Typed } from './typedNames';
 import { DAY_ORDER, SELECT_ASSIGNMENT, marked, type AssignmentRow } from './assignmentQueries';
 import { copiedPlain, plainBefore, plainWas, type PlainColumn } from './plainColumns';
 import { addDays, dayState, draftsOn, holidayName, isCalendarDate, mondayOf, weekDates } from '../../shared/days';
-import { NOTE_LIMIT, type Assignment, type BusinessDay, type CopiedDay, type Day, type DriverAssignment, type DriverDay, type ListName, type NewAssignment, type TypedNames, type Was, type Week } from '../../shared/types';
+import { NOTE_LIMIT, type Assignment, type BusinessDay, type CopiedDay, type Day, type DriverAssignment, type DriverDay, type ListName, type NewAssignment, type TypedNames, type Was, type Week, type Work, type WorkField, WORK_FIELDS, WORKS } from '../../shared/types';
 
 /** The JSON API under /api/ (or /truck-dispatch/api/). */
 export async function handleApi(request: Request, env: Env, route: string, query: URLSearchParams): Promise<Response> {
@@ -192,6 +192,8 @@ async function readDay(env: Env, date: string | null): Promise<Response> {
  */
 const PLAIN = [
   { key: 'note', column: 'note', missing: null },
+  { key: 'work', column: 'work', copy: 'always', missing: 'haul' },
+  { key: 'machine', column: 'machine', copy: 'always', missing: null },
 ] as const satisfies readonly (PlainColumn & { key: keyof NewAssignment & keyof Was })[];
 
 type PlainKey = (typeof PLAIN)[number]['key'];
@@ -471,7 +473,7 @@ async function changeAssignment(request: Request, env: Env, id: string): Promise
   if (!existing) return json({ error: 'not_found' }, 404);
   if (isPast(env, existing.date)) return onPastDay();
   if (existing.cancelledAt) return isCancelled();
-  const read = await readChange(request, env, existing.date);
+  const read = await readChange(request, env, existing);
   if (read instanceof Response) return read;
 
   const changes = { ...read.changes };
@@ -774,14 +776,15 @@ async function readAssignment(request: Request, env: Env): Promise<ReadAssignmen
   const body = await readJson<Partial<NewAssignment & TypedNames> & { alsoDriverIds?: unknown }>(request);
   if (body instanceof Response) return body;
 
-  const errors = await checkFields(env, body);
+  // A new Assignment is a Haul unless it says otherwise.
+  const errors = await checkFields(env, body, body.work === undefined ? 'haul' : body.work);
   if (!isCalendarDate(body.date)) errors.date = PICK_DATE;
   else if (isPast(env, body.date)) errors.date = PAST_DAY.date;
   const also = await readAlso(env, body.alsoDriverIds, text(body.driverId) || null);
   if (typeof also === 'string') errors.alsoDriverIds = also;
   if (Object.keys(errors).length > 0) return refuse(errors);
   const fields = Object.fromEntries([...REFERENCES, ...PLAIN].map((c) => [c.key, text(body[c.key]) || null])) as Record<ReferenceKey | PlainKey, string | null>;
-  return { date: body.date as string, ...fields, typed: typedIn(body), alsoDriverIds: also as string[] };
+  return { date: body.date as string, ...fields, work: fields.work ?? 'haul', typed: typedIn(body), alsoDriverIds: also as string[] };
 }
 
 /**
@@ -801,19 +804,64 @@ async function readAlso(env: Env, sent: unknown, driverId: string | null): Promi
  * The fields a change sends, checked and tidied, or the response refusing it.
  * A field left out is not in it; the day may be sent only as it already is.
  */
-async function readChange(request: Request, env: Env, date: string): Promise<ReadChange | Response> {
+async function readChange(request: Request, env: Env, existing: Assignment): Promise<ReadChange | Response> {
   const body = await readJson<Partial<NewAssignment & TypedNames>>(request);
   if (body instanceof Response) return body;
-  if (body.date !== undefined && body.date !== date) return dayFixed();
+  if (body.date !== undefined && body.date !== existing.date) return dayFixed();
 
-  const errors = await checkFields(env, body);
+  const work = 'work' in body ? body.work : existing.work;
+  const errors = await checkFields(env, body, work);
   if (Object.keys(errors).length > 0) return refuse(errors);
   const changes: ReadChange['changes'] = {};
   for (const key of Object.keys(COLUMN_OF) as ChangeKey[]) if (key in body) changes[key] = text(body[key]) || null;
   // For is one of the two: picking a Foreman clears the Customer, and the other way round.
   if (changes.foremanId) changes.customerId = null;
   if (changes.customerId) changes.foremanId = null;
+  // A new kind clears, in the same save, every field it does not use.
+  if (work !== existing.work) for (const key of unusedColumns(work as Work)) changes[key] ??= null;
   return { changes, typed: typedIn(body) };
+}
+
+/**
+ * Each field only some kinds use (WORK_FIELDS): the request keys that set it,
+ * the fields a change of kind clears, and its name in a refusal.
+ */
+const WORK_FIELD_KEYS: Record<WorkField, { keys: readonly (keyof NewAssignment | keyof TypedNames)[]; clears: readonly ChangeKey[]; name: string }> = {
+  for: { keys: ['foremanId', 'customerId', 'forName'], clears: ['foremanId', 'customerId'], name: 'For' },
+  at: { keys: ['atPlaceId', 'atPlaceName'], clears: ['atPlaceId'], name: 'At' },
+  material: { keys: ['materialId', 'materialName'], clears: ['materialId'], name: 'Material' },
+  from: { keys: ['fromPlaceId', 'fromPlaceName'], clears: ['fromPlaceId'], name: 'From' },
+  to: { keys: ['toPlaceId', 'toPlaceName'], clears: ['toPlaceId'], name: 'To' },
+  machine: { keys: ['machine'], clears: ['machine'], name: 'machine' },
+};
+
+/** Each kind as a refusal names it: "A Move has no Material." */
+const WORK_SUBJECT: Record<Work, string> = { haul: 'A Haul', move: 'A Move', other: 'Other' };
+
+/** The fields a kind does not use. */
+function unusedFields(work: Work): WorkField[] {
+  return (Object.keys(WORK_FIELD_KEYS) as WorkField[]).filter((field) => !WORK_FIELDS[work].includes(field));
+}
+
+/** The fields an Assignment changed to this kind clears. */
+function unusedColumns(work: Work): ChangeKey[] {
+  return unusedFields(work).flatMap((field) => WORK_FIELD_KEYS[field].clears);
+}
+
+/**
+ * Field name to a plain message, for each field sent with a value that the
+ * kind does not use (sending one empty is no harm). Never dropped silently:
+ * Dave changes the kind to clear them.
+ */
+function unusedSent(body: Record<string, unknown>, work: Work): Record<string, string> {
+  const errors: Record<string, string> = {};
+  for (const field of unusedFields(work)) {
+    for (const key of WORK_FIELD_KEYS[field].keys) {
+      const value = body[key];
+      if (value != null && !(typeof value === 'string' && value.trim() === '')) errors[key] = `${WORK_SUBJECT[work]} has no ${WORK_FIELD_KEYS[field].name}.`;
+    }
+  }
+  return errors;
 }
 
 /**
@@ -823,8 +871,8 @@ async function readChange(request: Request, env: Env, date: string): Promise<Rea
  * (on For, which the page shows under the Customer's field). Fields it does
  * not know are ignored.
  */
-async function checkFields(env: Env, body: Partial<NewAssignment & TypedNames>): Promise<Record<string, string>> {
-  const errors = { ...validate(body), ...checkTyped(body) };
+async function checkFields(env: Env, body: Partial<NewAssignment & TypedNames>, work: unknown): Promise<Record<string, string>> {
+  const errors = { ...(isWork(work) ? unusedSent(body, work) : {}), ...validate(body), ...checkTyped(body) };
   if (text(body.foremanId) && text(body.customerId) && !errors.customerId) errors.customerId = 'Pick a Foreman or a Customer, not both.';
   const found = await Promise.all(REFERENCES.map((r) => {
     const id = text(body[r.key]);
@@ -836,11 +884,21 @@ async function checkFields(env: Env, body: Partial<NewAssignment & TypedNames>):
   return errors;
 }
 
-/** Field name to a plain message, for each reference or note that is not text, or a note too long. */
+function isWork(value: unknown): value is Work {
+  return (WORKS as readonly unknown[]).includes(value);
+}
+
+/**
+ * Field name to a plain message, for each reference, note or machine that is
+ * not text, a note or machine too long, or a kind sent that is not one.
+ */
 function validate(body: Partial<NewAssignment>): Record<string, string> {
   const errors: Record<string, string> = {};
   for (const r of REFERENCES) if (body[r.key] != null && typeof body[r.key] !== 'string') errors[r.key] = r.message;
   if (body.note != null && typeof body.note !== 'string') errors.note = 'Write the note as text.';
   else if (text(body.note).length > NOTE_LIMIT) errors.note = `Keep the note to ${NOTE_LIMIT} characters or fewer.`;
+  if ('work' in body && !isWork(body.work)) errors.work = 'Pick Haul, Move or Other.';
+  if (body.machine != null && typeof body.machine !== 'string') errors.machine = 'Write the machine as text.';
+  else if (text(body.machine).length > TEXT_LIMIT) errors.machine = `Keep it to ${TEXT_LIMIT} characters or fewer.`;
   return errors;
 }

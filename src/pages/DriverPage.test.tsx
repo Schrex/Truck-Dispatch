@@ -165,7 +165,7 @@ function card(fields: Partial<DriverAssignment>): DriverAssignment {
   return {
     id: crypto.randomUUID(), date: '2026-11-19', driverId: 'drv-a', driverName: 'Sample Driver A',
     truckId: null, truckNumber: null, fromPlaceId: null, fromPlaceName: null, toPlaceId: null, toPlaceName: null, atPlaceId: null, atPlaceName: null,
-    materialId: null, materialName: null, foremanId: null, foremanName: null, customerId: null, customerName: null, note: null, position: 0,
+    materialId: null, materialName: null, foremanId: null, foremanName: null, customerId: null, customerName: null, note: null, work: 'haul', machine: null, position: 0,
     createdAt: '2026-11-18T20:00:00.000Z', updatedAt: '2026-11-18T20:00:00.000Z', changedAt: null, cancelledAt: null,
     assignedAt: ASSIGNED_AT, handedFromId: null, sinceSent: null, was: {}, ...fields,
   };
@@ -373,6 +373,55 @@ describe('a Driver\'s yesterday, today and tomorrow', () => {
     const [jaus] = cardsIn(await day('Today, Thu, Nov 19'));
     expect(within(jaus).getByText('Haul for Sample Customer Jaus')).toBeTruthy();
     expect(within(jaus).getByText('Customer')).toBeTruthy();
+  });
+
+  describe('the kind', () => {
+    const d6 = { work: 'move' as const, machine: 'D6', fromPlaceName: 'Wintergarden', toPlaceName: 'BK' };
+    /** A card's edge: its colour says what Dave did, whatever the kind. */
+    const edge = (card: HTMLElement) => card.querySelector('span[aria-hidden].absolute')!.className;
+
+    it('numbers each card and shows its kind in a pill: HAUL black, MOVE blue', async () => {
+      sentDays['drv-a 2026-11-19'] = [card({ materialName: 'Sample Stone' }), card({ ...d6, position: 1 })];
+      open('/');
+      const [haul, move] = cardsIn(await day('Today, Thu, Nov 19'));
+      expect(within(haul).getByText('1 ·')).toBeTruthy();
+      expect(within(haul).getByText('Haul').className).toContain('bg-foreground');
+      expect(within(move).getByText('2 ·')).toBeTruthy();
+      expect(within(move).getByText('Move').className).toContain('bg-move');
+    });
+
+    it('leads a Move card with the machine in large type, then From and To, and nothing of Material or For', async () => {
+      sentDays['drv-a 2026-11-19'] = [card({ ...d6, note: 'Lowboy' })];
+      open('/');
+      const [move] = cardsIn(await day('Today, Thu, Nov 19'));
+      expect(move.getAttribute('aria-label')).toBe('D6');
+      expect(within(move).getByText('D6').className).toContain('text-2xl');
+      expect(within(move).getByText('From').nextSibling?.textContent).toBe('Wintergarden');
+      expect(within(move).getByText('To').nextSibling?.textContent).toBe('BK');
+      expect(within(move).queryByText(/Material|Haul for|Pick up/)).toBeNull();
+      expect(edge(move)).toContain('bg-primary');
+    });
+
+    it('keeps the amber edge on a Changed Move, and says in the Changed line what it was that it no longer shows', async () => {
+      sentDays['drv-a 2026-11-19'] = [
+        card({ ...d6, sinceSent: 'changed', changedAt: '2026-11-19T12:00:00.000Z', was: { work: 'haul', machine: null, materialName: 'Sample Stone', forName: 'Ed', fromPlaceName: 'Los' } }),
+      ];
+      open('/');
+      const [move] = cardsIn(await day('Today, Thu, Nov 19'));
+      expect(edge(move)).toContain('bg-warning');
+      expect(within(move).getByText('Changed by Dave')).toBeTruthy();
+      expect(within(move).getByText('was Haul · For was Ed · Material was Sample Stone')).toBeTruthy();
+      expect(within(move).getByText('was empty')).toBeTruthy();
+      expect(within(move).getByText('was Los')).toBeTruthy();
+    });
+
+    it('shows a Haul card\'s Pick up and Drop off lines only when set', async () => {
+      sentDays['drv-a 2026-11-19'] = [card({ materialName: 'Sample Stone', fromPlaceName: 'Sample Plant' })];
+      open('/');
+      const [haul] = cardsIn(await day('Today, Thu, Nov 19'));
+      expect(within(haul).getByText('Pick up').nextSibling?.textContent).toBe('Sample Plant');
+      expect(within(haul).queryByText('Drop off')).toBeNull();
+    });
   });
 
   it('shows For was there when Dave cleared it after Assigning it', async () => {

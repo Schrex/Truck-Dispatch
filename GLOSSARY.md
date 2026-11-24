@@ -5,7 +5,7 @@ How Dave plans each driver's day and how the work they actually do becomes a tru
 ## Planning
 
 **Assignment**:
-One piece of work given to one Driver for one day, e.g. haul 2" minus from Villager to TIUNY. It covers any number of Loads. The same work for two Drivers is two Assignments, one each, made together but separate from then on. A Driver's Assignments for a day are done in an order Dave sets. Dave can cancel one; a cancelled Assignment is kept and the Driver sees it was cancelled. Each of them can then clear it out of his own view (Dave discards it, the Driver dismisses it) without hiding it from the other; it is still kept. Its day never changes once it exists. Once it is Assigned, giving it to another Driver cancels it and adds a new one for that Driver. Whether one has started or finished comes from the Truck, never from Dave or the Driver.
+One piece of work given to one Driver for one day, e.g. haul 2" minus from Villager to TIUNY. Each is one kind of work, a Haul (the default) or a Move, and its kind decides which of its fields it uses. It covers any number of Loads. The same work for two Drivers is two Assignments, one each, made together but separate from then on. A Driver's Assignments for a day are done in an order Dave sets. Dave can cancel one; a cancelled Assignment is kept and the Driver sees it was cancelled. Each of them can then clear it out of his own view (Dave discards it, the Driver dismisses it) without hiding it from the other; it is still kept. Its day never changes once it exists. Once it is Assigned, giving it to another Driver cancels it and adds a new one for that Driver. Whether one has started or finished comes from the Truck, never from Dave or the Driver.
 _Avoid_: task, order (the paper Truck log's word), work order, dispatch, dispatch order, job
 
 **Unassigned**:
@@ -45,6 +45,14 @@ _Avoid_: client, owner, foreman (for a Customer)
 **At**:
 The Place an Assignment's Truck works at, usually the Job site, when Dave says where without planning a route ("hauling for Brody at TIUNY"). Optional, picked from the Places or typed (a typed one is found, brought back or added, as a From or To is), and usable beside From and To ("at TIUNY, asphalt to Villager"). Picking a For fills an empty At with its usual Place: a Customer's usual Place, or the one active job site a Foreman is the usual Foreman of. An At Dave chose is never overwritten, and an At never suggests a For.
 _Avoid_: site, location, job
+
+**Haul**:
+The usual kind of Assignment: hauling material, with a For, At, Material, From and To, each optional. Every Assignment is a Haul unless Dave picks another kind; every one made before there were kinds is a Haul. Its block and card carry a black HAUL pill.
+_Avoid_: load (a Load is one trip's worth), job
+
+**Move**:
+An Assignment that moves a piece of equipment, typically on a lowboy: a machine typed as Dave writes it ("the 260 + big bucket"), with From and To, and no Material, For or At. Never counted as Loads. Its block and card carry a blue MOVE pill. Changing an Assignment between Haul and Move clears what the new kind does not use, after Dave confirms.
+_Avoid_: lowboy (the trailer, not the work), transfer, haul (for a Move)
 
 **Customer**:
 Someone outside the company we haul for, e.g. Jaus; never a Foreman. Kept in Settings beside Foremen, each with an optional usual Place where their work usually is, which picking them fills in as At. No name is both a Foreman's and a Customer's (ignoring case, removed ones included).

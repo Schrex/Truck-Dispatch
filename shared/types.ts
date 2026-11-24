@@ -159,7 +159,32 @@ export interface NewAssignment {
   /** For, when it is a Customer. */
   customerId?: string | null;
   note?: string | null;
+  /** The kind of work: Haul when left out on add. */
+  work?: Work;
+  /** A Move's machine, as typed ("the 260 + big bucket"); at most 100 characters. */
+  machine?: string | null;
 }
+
+/**
+ * The kinds of work an Assignment is (stored as `work`, since `kind` already
+ * means a Place's and a Trip's): a Haul (the default), a Move (an equipment
+ * move: a typed machine From → To, never Loads) or Other.
+ */
+export const WORKS = ['haul', 'move', 'other'] as const;
+export type Work = (typeof WORKS)[number];
+
+/** The fields that only some kinds use. The Driver, Truck and note are every kind's. */
+export type WorkField = 'for' | 'at' | 'material' | 'from' | 'to' | 'machine';
+
+/**
+ * Which of those fields each kind uses. A save that changes the kind clears
+ * the rest; one that keeps it is refused if it sets one of the rest.
+ */
+export const WORK_FIELDS: Record<Work, readonly WorkField[]> = {
+  haul: ['for', 'at', 'material', 'from', 'to'],
+  move: ['machine', 'from', 'to'],
+  other: [],
+};
 
 /**
  * What the page sends to add an Assignment. With `alsoDriverIds` the same
@@ -218,6 +243,10 @@ export interface Assignment {
   customerId: string | null;
   customerName: string | null;
   note: string | null;
+  /** The kind of work: Haul, Move or Other. Every Assignment made before there were kinds is a Haul. */
+  work: Work;
+  /** A Move's machine, as typed; null on any other kind. */
+  machine: string | null;
   /**
    * Its place in its lane (its date and Driver, or Unassigned), from 0: the
    * order Dave wants the work done. Ties are read in the order they were added.
@@ -371,7 +400,7 @@ export interface CopiedDay {
  * name it had then; null when it was empty (for the Truck, his own).
  */
 export type Was = Partial<
-  Pick<Assignment, 'truckNumber' | 'fromPlaceName' | 'toPlaceName' | 'atPlaceName' | 'materialName' | 'note'> & {
+  Pick<Assignment, 'truckNumber' | 'fromPlaceName' | 'toPlaceName' | 'atPlaceName' | 'materialName' | 'note' | 'work' | 'machine'> & {
     /** For, one field across Foremen and Customers: the name of whichever it was (a Foreman's or a Customer's). */
     forName: string | null;
   }

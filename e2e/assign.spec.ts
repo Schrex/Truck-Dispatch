@@ -35,3 +35,33 @@ test('Dave Assigns an Assignment on the Board and the Driver sees it on his phon
   await expect(card.getByText('Haul for Sample Customer A')).toBeVisible();
   await expect(card.getByText('Customer', { exact: true })).toBeVisible();
 });
+
+// A Move: Dave switches the composer to Move, types the machine, and Assigns it;
+// the Driver's phone shows it as a Move, with the machine and From and To.
+test('Dave Assigns a Move and the Driver sees the machine, From and To on his phone', async ({ browser }) => {
+  const board = await (await browser.newContext({ viewport: DESKTOP })).newPage();
+  await board.goto(`/truck-dispatch/?date=${TODAY}`);
+
+  await board.getByRole('button', { name: 'Add an Assignment for Sample Driver B' }).click();
+  const composer = board.getByRole('form', { name: 'New Assignment for Sample Driver B' });
+  await composer.getByRole('group', { name: 'Kind' }).getByRole('button', { name: 'Move' }).click();
+  await composer.getByRole('textbox', { name: 'Machine' }).fill('the 260 + big bucket');
+  await composer.getByRole('group', { name: 'From', exact: true }).getByRole('button', { name: 'Sample Yard' }).click();
+  await composer.getByRole('group', { name: 'To', exact: true }).getByRole('button', { name: 'Sample Site North' }).click();
+  await composer.getByRole('button', { name: 'Save' }).click();
+
+  const lane = board.getByRole('article', { name: /Sample Driver B/ });
+  await expect(lane.getByText('the 260 + big bucket')).toBeVisible();
+  await lane.getByRole('button', { name: /^Assign Move · the 260 \+ big bucket · Sample Yard → Sample Site North/ }).click();
+  await expect(lane.getByRole('button', { name: /^Assign / })).toHaveCount(0);
+
+  const phone = await (await browser.newContext({ viewport: PHONE })).newPage();
+  await phone.goto('/truck-dispatch/driver');
+  await phone.getByRole('button', { name: 'Sample Driver B' }).click();
+
+  const card = phone.getByRole('article', { name: 'the 260 + big bucket' });
+  await expect(card).toBeVisible();
+  await expect(card.getByText('Move', { exact: true })).toBeVisible();
+  await expect(card).toContainText('Sample Yard');
+  await expect(card).toContainText('Sample Site North');
+});
