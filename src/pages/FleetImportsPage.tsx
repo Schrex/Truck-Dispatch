@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { CalendarDays } from '@/components/CalendarDays';
 import { EmptyBox, Loading } from '@/components/States';
-import { Refused, addEntry, fetchBusinessDay, fetchList, fetchTruckLogDay, importFleetExport } from '@/lib/api';
+import { Refused, fetchBusinessDay, fetchList, fetchTruckLogDay, importFleetExport, setNotConsidered } from '@/lib/api';
 import { toast } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
 import { StoredTruckLog } from '@/components/TruckLog';
@@ -102,13 +102,13 @@ type CodedTruck = Truck & { hcssCode: string };
 const codedTrucks = async (): Promise<CodedTruck[]> =>
   (await fetchList('trucks')).flatMap((truck) => (truck.hcssCode ? [{ ...truck, hcssCode: truck.hcssCode }] : []));
 
-/** Puts a geofence code on the Not considered list (Settings); resolves once the Worker has it. */
+/** Turns a geofence code to Not considered (Settings, Geofences); resolves once the Worker has it. */
 type DontConsider = (code: string) => Promise<void>;
 
 /**
- * The geofence codes no Place has and that are not on the Not considered
- * list: on an Import's result and on a stored day alike, each with Don't
- * consider, which puts it on the list. Nothing when there are none.
+ * The geofence codes no Place has and that are not turned to Not considered:
+ * on an Import's result and on a stored day alike, each with Don't consider,
+ * which turns it off in Geofences. Nothing when there are none.
  */
 function CodesWithNoPlace({ id, codes, onDontConsider }: { id: string; codes: CodeWithNoPlace[]; onDontConsider: DontConsider }) {
   const [busy, setBusy] = useState<string[]>([]);
@@ -118,7 +118,7 @@ function CodesWithNoPlace({ id, codes, onDontConsider }: { id: string; codes: Co
     try {
       await onDontConsider(code);
     } catch {
-      toast.error(`Could not put ${code} on the Not considered list`);
+      toast.error(`Could not turn ${code} to Not considered`);
     } finally {
       setBusy((current) => current.filter((c) => c !== code));
     }
@@ -341,15 +341,15 @@ export function FleetImportsPage() {
   /** Every active Truck and Driver, for the Scheduler view's lanes; null while they load. */
   const [allTrucks, setAllTrucks] = useState<Truck[] | null>(null);
   const [drivers, setDrivers] = useState<Driver[] | null>(null);
-  /** The codes Dave put on the Not considered list from this page, left out of the Imports' codes with no Place (lower case). */
-  const [notConsidered, setNotConsidered] = useState<string[]>([]);
-  /** Don't consider: the code goes on the list, comes off every Import's codes here, and the stored day is read again without its visits. */
+  /** The codes Dave turned to Not considered from this page, left out of the Imports' codes with no Place (lower case). */
+  const [turnedOff, setTurnedOff] = useState<string[]>([]);
+  /** Don't consider: the Geofence is turned off, the code comes off every Import's codes here, and the stored day is read again without its visits. */
   const dontConsider = async (code: string) => {
-    await addEntry('not-considered', { code });
-    setNotConsidered((current) => [...current, code.toLowerCase()]);
+    await setNotConsidered(code, true);
+    setTurnedOff((current) => [...current, code.toLowerCase()]);
     setRefresh((n) => n + 1);
   };
-  const considered = (codes: CodeWithNoPlace[]) => codes.filter((c) => !notConsidered.includes(c.code.toLowerCase()));
+  const considered = (codes: CodeWithNoPlace[]) => codes.filter((c) => !turnedOff.includes(c.code.toLowerCase()));
   const pickTruck = (id: string) => {
     setTruckId(id);
     setClock(null);
