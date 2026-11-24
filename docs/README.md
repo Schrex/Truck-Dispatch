@@ -24,7 +24,7 @@ Start with [`specs/mission.md`](specs/mission.md) for why the project exists, th
 
 | File | What |
 |---|---|
-| [`adr/`](adr/) | Architecture decisions: own app (0001), Hub's UI stack (0002), Send without a lock (0003, superseded), past days enforced by the Worker (0004), Assign each Assignment on its own (0005), the Inspection is the official, append-only record (0006) |
+| [`adr/`](adr/) | Architecture decisions: own app (0001), Hub's UI stack (0002), Send without a lock (0003, superseded), past days enforced by the Worker (0004), Assign each Assignment on its own (0005), the Inspection is the official, append-only record (0006), answering Unplanned work on a past day (0007), the Not considered list in place of the 2-minute drive-through rule (0008) |
 | [`design/dispatch-board-decisions.md`](design/dispatch-board-decisions.md) | Why the app works as it does (phase 1), what is decided for phases 2 to 4, and their target schema |
 | [`design/telematics-backend.md`](design/telematics-backend.md) | Phase 3 in detail: what one real day of HCSS Fleet data shows, how Trips are built and matched to Assignments, and proposed changes |
 | [`design/ui-standards.md`](design/ui-standards.md) | The one layout and set of controls every page follows: header, navigation, surfaces, states and motion |
