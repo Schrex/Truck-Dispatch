@@ -96,19 +96,48 @@ const TRIP_STATUS: Record<Exclude<AssignmentTripPart['status'], 'none'>, { word:
 /**
  * The Trip part's line, "2 Loads · Now · since 08:24", once the Truck has made a
  * Trip for it; nothing at all before, or when the Worker sends no Trip part,
- * so the block looks as it always has.
+ * so the block looks as it always has. A Move has no Loads: "Now · since 07:40",
+ * then "Done 08:15" when the machine got there. An Other has its Trucking
+ * hours: "Done · 3.0 h".
  */
-function TripLine({ part }: { part: AssignmentTripPart | undefined }) {
+function TripLine({ part, work }: { part: AssignmentTripPart | undefined; work: Work }) {
   const trips = shownTripPart(part);
   if (!trips) return null;
   const status = TRIP_STATUS[trips.status];
+  const pill = (word: string) => <span className={cn('rounded px-1.5 py-0.5 text-xs font-medium', status.className)}>{word}</span>;
+  if (work === 'move' && trips.status === 'done')
+    return (
+      <>
+        {SEPARATOR}
+        <span className="mt-1 flex flex-wrap items-center gap-x-1 text-muted-foreground">{pill(trips.movedAt ? `${status.word} ${easternTime(trips.movedAt)}` : status.word)}</span>
+      </>
+    );
+  if (work === 'other')
+    return (
+      <>
+        {SEPARATOR}
+        <span className="mt-1 flex flex-wrap items-center gap-x-1 text-muted-foreground">
+          {pill(status.word)}
+          {trips.truckingHours !== null && (
+            <>
+              {' · '}
+              <span className="font-medium text-foreground">{trips.truckingHours.toFixed(1)} h</span>
+            </>
+          )}
+        </span>
+      </>
+    );
   return (
     <>
       {SEPARATOR}
       <span className="mt-1 flex flex-wrap items-center gap-x-1 text-muted-foreground">
-        <span className="font-medium text-foreground">{loadsText(trips.loads)}</span>
-        {' · '}
-        <span className={cn('rounded px-1.5 py-0.5 text-xs font-medium', status.className)}>{status.word}</span>
+        {work !== 'move' && (
+          <>
+            <span className="font-medium text-foreground">{loadsText(trips.loads)}</span>
+            {' · '}
+          </>
+        )}
+        {pill(status.word)}
         {trips.since && (
           <>
             {' · '}
@@ -275,7 +304,7 @@ export function AssignmentBlock({
           </span>
         </>
       )}
-      <TripLine part={assignment.trips} />
+      <TripLine part={assignment.trips} work={assignment.work} />
     </>
   );
   // A corner button (Assign or Discard) sits in the frame's last row, so only a block that has one is taller.

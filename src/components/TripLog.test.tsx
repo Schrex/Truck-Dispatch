@@ -35,3 +35,33 @@ describe('Trip log: an At Trip', () => {
     ]);
   });
 });
+
+describe('Trip log: Move and Other', () => {
+  const trip = (match: Trip['match']): Trip => ({
+    fromPlaceId: 'plc-north',
+    toPlaceId: 'plc-plant',
+    fromCode: 'J1001 North',
+    toCode: 'PLANT',
+    leftAt: '2026-11-16T13:24:26Z',
+    arrivedAt: '2026-11-16T13:34:37Z',
+    miles: 3.39,
+    match,
+  });
+  const cells = (t: Trip) => {
+    render(<TripLog trips={[t]} places={places} assignmentLabels={{ a1: 'A1', o1: 'A2' }} />);
+    const [row] = within(screen.getByRole('table', { name: 'Trips' })).getAllByRole('row').slice(1);
+    return within(row).getAllByRole('cell').map((c) => c.textContent);
+  };
+
+  it('reads "move" for a Move Trip', () => {
+    expect(cells(trip({ kind: 'move', assignmentId: 'a1', rule: 1, reason: 'From and To match the Move' })).slice(3)).toEqual(['move', 'A1', 'From and To match the Move']);
+  });
+
+  it('reads "not a haul" for a Trip on an Other, with the Other’s text as the Why', () => {
+    expect(cells(trip({ kind: 'not_a_haul', assignmentId: 'o1', rule: 8, reason: 'Other: Shop, on deck' })).slice(3)).toEqual([
+      'not a haul',
+      'A2',
+      'Other: Shop, on deck',
+    ]);
+  });
+});

@@ -102,6 +102,7 @@ export function tripAnswers({
       fromPlaceId: answer.loadedAt,
       toPlaceId: dropOff(work, answer.loadedAt),
       atPlaceId: null,
+      work: 'haul',
       cancelledAt: null,
       changes: [],
       unplannedId: answer.unplannedId,

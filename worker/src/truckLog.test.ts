@@ -269,6 +269,31 @@ describe('Which Assignments a stored day matches', () => {
 
     expect((await readLog(truckId)).assignments.map((a) => [a.foremanId, a.customerId, a.customerName])).toEqual([[null, jaus.id, 'Sample Customer Jaus']]);
   });
+
+  it('counts a Move’s From → To Trips as Move Trips: Done, Trucking hours and when the machine got there, never Loads', async () => {
+    const { truckId, randy, placeId } = await setUpDay();
+    const move = await assigned({ driverId: randy, work: 'move', machine: 'D6', fromPlaceId: placeId('J25008 Los Flamboyanes'), toPlaceId: placeId('Villager') });
+    await importCut('2026-11-16-cut-1620.json');
+
+    const log = await readLog(truckId);
+    expect(log.truckLog.columns.find((c) => c.id === move.id)).toMatchObject({ loads: 0, truckingHours: 4.2 });
+    expect(log.assignments[0].trips).toMatchObject({ loads: 0, status: 'done', lastLoadAt: null });
+    expect(easternTime(log.assignments[0].trips!.movedAt!)).toBe('11:25');
+    expect(log.tripDay.trips.find((t) => easternTime(t.leftAt) === '08:24')!.match).toMatchObject({ kind: 'move', assignmentId: move.id, rule: 1 });
+  });
+
+  it('counts the Trips nothing else fits on the Driver’s Other as not a haul, with its text as the Why: no Unplanned work', async () => {
+    const { truckId, randy } = await setUpDay();
+    const shop = await assigned({ driverId: randy, work: 'other', note: 'Shop, on deck' });
+    await importCut('2026-11-16-cut-1620.json');
+
+    const log = await readLog(truckId);
+    expect(log.truckLog.unplanned).toEqual([]);
+    const onIt = log.tripDay.trips.filter((t) => t.match.assignmentId === shop.id);
+    expect(onIt.length).toBeGreaterThan(0);
+    expect(onIt[0].match).toMatchObject({ kind: 'not_a_haul', rule: 8, reason: 'Other: Shop, on deck' });
+    expect(log.truckLog.columns.find((c) => c.id === shop.id)!.truckingHours).toBeGreaterThan(0);
+  });
 });
 
 describe('Codes with no Place on a stored day', () => {

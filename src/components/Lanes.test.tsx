@@ -503,6 +503,22 @@ describe('The Trip part on a block', () => {
     );
   });
 
+  const d6 = { work: 'move' as const, machine: 'D6', materialName: null, fromPlaceName: 'Wintergarden', toPlaceName: 'BK' };
+
+  it('shows a Move with no Loads: Now and since while the Truck is on it, then Done at the time the machine got there', () => {
+    expect(html({ ...d6, trips: part({ status: 'now', since: '2026-11-16T12:40:00Z', movedAt: null }) }).text).toMatch(/· Now · since 07:40$/);
+    const done = html({ ...d6, trips: part({ status: 'done', since: '2026-11-16T12:40:00Z', movedAt: '2026-11-16T13:15:00Z' }) }).text;
+    expect(done).toMatch(/· Done 08:15$/);
+    expect(done).not.toContain('Load');
+  });
+
+  it('shows an Other with its Trucking hours, never Loads', () => {
+    const shop = { work: 'other' as const, materialName: null, fromPlaceName: null, toPlaceName: null, note: 'Shop, on deck' };
+    const { text } = html({ ...shop, trips: part({ status: 'done', since: '2026-11-16T12:40:00Z', truckingHours: 3.02 }) });
+    expect(text).toMatch(/Shop, on deck · Done · 3\.0 h$/);
+    expect(text).not.toContain('Load');
+  });
+
   it('looks exactly as it does without a Trip part while it has no Trips yet', () => {
     expect(html({ trips: part({}) }).html).toBe(html({}).html);
     expect(html({}).text).toBe('First · Haul · Sample Site North → Sample Plant · Fill');

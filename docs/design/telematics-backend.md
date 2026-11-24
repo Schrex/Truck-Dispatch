@@ -12,7 +12,7 @@ Words are from `GLOSSARY.md`: Assignment, Driver, Truck, Place, Trip, Load, Tick
 ## Agreed (from `main`), and used here as is
 
 - Trips come from HCSS Fleet place enter/leave data, pulled every 10 minutes from 4 AM to 8 PM Eastern. They are kept raw and paired into Trips.
-- A Trip from an Assignment's From to its To is a Load; the way back is empty. `trips.kind` is `load`, `empty`, `at` (an At Trip), `not_a_haul` or NULL (not answered yet).
+- A Trip from an Assignment's From to its To is a Load; the way back is empty. `trips.kind` is `load`, `empty`, `at` (an At Trip), `move` (a Move Trip), `not_a_haul` (Dave's answer, or on an Other) or NULL (not answered yet).
 - The Driver of a Trip is whoever last inspected that Truck before it (phase 2). Without an Inspection, Dave answers "Who was driving?".
 - At sign-off the Driver puts each Ticket on its Load and confirms his Trips. Dave answers the rest next morning: Trips with no Assignment (make one, link one, not a haul), "Who was driving?", and Assignments with no Trips.
 - Trips made before a reroute are matched against the Assignment as it was. `assignment_changes` already keeps every earlier version from when it was Assigned on.
@@ -156,9 +156,12 @@ An Assignment cancelled after `left_at` still matches; one cancelled before does
 | 5 | An Assignment has From = A, To empty | `load` | that Assignment |
 | 6 | An Assignment has To = B, From empty, and A is a plant | `load` | that Assignment |
 | 7 | An Assignment has only At (no From, no To), and A or B is its At | `at` (an At Trip, never a Load) | that Assignment |
-| 8 | Nothing fits | NULL | none; Dave answers |
+| 8 | Nothing else fits, and the Driver has an Other live then | `not_a_haul` | that Other (the latest in his lane) |
+| 9 | Nothing fits | NULL | none; Dave answers |
 
 **At fills the missing end.** Rules 1–6 read each Assignment's route with At standing in for an empty From or To: At + To is At → To, From + At is From → At. With From and To both set, At is used only for the Job. Rule 7 never fits a null At, and an At with no geofence code fits no Trip.
+
+**Move and Other.** A Move is matched by rules 1, 2 and 4 like a Haul with the same From and To, but rule 1 gives `move` (a Move Trip: Now / Done and Trucking hours, never Loads); a Move missing From or To fits nothing, and At never fills it. An Other fits no rule by Place; it only takes rule 8.
 
 **The way back from a Trip nothing explains goes with it.** When a rule 8 Trip A → B is followed straight away by B → A, and that drive back was only matched by rule 4 (an empty guess), the drive back is NULL too: one side trip for Dave to answer, not a drive to some Assignment's pickup. A drive back that fits an Assignment's route (rules 1, 2) or the shop (rule 3) keeps its match.
 

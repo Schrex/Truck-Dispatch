@@ -164,6 +164,8 @@ async function storedTruckDay(env: Env, truck: StoredTruck, date: string, at: st
     fromPlaceId: a.fromPlaceId,
     toPlaceId: a.toPlaceId,
     atPlaceId: a.atPlaceId,
+    work: a.work,
+    note: a.note,
     cancelledAt: a.cancelledAt,
     changes: changesOf(a.id),
     driverId: a.driverId,

@@ -908,6 +908,21 @@ describe('the Trip part on a Driver card', () => {
     expect(text).not.toContain('last');
   });
 
+  it('shows a Move with no Loads: Now while he is on it, then Done at the time the machine got there', async () => {
+    const d6 = { work: 'move' as const, machine: 'D6', materialName: null, fromPlaceName: 'Wintergarden', toPlaceName: 'BK' };
+    const now = await shown({ ...d6, trips: part({ status: 'now', since: '2026-11-16T12:40:00Z' }) });
+    expect(now.text).toContain('Now');
+    const done = await shown({ ...d6, trips: part({ status: 'done', since: '2026-11-16T12:40:00Z', movedAt: '2026-11-16T13:15:00Z' }) });
+    expect(done.text).toContain('Done 08:15');
+    expect(done.text).not.toContain('Load');
+  });
+
+  it('shows an Other with its Trucking hours, never Loads', async () => {
+    const { text } = await shown({ work: 'other', materialName: null, fromPlaceName: null, toPlaceName: null, note: 'Shop, on deck', trips: part({ status: 'done', since: '2026-11-16T12:40:00Z', truckingHours: 3.02 }) });
+    expect(text).toContain('3.0 h');
+    expect(text).not.toContain('Load');
+  });
+
   it("shows each card's Loads from his day read, and Now on the one he is on", async () => {
     sentDays['drv-a 2026-11-19'] = [
       card({ id: 'a1', ...haul, trips: part({ loads: 4, status: 'done', since: '2026-11-16T13:24:26Z', lastLoadAt: '2026-11-16T16:25:10Z' }) }),
@@ -943,8 +958,8 @@ describe('his Truck log under Today', () => {
     const tripDay = buildTripDay({
       places: REAL_DAY.places, notConsidered: REAL_DAY.notConsidered, jobs: REAL_DAY.jobs, visits, now: asOf, dayOver: false,
       assignments: [
-        { id: 'a1', label: 'A1', fromPlaceId: J25008, toPlaceId: VILLAGER, atPlaceId: null, cancelledAt: null, changes: [] },
-        { id: 'a2', label: 'A2', fromPlaceId: WALWORTH, toPlaceId: J25008, atPlaceId: null, cancelledAt: null, changes: [] },
+        { id: 'a1', label: 'A1', fromPlaceId: J25008, toPlaceId: VILLAGER, atPlaceId: null, work: 'haul', cancelledAt: null, changes: [] },
+        { id: 'a2', label: 'A2', fromPlaceId: WALWORTH, toPlaceId: J25008, atPlaceId: null, work: 'haul', cancelledAt: null, changes: [] },
       ],
     });
     const labels = { a1: 'A1', a2: 'A2' };

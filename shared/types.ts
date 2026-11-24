@@ -311,6 +311,8 @@ export interface AssignmentTripPart {
   since: string | null;
   /** Arrive time of its latest Load (ISO 8601), "last 11:25"; null before its first Load. */
   lastLoadAt: string | null;
+  /** A Move's only: arrive time of its latest Move Trip (ISO 8601), the machine there, "Done 8:15"; null before it. */
+  movedAt?: string | null;
   /** From leaving for its first Trip to arriving at the end of its last, loaded or empty, in hours; null before its first Trip. */
   truckingHours: number | null;
 }

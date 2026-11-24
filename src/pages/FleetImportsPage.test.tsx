@@ -77,8 +77,8 @@ const AS_OF = '2026-11-16T21:25:00.000Z';
 /** The real day's Places, and Dave's two Assignments for Randy: A1 J25008 → Villager, A2 Walworth → J25008. */
 const [, J25008, VILLAGER, WALWORTH] = REAL_DAY.places.map((p) => p.id);
 const PLANNED: TripAssignment[] = [
-  { id: 'a1', label: 'A1', fromPlaceId: J25008, toPlaceId: VILLAGER, atPlaceId: null, cancelledAt: null, changes: [] },
-  { id: 'a2', label: 'A2', fromPlaceId: WALWORTH, toPlaceId: J25008, atPlaceId: null, cancelledAt: null, changes: [] },
+  { id: 'a1', label: 'A1', fromPlaceId: J25008, toPlaceId: VILLAGER, atPlaceId: null, work: 'haul', cancelledAt: null, changes: [] },
+  { id: 'a2', label: 'A2', fromPlaceId: WALWORTH, toPlaceId: J25008, atPlaceId: null, work: 'haul', cancelledAt: null, changes: [] },
 ];
 
 /** A1 and A2 as the Worker reads them, Assigned to Randy. */

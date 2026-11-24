@@ -9,6 +9,8 @@ const KIND: Record<string, { label: string; style: string }> = {
   empty: { label: 'empty', style: 'bg-muted text-muted-foreground' },
   // An At Trip: the label names its At, "at TIUNY".
   at: { label: 'at', style: 'bg-secondary text-secondary-foreground' },
+  // A Move Trip: a Move's From → To, never a Load.
+  move: { label: 'move', style: 'bg-move text-move-foreground' },
   [NOT_A_HAUL]: { label: 'not a haul', style: 'bg-muted text-muted-foreground italic' },
   null: { label: 'for Dave', style: 'bg-warning/25 text-foreground' },
 };
@@ -16,7 +18,7 @@ const KIND: Record<string, { label: string; style: string }> = {
 /**
  * The simulation's Trip log: every Trip the Truck made, as the Trip builder
  * has it at the clock's time, the drives to and from the shop included. Each
- * says whether it was a Load, an empty drive or an At Trip ("at TIUNY"), which Assignment it counts
+ * says whether it was a Load, an empty drive, an At Trip ("at TIUNY"), a Move Trip or not a haul (on an Other), which Assignment it counts
  * on, and the matching rule that decided it. A Trip counts as soon as the
  * Truck arrives; visits to fences on the Not considered list never make one.
  */

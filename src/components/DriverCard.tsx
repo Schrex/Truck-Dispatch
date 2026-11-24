@@ -65,16 +65,24 @@ function truckLine({ truckNumber, was }: DriverAssignment): string | null {
  * is on now, once the Truck has Trips on it. Without a Trip part, or before its
  * first Trip, nothing: the card looks as it always has.
  */
-function TripLine({ part }: { part: AssignmentTripPart | undefined }) {
+function TripLine({ part, work }: { part: AssignmentTripPart | undefined; work: Work }) {
   const trips = shownTripPart(part);
   if (!trips) return null;
+  // A Move has no Loads: "Done 08:15" once the machine is there. An Other has its Trucking hours.
+  const words =
+    work === 'move'
+      ? trips.status === 'done' && trips.movedAt
+        ? `Done ${easternTime(trips.movedAt)}`
+        : null
+      : work === 'other'
+        ? trips.truckingHours === null
+          ? null
+          : `${trips.truckingHours.toFixed(1)} h`
+        : `${loadsText(trips.loads)}${trips.lastLoadAt ? ` · last ${easternTime(trips.lastLoadAt)}` : ''}`;
   return (
     <p className="flex flex-wrap items-center gap-x-2 text-lg">
       {trips.status === 'now' && <span className="rounded bg-primary px-2 py-0.5 text-base font-semibold text-primary-foreground">Now</span>}
-      <span className="font-medium">
-        {loadsText(trips.loads)}
-        {trips.lastLoadAt && ` · last ${easternTime(trips.lastLoadAt)}`}
-      </span>
+      {words && <span className="font-medium">{words}</span>}
     </p>
   );
 }
@@ -140,7 +148,7 @@ export function DriverCard({
       )}
       {/* On a cancelled card the values are struck through, not the labels beside them. */}
       <div className={cn('space-y-3', cancelledAt && 'text-muted-foreground')}>
-        <TripLine part={assignment.trips} />
+        <TripLine part={assignment.trips} work={work} />
         {other ? (
           <p className={cn('whitespace-pre-line text-2xl font-bold', struck)}>
             {note ?? 'Nothing written'}
