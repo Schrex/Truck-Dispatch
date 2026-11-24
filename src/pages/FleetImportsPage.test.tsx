@@ -26,6 +26,10 @@ let sent: NewFleetImport[];
 let refusal: { status: number; body: unknown } | null;
 /** What the Worker's answer to an Import says, over the stored one. */
 let answered: Partial<FleetImport>;
+/** Dave's Not considered list as the Worker holds it: "sunset" unless a test says otherwise. */
+let notConsidered: string[];
+/** Whether adding to the Not considered list fails. */
+let notConsideredFails: boolean;
 
 /** The Import route as the page sees it: every visit sent is new, on Truck 55. */
 const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -38,6 +42,12 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     return answer({
       import: { id: 'imp-1', truckId: 'trk-55', truckNumber: '55', fileName: body.fileName, format: body.format, importedAt: '2026-11-16T20:05:00.000Z', added: body.rows.length, closed: 0, unchanged: 0, days: [{ date: '2026-11-16', added: body.rows.length, closed: 0, unchanged: 0 }], codesWithNoPlace: [], ...answered } satisfies FleetImport,
     }, 201);
+  }
+  if (url.pathname.endsWith('/api/not-considered') && init?.method === 'POST') {
+    const { code } = JSON.parse(String(init.body)) as { code: string };
+    if (notConsideredFails) return answer({ error: 'oops' }, 500);
+    notConsidered.push(code.trim());
+    return answer({ notConsidered: { id: `nc-${code}`, code: code.trim(), active: true } }, 201);
   }
   if (url.pathname.endsWith('/api/trucks')) return answer({ trucks: TRUCKS });
   if (url.pathname.endsWith('/api/today')) return answer({ today: TUESDAY, tomorrow: '2026-11-18', nextWorkingDay: '2026-11-18' });
@@ -90,12 +100,16 @@ function storedDay(
   const endOfMinute = easternMoment(date, hour, minute, 59);
   const at = clock === undefined ? (asOf ?? `${date}T23:59:59.000Z`) : asOf && Date.parse(asOf) < Date.parse(endOfMinute) ? asOf : endOfMinute;
   const dayOver = !today && opened === '23:59';
-  const tripDay = buildTripDay({ places: REAL_DAY.places, jobs: REAL_DAY.jobs, visits, assignments: rows.length ? PLANNED : [], now: at, dayOver });
+  const tripDay = buildTripDay({ places: REAL_DAY.places, notConsidered, jobs: REAL_DAY.jobs, visits, assignments: rows.length ? PLANNED : [], now: at, dayOver });
   const labels = { a1: 'A1', a2: 'A2' };
   const { assignments, ...truckLogBody } = truckLog({ tripDay, places: REAL_DAY.places, assignments: rows.length ? SHOWN : [], labels });
   return {
     truckId, truckNumber: '55', date, asOf, clock: opened, at, dayOver, places: REAL_DAY.places, tripDay, labels, assignments,
-    truckLog: truckLogBody, codesWithNoPlace: rows.some((r) => r.geofenceCode === 'sunset') ? [{ code: 'sunset', driveThrough: true }] : [],
+    truckLog: truckLogBody,
+    // The codes no Place has and that are not on the Not considered list, as the Worker lists them.
+    codesWithNoPlace: [...new Set(rows.map((r) => r.geofenceCode))]
+      .filter((code) => !REAL_DAY.places.some((p) => p.geofenceCode === code) && !notConsidered.includes(code))
+      .map((code) => ({ code })),
     // Randy's check-in at 06:00 gives the Unplanned work its Driver; with none it has no Driver known.
     lanes: truckLogLanes(tripDay, truckLogBody, randyCheckedIn ? RANDY_AT_6 : null),
   };
@@ -130,6 +144,8 @@ beforeEach(() => {
   sent = [];
   refusal = null;
   answered = {};
+  notConsidered = ['sunset'];
+  notConsideredFails = false;
   storedDays = {};
   asked = [];
   api.mockClear();
@@ -201,12 +217,34 @@ describe('The Fleet imports page', () => {
     expect(await screen.findByText('Mon 16 Nov: 3 new · 1 closed; Tue 17 Nov: 5 new')).toBeTruthy();
   });
 
-  it('lists the codes with no Place, marking the drive-throughs', async () => {
-    answered = { codesWithNoPlace: [{ code: 'BROCKPORT', driveThrough: false }, { code: 'sunset', driveThrough: true }] };
+  it('lists the codes with no Place, each with Don\'t consider', async () => {
+    answered = { codesWithNoPlace: [{ code: 'BROCKPORT' }, { code: 'GAS STATION' }] };
     await openPage();
     drop(new File([EXPORT_1502], 'EntryExit-1502.json', { type: 'application/json' }));
     const list = await screen.findByRole('list', { name: 'Codes with no Place' });
-    expect(Array.from(list.querySelectorAll('li')).map((li) => li.textContent)).toEqual(['BROCKPORT', 'sunset · drive-through']);
+    expect(Array.from(list.querySelectorAll('li')).map((li) => li.firstChild?.textContent)).toEqual(['BROCKPORT', 'GAS STATION']);
+    expect(within(list).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(["Don't consider BROCKPORT", "Don't consider GAS STATION"]);
+  });
+
+  it('Don\'t consider on an Import\'s code puts it on the Not considered list and takes it off that Import\'s codes', async () => {
+    answered = { codesWithNoPlace: [{ code: 'BROCKPORT' }, { code: 'GAS STATION' }] };
+    await openPage();
+    drop(new File([EXPORT_1502], 'EntryExit-1502.json', { type: 'application/json' }));
+    const list = await screen.findByRole('list', { name: 'Codes with no Place' });
+    fireEvent.click(within(list).getByRole('button', { name: "Don't consider GAS STATION" }));
+    await waitFor(() => expect(Array.from(list.querySelectorAll('li')).map((li) => li.firstChild?.textContent)).toEqual(['BROCKPORT']));
+    expect(notConsidered).toContain('GAS STATION');
+  });
+
+  it('keeps the code listed and says so when Don\'t consider fails', async () => {
+    answered = { codesWithNoPlace: [{ code: 'GAS STATION' }] };
+    notConsideredFails = true;
+    await openPage();
+    drop(new File([EXPORT_1502], 'EntryExit-1502.json', { type: 'application/json' }));
+    const list = await screen.findByRole('list', { name: 'Codes with no Place' });
+    fireEvent.click(within(list).getByRole('button', { name: "Don't consider GAS STATION" }));
+    expect(await screen.findByText('Could not put GAS STATION on the Not considered list')).toBeTruthy();
+    expect(within(list).getByRole('button', { name: "Don't consider GAS STATION" })).toBeTruthy();
   });
 
   it('shows no codes with no Place when every code has one', async () => {
@@ -337,13 +375,31 @@ describe('A stored day on the Fleet imports page', () => {
     expect(header()).toMatchObject({ 'Start time': '06:24', 'End time': '', 'Total hours': '' });
   });
 
-  it('lists "sunset" under codes with no Place, marked drive-through', async () => {
+  it('lists no codes with no Place when "sunset" is on the Not considered list', async () => {
+    store('trk-55', '2026-11-16', readFleetJson(JSON.parse(CUT_1620)), AS_OF);
+    await openPage();
+    await pickMonday('Truck 55 (MCK-55-17)');
+    await screen.findByRole('region', { name: 'Truck log' });
+    expect(screen.queryByRole('list', { name: 'Codes with no Place' })).toBeNull();
+  });
+
+  it('Don\'t consider on "sunset" puts it on the Not considered list and the day re-reads without it', async () => {
+    notConsidered = [];
     store('trk-55', '2026-11-16', readFleetJson(JSON.parse(CUT_1620)), AS_OF);
     await openPage();
     await pickMonday('Truck 55 (MCK-55-17)');
     const day = await screen.findByRole('region', { name: 'Stored day' });
     const list = await within(day).findByRole('list', { name: 'Codes with no Place' });
-    expect(Array.from(list.querySelectorAll('li')).map((li) => li.textContent)).toEqual(['sunset · drive-through']);
+    const trips = () => within(screen.getByRole('table', { name: 'Trips' })).getAllByRole('row').map((r) => r.textContent ?? '');
+    expect(trips().some((row) => row.includes('sunset'))).toBe(true);
+    const reads = asked.length;
+
+    fireEvent.click(within(list).getByRole('button', { name: "Don't consider sunset" }));
+
+    await waitFor(() => expect(within(day).queryByRole('list', { name: 'Codes with no Place' })).toBeNull());
+    expect(notConsidered).toEqual(['sunset']);
+    expect(asked.length).toBeGreaterThan(reads);
+    expect(trips().some((row) => row.includes('sunset'))).toBe(false);
   });
 
   it('says "No Trips yet" on a day with no stored visits, and that no Import has covered it', async () => {

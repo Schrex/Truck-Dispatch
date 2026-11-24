@@ -7,7 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { CalendarDays } from '@/components/CalendarDays';
 import { EmptyBox, Loading } from '@/components/States';
-import { Refused, fetchBusinessDay, fetchList, fetchTruckLogDay, importFleetExport } from '@/lib/api';
+import { Refused, addEntry, fetchBusinessDay, fetchList, fetchTruckLogDay, importFleetExport } from '@/lib/api';
+import { toast } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
 import { StoredTruckLog } from '@/components/TruckLog';
 import { Lanes } from '@/components/Lanes';
@@ -101,23 +102,51 @@ type CodedTruck = Truck & { hcssCode: string };
 const codedTrucks = async (): Promise<CodedTruck[]> =>
   (await fetchList('trucks')).flatMap((truck) => (truck.hcssCode ? [{ ...truck, hcssCode: truck.hcssCode }] : []));
 
+/** Puts a geofence code on the Not considered list (Settings); resolves once the Worker has it. */
+type DontConsider = (code: string) => Promise<void>;
+
 /**
- * The geofence codes no Place has, drive-throughs marked: on an Import's
- * result and on a stored day alike. Nothing when there are none.
+ * The geofence codes no Place has and that are not on the Not considered
+ * list: on an Import's result and on a stored day alike, each with Don't
+ * consider, which puts it on the list. Nothing when there are none.
  */
-function CodesWithNoPlace({ id, codes }: { id: string; codes: CodeWithNoPlace[] }) {
+function CodesWithNoPlace({ id, codes, onDontConsider }: { id: string; codes: CodeWithNoPlace[]; onDontConsider: DontConsider }) {
+  const [busy, setBusy] = useState<string[]>([]);
   if (codes.length === 0) return null;
+  const dontConsider = async (code: string) => {
+    setBusy((current) => [...current, code]);
+    try {
+      await onDontConsider(code);
+    } catch {
+      toast.error(`Could not put ${code} on the Not considered list`);
+    } finally {
+      setBusy((current) => current.filter((c) => c !== code));
+    }
+  };
   return (
     <div className="mt-3">
       <h3 id={id} className="text-sm font-medium">
         Codes with no Place
       </h3>
-      <p className="text-xs text-muted-foreground">Their visits are stored. Give a Place its geofence code in Settings.</p>
+      <p className="text-xs text-muted-foreground">
+        Their visits are stored. Give a Place its geofence code in Settings, or don’t consider the code: its visits are skipped on every day.
+      </p>
       <ul aria-labelledby={id} className="mt-1 flex flex-wrap gap-2">
         {codes.map((c) => (
-          <li key={c.code} className="rounded-full border bg-surface px-3 py-1 text-sm">
-            {c.code}
-            {c.driveThrough && <span className="text-muted-foreground"> · drive-through</span>}
+          <li key={c.code} className="flex items-center gap-1 rounded-full border bg-surface pl-3 text-sm">
+            <span>{c.code}</span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-11 rounded-full px-3 text-muted-foreground"
+              aria-label={`Don't consider ${c.code}`}
+              disabled={busy.includes(c.code)}
+              onClick={() => dontConsider(c.code)}
+            >
+              {busy.includes(c.code) && <Loader2 className="h-4 w-4 animate-spin" />}
+              Don’t consider
+            </Button>
           </li>
         ))}
       </ul>
@@ -151,6 +180,7 @@ function StoredDay({
   onTruck,
   onDate,
   onClock,
+  onDontConsider,
 }: {
   trucks: CodedTruck[];
   allTrucks: Truck[] | null;
@@ -164,6 +194,7 @@ function StoredDay({
   onTruck: (id: string) => void;
   onDate: (date: string) => void;
   onClock: (clock: number | null) => void;
+  onDontConsider: DontConsider;
 }) {
   const [shown, setShown] = useState<StoredDayState>({ state: 'idle' });
   useEffect(() => {
@@ -215,7 +246,7 @@ function StoredDay({
       {trucks.length === 0 && <EmptyBox>No Truck has an HCSS code yet. Set one in Settings.</EmptyBox>}
       {shown.state === 'loading' && <Loading what="the day" />}
       {shown.state === 'failed' && <p className="text-sm text-destructive">Could not load the day. It tries again when you pick a Truck, a day or a time.</p>}
-      {day && <StoredDayViews day={day} trucks={trucks} allTrucks={allTrucks} drivers={drivers} clock={onScreen} onClock={setClock} />}
+      {day && <StoredDayViews day={day} trucks={trucks} allTrucks={allTrucks} drivers={drivers} clock={onScreen} onClock={setClock} onDontConsider={onDontConsider} />}
     </section>
   );
 }
@@ -228,6 +259,7 @@ function StoredDayViews({
   drivers,
   clock,
   onClock,
+  onDontConsider,
 }: {
   day: TruckLogDay;
   trucks: CodedTruck[];
@@ -235,6 +267,7 @@ function StoredDayViews({
   drivers: Driver[] | null;
   clock: number;
   onClock: (next: SetStateAction<number>) => void;
+  onDontConsider: DontConsider;
 }) {
   /** The Drivers with Assignments on the day, in the order they first come. */
   const onTheDay = [...new Map(day.assignments.flatMap((a) => (a.driverId ? [[a.driverId, a.driverName ?? '']] : []))).entries()];
@@ -248,7 +281,7 @@ function StoredDayViews({
         {day.asOf ? `As of the Import at ${easternTime(day.asOf)}` : 'No Import has covered this day yet.'}
       </p>
       <ReplayClock clock={clock} onClock={onClock} className="sticky top-0 z-10 -mx-4 border-b bg-background/95 px-4 py-3 backdrop-blur" />
-      <CodesWithNoPlace id="no-place-day" codes={day.codesWithNoPlace} />
+      <CodesWithNoPlace id="no-place-day" codes={day.codesWithNoPlace} onDontConsider={onDontConsider} />
       <div className="grid gap-6 xl:grid-cols-2">
         <div className="min-w-0 space-y-6">
           <section aria-label="Scheduler view" className="space-y-3">
@@ -308,6 +341,15 @@ export function FleetImportsPage() {
   /** Every active Truck and Driver, for the Scheduler view's lanes; null while they load. */
   const [allTrucks, setAllTrucks] = useState<Truck[] | null>(null);
   const [drivers, setDrivers] = useState<Driver[] | null>(null);
+  /** The codes Dave put on the Not considered list from this page, left out of the Imports' codes with no Place (lower case). */
+  const [notConsidered, setNotConsidered] = useState<string[]>([]);
+  /** Don't consider: the code goes on the list, comes off every Import's codes here, and the stored day is read again without its visits. */
+  const dontConsider = async (code: string) => {
+    await addEntry('not-considered', { code });
+    setNotConsidered((current) => [...current, code.toLowerCase()]);
+    setRefresh((n) => n + 1);
+  };
+  const considered = (codes: CodeWithNoPlace[]) => codes.filter((c) => !notConsidered.includes(c.code.toLowerCase()));
   const pickTruck = (id: string) => {
     setTruckId(id);
     setClock(null);
@@ -493,7 +535,7 @@ export function FleetImportsPage() {
                           {drop.fileName} · Truck {drop.result.truckNumber}
                         </p>
                         <p className="text-sm">{drop.result.days.map(dayCounts).join('; ')}</p>
-                        <CodesWithNoPlace id={`no-place-${drop.key}`} codes={drop.result.codesWithNoPlace} />
+                        <CodesWithNoPlace id={`no-place-${drop.key}`} codes={considered(drop.result.codesWithNoPlace)} onDontConsider={dontConsider} />
 
                       </>
                     )}
@@ -522,6 +564,7 @@ export function FleetImportsPage() {
           onTruck={pickTruck}
           onDate={pickDate}
           onClock={setClock}
+          onDontConsider={dontConsider}
         />
       </main>
     </div>
