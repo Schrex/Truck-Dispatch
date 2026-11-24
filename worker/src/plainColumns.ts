@@ -1,9 +1,9 @@
 /**
  * An Assignment's plain columns: values kept as they are, not references to
- * a list entry (the note today). Each is declared once, with how Start from
- * and Copy to copy it, and what it reads as in a saved copy older than the
- * column, so the values kept before each change and Changed ("was …") take
- * it without a case of their own.
+ * a list entry, such as the note (api.ts lists them in PLAIN). Each is
+ * declared once, with how Start from and Copy to copy it, and what it reads
+ * as in a saved copy older than the column, so the values kept before each
+ * change and Changed ("was …") take it without a case of their own.
  */
 export interface PlainColumn {
   /** Its field on the Assignment, and its key in the values kept before a change. */
