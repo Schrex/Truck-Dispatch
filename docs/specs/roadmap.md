@@ -1,10 +1,10 @@
 # Roadmap
 
-Status: draft, last updated 23 Nov 2026. This is the order of work in very small steps. Each step should be one PR that can be shipped and tried on its own, and should leave staging usable. The detailed decisions for each phase are in `docs/design/dispatch-board-decisions.md`.
+Status: draft, last updated 24 Nov 2026. This is the order of work in very small steps. Each step should be one PR that can be shipped and tried on its own, and should leave staging usable. The detailed decisions for each phase are in `docs/design/dispatch-board-decisions.md`.
 
 Legend: ✅ done · 🟡 in review · ⬜ to do · ⛔ blocked
 
-**Now:** phase 1 is built and on staging, with per-Assignment Assign merged ([PR #42](https://github.com/Schrex/Truck-Dispatch/pull/42)). Phase 2 is built and on staging ([PR #62](https://github.com/Schrex/Truck-Dispatch/pull/62), #48–#54), ready to try. Phase 3's Trip builder and simulation page are on staging too ([PR #21](https://github.com/Schrex/Truck-Dispatch/pull/21), [PR #63](https://github.com/Schrex/Truck-Dispatch/pull/63), [PR #66](https://github.com/Schrex/Truck-Dispatch/pull/66) and [PR #71](https://github.com/Schrex/Truck-Dispatch/pull/71)), on fake and recorded Fleet data only. Every page follows one layout ([PR #68](https://github.com/Schrex/Truck-Dispatch/pull/68), brought up to [`ui-standards.md`](../design/ui-standards.md) in [PR #79](https://github.com/Schrex/Truck-Dispatch/pull/79)). Dave can drop HCSS Fleet exports on a Fleet imports page, which stores their visits ([PR #99](https://github.com/Schrex/Truck-Dispatch/pull/99)). Steps 1.8 and 1.10 are still open.
+**Now:** phase 1 is built and on staging, with per-Assignment Assign merged ([PR #42](https://github.com/Schrex/Truck-Dispatch/pull/42)). Phase 2 is built and on staging ([PR #62](https://github.com/Schrex/Truck-Dispatch/pull/62), #48–#54), ready to try. Phase 3's Trip builder and simulation page are on staging too ([PR #21](https://github.com/Schrex/Truck-Dispatch/pull/21), [PR #63](https://github.com/Schrex/Truck-Dispatch/pull/63), [PR #66](https://github.com/Schrex/Truck-Dispatch/pull/66) and [PR #71](https://github.com/Schrex/Truck-Dispatch/pull/71)), on fake and recorded Fleet data only. Every page follows one layout ([PR #68](https://github.com/Schrex/Truck-Dispatch/pull/68), brought up to [`ui-standards.md`](../design/ui-standards.md) in [PR #79](https://github.com/Schrex/Truck-Dispatch/pull/79)). Dave can drop HCSS Fleet exports on a Fleet imports page, which stores their visits ([PR #99](https://github.com/Schrex/Truck-Dispatch/pull/99)). A Truck's day with no Trips (no tracker, as Scott's on Mon 23 Nov) has a backup: the Driver or Dave attaches photos of the paper Daily Truck Log as its Paper log, on staging since 24 Nov ([PR #110](https://github.com/Schrex/Truck-Dispatch/pull/110)). Steps 1.8 and 1.10 are still open.
 
 ## Phase 1: Plan (Dave plans, Drivers see it)
 
@@ -50,11 +50,13 @@ The Trip builder and a simulation page that runs Truck 55's real day (Mon 16 Nov
 
 ## Phase 4: Close the day (Tickets, sign-off, Truck log)
 
-**Paper log** (spec [#112](https://github.com/Schrex/Truck-Dispatch/issues/112)), a backup for any Truck's day its Trips are missing: a photo of the paper Daily Truck Log, never typed, on today or a past day, kept in R2.
+**Paper log** (spec [#112](https://github.com/Schrex/Truck-Dispatch/issues/112)), a backup for any Truck's day its Trips are missing: a photo of the paper Daily Truck Log, never typed, on today or a past day, kept in R2. All built in [PR #110](https://github.com/Schrex/Truck-Dispatch/pull/110), merged 24 Nov, and on staging.
 
-- 🟡 A Driver attaches a Paper log photo and sees it, with the R2 bucket binding ([#114](https://github.com/Schrex/Truck-Dispatch/issues/114)); the preview and staging buckets and the CI token's R2 permission are [#113](https://github.com/Schrex/Truck-Dispatch/issues/113)
-- ⬜ Dave sees, opens and attaches Paper logs on each Driver's Board lane ([#116](https://github.com/Schrex/Truck-Dispatch/issues/116))
-- ⬜ Dave takes a wrong photo off, hidden and kept ([#117](https://github.com/Schrex/Truck-Dispatch/issues/117))
+- ✅ The preview and staging photo buckets and the CI token's R2 permission ([#113](https://github.com/Schrex/Truck-Dispatch/issues/113))
+- ✅ A Driver attaches a Paper log photo and sees it, the same for every Truck ([#114](https://github.com/Schrex/Truck-Dispatch/issues/114))
+- ✅ Dave sees, opens and attaches Paper logs on each Driver's Board lane ([#116](https://github.com/Schrex/Truck-Dispatch/issues/116))
+- ✅ Dave takes a wrong photo off, hidden and kept ([#117](https://github.com/Schrex/Truck-Dispatch/issues/117))
+- ⬜ Scott attaches Monday 23 Nov's paper log on staging, and we fix what he hits (to confirm)
 
 1. ⬜ Driver photographs a Ticket and puts it on its Load (stored in R2, the same `PHOTOS` bucket as the Paper log)
 2. ⬜ End-of-day sign-off: the Driver confirms his Trips and Tickets
