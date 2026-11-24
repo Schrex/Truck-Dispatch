@@ -6,6 +6,11 @@ export { BASE };
 export interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
+  /**
+   * The private photos bucket (R2): Paper log pictures, read only through the
+   * Worker. Unbound, attaching a Paper log is refused and nothing is stored.
+   */
+  PHOTOS?: R2Bucket;
   /** local, preview or staging (wrangler.jsonc). */
   ENVIRONMENT?: string;
   /** The deployed commit, set by CI with `--var COMMIT_SHA:<sha>`. */

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Assignment, Driver, Place, Truck } from '../../shared/types';
+import type { Assignment, Driver, PaperLogPhoto, Place, Truck } from '../../shared/types';
 import { AssignmentBlock } from './AssignmentBlock';
 import { Lanes } from './Lanes';
 
@@ -409,5 +409,46 @@ describe('The Trip part on a block', () => {
   it('looks exactly as it does without a Trip part while it has no Trips yet', () => {
     expect(html({ trips: part({}) }).html).toBe(html({}).html);
     expect(html({}).text).toBe('First · Sample Site North → Sample Plant · Fill');
+  });
+});
+
+describe('The Paper log mark on a lane', () => {
+  const photo = (driverId: string, id: string): PaperLogPhoto => ({
+    id,
+    date: '2026-11-20',
+    truckId: 'trk-21',
+    truckNumber: '21',
+    driverId,
+    driverName: driverId,
+    attachedBy: 'driver',
+    attachedAt: '2026-11-20T14:00:00.000Z',
+    contentType: 'image/png',
+    size: 68,
+    takenOffAt: null,
+  });
+
+  it('counts each Driver\'s photos that day, offers Attach Paper log to one with none, and gives Unassigned none', () => {
+    render(<Lanes assignments={[]} drivers={drivers} trucks={trucks} paperLogs={[photo('drv-a', 'p1'), photo('drv-a', 'p2')]} onPaperLog={() => {}} />);
+    const [laneA, laneB, unassigned] = screen.getAllByRole('article');
+    expect(within(laneA).getByRole('button', { name: 'Paper log for Sample Driver A · 2 photos' })).toBeTruthy();
+    expect(within(laneB).getByRole('button', { name: 'Attach Paper log for Sample Driver B' })).toBeTruthy();
+    expect(within(unassigned).queryByRole('button', { name: /Paper log/ })).toBeNull();
+  });
+
+  it('says 1 photo for one', () => {
+    render(<Lanes assignments={[]} drivers={drivers} trucks={trucks} paperLogs={[photo('drv-b', 'p1')]} onPaperLog={() => {}} />);
+    expect(screen.getByRole('button', { name: 'Paper log for Sample Driver B · 1 photo' })).toBeTruthy();
+  });
+
+  it('opens the tapped Driver\'s Paper log', () => {
+    const onPaperLog = vi.fn();
+    render(<Lanes assignments={[]} drivers={drivers} trucks={trucks} paperLogs={[]} onPaperLog={onPaperLog} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Attach Paper log for Sample Driver B' }));
+    expect(onPaperLog).toHaveBeenCalledWith('drv-b');
+  });
+
+  it('shows no mark without the day\'s photos (a day to come)', () => {
+    render(<Lanes assignments={[]} drivers={drivers} trucks={trucks} />);
+    expect(screen.queryByRole('button', { name: /Paper log/ })).toBeNull();
   });
 });

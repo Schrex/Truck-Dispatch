@@ -50,7 +50,13 @@ The Trip builder and a simulation page that runs Truck 55's real day (Mon 16 Nov
 
 ## Phase 4: Close the day (Tickets, sign-off, Truck log)
 
-1. ⬜ Driver photographs a Ticket and puts it on its Load (stored in R2)
+**Paper log** (spec [#112](https://github.com/Schrex/Truck-Dispatch/issues/112)), a backup for any Truck's day its Trips are missing: a photo of the paper Daily Truck Log, never typed, on today or a past day, kept in R2.
+
+- 🟡 A Driver attaches a Paper log photo and sees it, with the R2 bucket binding ([#114](https://github.com/Schrex/Truck-Dispatch/issues/114)); the preview and staging buckets and the CI token's R2 permission are [#113](https://github.com/Schrex/Truck-Dispatch/issues/113)
+- ⬜ Dave sees, opens and attaches Paper logs on each Driver's Board lane ([#116](https://github.com/Schrex/Truck-Dispatch/issues/116))
+- ⬜ Dave takes a wrong photo off, hidden and kept ([#117](https://github.com/Schrex/Truck-Dispatch/issues/117))
+
+1. ⬜ Driver photographs a Ticket and puts it on its Load (stored in R2, the same `PHOTOS` bucket as the Paper log)
 2. ⬜ End-of-day sign-off: the Driver confirms his Trips and Tickets
 3. ⬜ Next morning, Dave answers what is left: Trips with no Assignment, "Who was driving?", Assignments with no Trips
 4. ⬜ The Driver's part locks at 9 AM the next day

@@ -26,6 +26,14 @@
 			"migrations_dir": "migrations"
 		}
 	],
+	// "PHOTOS" is the private photos bucket (R2): Paper log pictures, later
+	// Ticket photos too. Read only through the Worker, never public.
+	"r2_buckets": [
+		{
+			"binding": "PHOTOS",
+			"bucket_name": "truck-dispatch-photos"
+		}
+	],
 	"vars": {
 		"ENVIRONMENT": "local"
 	},
@@ -43,6 +51,12 @@
 					"migrations_dir": "migrations"
 				}
 			],
+			"r2_buckets": [
+				{
+					"binding": "PHOTOS",
+					"bucket_name": "truck-dispatch-photos-preview"
+				}
+			],
 			"vars": {
 				"ENVIRONMENT": "preview"
 			}
@@ -57,6 +71,12 @@
 					"database_name": "truck-dispatch-staging",
 					"database_id": "ca2c6762-0840-4a76-8cb2-441099fe58c0",
 					"migrations_dir": "migrations"
+				}
+			],
+			"r2_buckets": [
+				{
+					"binding": "PHOTOS",
+					"bucket_name": "truck-dispatch-photos-staging"
 				}
 			],
 			"vars": {
