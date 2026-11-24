@@ -159,6 +159,8 @@ An Assignment cancelled after `left_at` still matches; one cancelled before does
 | 8 | Nothing else fits, and the Driver has an Other live then | `not_a_haul` | that Other (the latest in his lane) |
 | 9 | Nothing fits | NULL | none; Dave answers |
 
+In `shared/trips.ts` rules 3, 7, 8 and 9 are named, `SHOP_OR_YARD`, `AT_ONLY`, `ON_AN_OTHER` and `NOTHING_FITS`, and code refers to them only by name, so a new rule is added by renumbering those constants alone.
+
 **At fills the missing end.** Rules 1–6 read each Assignment's route with At standing in for an empty From or To: At + To is At → To, From + At is From → At. With From and To both set, At is used only for the Job. Rule 7 never fits a null At, and an At with no geofence code fits no Trip.
 
 **Move and Other.** A Move is matched by rules 1, 2 and 4 like a Haul with the same From and To, but rule 1 gives `move` (a Move Trip: Now / Done and Trucking hours, never Loads); a Move missing From or To fits nothing, and At never fills it. An Other fits no rule by Place; it only takes rule 8. A Trip that fits a Haul or a Move by any earlier rule still goes to it.

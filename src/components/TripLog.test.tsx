@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { Trip, TripPlace } from '../../shared/trips';
+import { AT_ONLY, ON_AN_OTHER, type Trip, type TripPlace } from '../../shared/trips';
 import { TripLog } from './TripLog';
 
 afterEach(cleanup);
@@ -21,7 +21,7 @@ describe('Trip log: an At Trip', () => {
       leftAt: '2026-11-16T13:24:26Z',
       arrivedAt: '2026-11-16T13:34:37Z',
       miles: 3.39,
-      match: { kind: 'at', assignmentId: 'a1', rule: 7, reason: 'Starts or ends at the Assignment’s At', atPlaceId: 'plc-north' },
+      match: { kind: 'at', assignmentId: 'a1', rule: AT_ONLY, reason: 'Starts or ends at the Assignment’s At', atPlaceId: 'plc-north' },
     };
     render(<TripLog trips={[trip]} places={places} assignmentLabels={{ a1: 'A1' }} />);
     const [row] = within(screen.getByRole('table', { name: 'Trips' })).getAllByRole('row').slice(1);
@@ -58,7 +58,7 @@ describe('Trip log: Move and Other', () => {
   });
 
   it('reads "not a haul" for a Trip on an Other, with the Other’s text as the Why', () => {
-    expect(cells(trip({ kind: 'not_a_haul', assignmentId: 'o1', rule: 8, reason: 'Other: Shop, on deck' })).slice(3)).toEqual([
+    expect(cells(trip({ kind: 'not_a_haul', assignmentId: 'o1', rule: ON_AN_OTHER, reason: 'Other: Shop, on deck' })).slice(3)).toEqual([
       'not a haul',
       'A2',
       'Other: Shop, on deck',

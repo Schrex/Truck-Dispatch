@@ -3,6 +3,7 @@ import { apiOn, inspection } from './testing/api';
 import { fleetRows, fleetXlsxRows, setUpTruck55 } from './testing/fleet';
 import { localD1 } from './testing/localD1';
 import { easternTime } from '../../shared/days';
+import { AT_ONLY, ON_AN_OTHER } from '../../shared/trips';
 import type { Assignment, Day, DriverDay, Place, StoredUnplanned, TruckLogDay } from '../../shared/types';
 
 const d1 = localD1();
@@ -234,7 +235,7 @@ describe('Which Assignments a stored day matches', () => {
     expect(log.truckLog.columns[0].truckingHours).toBeGreaterThan(0);
     expect(log.assignments[0].trips).toMatchObject({ loads: null, status: 'done', lastLoadAt: null });
     const atTrip = log.tripDay.trips.find((t) => easternTime(t.leftAt) === '08:24')!;
-    expect(atTrip.match).toMatchObject({ kind: 'at', assignmentId: a1.id, rule: 7, reason: 'Starts or ends at the Assignment’s At' });
+    expect(atTrip.match).toMatchObject({ kind: 'at', assignmentId: a1.id, rule: AT_ONLY, reason: 'Starts or ends at the Assignment’s At' });
   });
 
   it('takes the Job from To before At, and At before From', async () => {
@@ -291,7 +292,7 @@ describe('Which Assignments a stored day matches', () => {
     expect(log.truckLog.unplanned).toEqual([]);
     const onIt = log.tripDay.trips.filter((t) => t.match.assignmentId === shop.id);
     expect(onIt.length).toBeGreaterThan(0);
-    expect(onIt[0].match).toMatchObject({ kind: 'not_a_haul', rule: 8, reason: 'Other: Shop, on deck' });
+    expect(onIt[0].match).toMatchObject({ kind: 'not_a_haul', rule: ON_AN_OTHER, reason: 'Other: Shop, on deck' });
     expect(log.truckLog.columns.find((c) => c.id === shop.id)!.truckingHours).toBeGreaterThan(0);
   });
 });

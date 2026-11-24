@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { easternTime } from './days';
-import { buildTripDay, matchTrip, NOTHING_FITS, routeAt, savedRoute, type MadeAssignment, type TripAssignment } from './trips';
+import { AT_ONLY, buildTripDay, matchTrip, NOTHING_FITS, ON_AN_OTHER, routeAt, savedRoute, type MadeAssignment, type TripAssignment } from './trips';
 import { FIXTURE_METER, FIXTURE_NOT_CONSIDERED, FIXTURE_PARKED_AT_JOB, FIXTURE_PLACES, FIXTURE_SCENARIOS, FIXTURE_VISITS } from './trips.fixture';
 
 const END_OF_DAY = '2026-11-17T04:59:00Z';
@@ -289,7 +289,7 @@ describe('At: where the Truck works', () => {
       '14:33 J1002 South → J1001 North at a1',
       '15:41 J1001 North → SHOP empty -',
     ]);
-    expect(d.trips[1].match).toMatchObject({ rule: 7, reason: 'Starts or ends at the Assignment’s At', atPlaceId: 'plc-north' });
+    expect(d.trips[1].match).toMatchObject({ rule: AT_ONLY, reason: 'Starts or ends at the Assignment’s At', atPlaceId: 'plc-north' });
     // Leaving North at 08:24 to arriving back there at 14:43: 6 h 19 min. Loads are blank, from Tickets.
     expect(d.assignments[0]).toEqual({
       assignmentId: 'a1',
@@ -313,7 +313,7 @@ describe('At: where the Truck works', () => {
   it('asks "Which Assignment?" when two Assignments have only the same At', () => {
     const at = (id: string) => ({ ...a1, id, label: id.toUpperCase(), fromPlaceId: null, toPlaceId: null, atPlaceId: 'plc-north' });
     const d = withAssignments([at('a1'), at('a3')]);
-    expect(d.trips[1].match).toMatchObject({ kind: null, rule: 7, candidates: ['a1', 'a3'] });
+    expect(d.trips[1].match).toMatchObject({ kind: null, rule: AT_ONLY, candidates: ['a1', 'a3'] });
     expect(d.whichAssignment).toHaveLength(12);
   });
 
@@ -422,7 +422,7 @@ describe('Other: Trips that fit nothing are not a haul', () => {
       '14:33 J1002 South → J1001 North empty a1',
       '15:41 J1001 North → SHOP empty -',
     ]);
-    expect(d.trips.at(-3)!.match).toEqual({ kind: 'not_a_haul', assignmentId: 'o1', rule: 8, reason: 'Other: Shop, on deck' });
+    expect(d.trips.at(-3)!.match).toEqual({ kind: 'not_a_haul', assignmentId: 'o1', rule: ON_AN_OTHER, reason: 'Other: Shop, on deck' });
     expect(NOTHING_FITS).toBe(9);
     expect(d.unplanned).toEqual([]);
     // Leaving North at 14:15 to arriving at South: its Trucking hours. The drive back fits A1, so it stays A1's.
