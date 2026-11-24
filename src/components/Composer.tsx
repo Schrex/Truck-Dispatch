@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent, type ReactNode } from 'react';
+import { Fragment, useId, useState, type FormEvent, type ReactNode } from 'react';
 import { ChevronDown, ChevronUp, Loader2, X } from 'lucide-react';
 import { NOTE_LIMIT, type AddAssignment, type Work, type Assignment, type Customer, type Driver, type Foreman, type Material, type Place, type Truck, type TruckProblem } from '../../shared/types';
 import { Button } from '@/components/ui/button';
@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/sonner';
 import { addAssignment, FieldErrors, Refused } from '@/lib/api';
+import { cn } from '@/lib/utils';
 import { foremanSite } from '@/lib/lists';
 import { chipClass, OrTypeIt, TypedBox } from '@/components/TypedName';
 import { ChipProblems, openOn } from '@/components/ProblemMark';
@@ -141,6 +142,12 @@ function nameIn<T extends { id: string }>(slot: Slot, entries: T[] | null, name:
   return entry ? name(entry) : null;
 }
 
+/** The Drivers as the sentence names them, "Randy, Sam and Mike"; null for none. */
+function driversWords(drivers: string[]): string | null {
+  if (drivers.length === 0) return null;
+  return drivers.length === 1 ? drivers[0] : `${drivers.slice(0, -1).join(', ')} and ${drivers[drivers.length - 1]}`;
+}
+
 /**
  * The Assignment as a sentence, to check before saving: "Randy hauls for
  * Brody · 2" minus from Villager to TIUNY"; with For blank, "Randy hauls 2"
@@ -149,7 +156,7 @@ function nameIn<T extends { id: string }>(slot: Slot, entries: T[] | null, name:
  * haul", each in his own Truck.
  */
 export function sentence(drivers: string[], draft: Draft, lists: ComposerLists): string {
-  const who = drivers.length === 0 ? 'Someone' : drivers.length === 1 ? drivers[0] : `${drivers.slice(0, -1).join(', ')} and ${drivers[drivers.length - 1]}`;
+  const who = driversWords(drivers) ?? 'Someone';
   const several = drivers.length > 1;
   const haul = draft.work === 'haul';
   const truck = (!several && lists.trucks?.find((t) => t.id === draft.truckId)?.number) || null;
@@ -217,7 +224,7 @@ function requestOf(date: string, driverIds: string[], draft: Draft, lists: Compo
 }
 
 /** The kinds the composer and the open Assignment offer. */
-export const WORK_OPTIONS: { value: Work; label: string; disabled?: boolean }[] = [
+export const WORK_OPTIONS: { value: Work; label: string }[] = [
   { value: 'haul', label: 'Haul' },
   { value: 'move', label: 'Move' },
   { value: 'other', label: 'Other' },
@@ -245,6 +252,43 @@ const ROW_OF: Record<string, string> = {
   note: 'note',
   machine: 'machine',
 };
+
+/** A chip of the composer's sentence, each opening its choices: the rows of ROW_OF that a kind shows in its sentence. */
+type SlotKey = 'who' | 'for' | 'at' | 'material' | 'from' | 'to' | 'machine' | 'truck';
+
+/** One chip of the sentence: its name, the words before it, and what it reads (null: blank, dashed). */
+interface SentencePart {
+  key: SlotKey;
+  name: string;
+  lead?: string;
+  value: string | null;
+}
+
+/**
+ * A chip of the composer's sentence: what it holds, filled yellow, or its
+ * name, dashed, while blank; ringed while its choices are open. Named
+ * "From: Villager", or "From" while blank.
+ */
+function SentenceChip({ part, open, error, onTap }: { part: SentencePart; open: boolean; error: boolean; onTap: () => void }) {
+  const set = part.value !== null;
+  return (
+    <Button
+      type="button"
+      variant={set ? 'default' : 'outline'}
+      aria-label={set ? `${part.name}: ${part.value}` : part.name}
+      aria-expanded={open}
+      className={cn(
+        chipClass(set),
+        !set && 'border-dashed border-muted-foreground/60 text-muted-foreground',
+        open && 'ring-2 ring-ring ring-offset-2',
+        error && 'border-destructive',
+      )}
+      onClick={onTap}
+    >
+      {part.value ?? part.name}
+    </Button>
+  );
+}
 
 interface Chip {
   id: string | null;
@@ -365,7 +409,7 @@ function WhoRow({
   return (
     <div role="group" aria-labelledby={labelId} className="space-y-2">
       <p id={labelId} className="text-sm font-medium">
-        Who?
+        Who
       </p>
       <div className="flex flex-wrap gap-2">
         {drivers.map((driver) => {
@@ -399,20 +443,24 @@ function WhoRow({
 /**
  * The F1 composer, opened by a lane's +, always blank: it adds one Assignment
  * to that lane (Unassigned when driverId is null), last in the lane. Haul |
- * Move | Other at the top picks its kind, which decides the rows: a Move asks
- * for the machine, typed, with From and To; Other shows the Truck chips and
- * one line of text, "What?", which is saved as its note. A
- * switch keeps what each kind's rows hold, and Save sends only the chosen
- * kind's fields. "Who?"
- * adds other Drivers, who each get the same Assignment as their own Draft, all
- * saved together or none; the lane's own Driver cannot be dropped, and with
- * several Drivers each takes his own Truck, so the Truck chips are hidden. Pick up and Drop off
- * are rows of Place chips, "Hauling what?" a row of Material chips, each with
- * "Or type it" for a name the Worker finds, brings back or adds; "Note or
- * other truck" opens the Truck chips (His own first; a Truck with open
- * problems carries a red mark, and His own carries his usual Truck's) and the note. A sentence
- * previews it. Save needs nothing but the day; a refusal or failure keeps
- * what was typed and says so. Close drops the draft.
+ * Move | Other at the top picks its kind, which decides the sentence of chips
+ * under it, read the way Dave says it: a Haul "[Randy] hauls for [Brody] at
+ * [TIUNY] · [Asphalt] from [From] to [Villager]", a Move "[Scott] moves
+ * [the 260 + big bucket] from [Wintergarden] to [TIUNY]", an Other "[Scott]
+ * [Truck 31]" and one line of text, "What?", saved as its note. A blank chip
+ * is dashed and says what it is for. Tapping a chip opens its choices under
+ * the sentence, one chip at a time: Who adds other Drivers, who each get the
+ * same Assignment as their own Draft, all saved together or none (the lane's
+ * own Driver cannot be dropped, and with several Drivers each takes his own
+ * Truck); For, At, Material, From and To are chips from their lists, each
+ * with "Or type it" for a name the Worker finds, brings back or adds; the
+ * machine is typed. A switch of kind keeps what each kind's chips hold, and
+ * Save sends only the chosen kind's fields. "Note or other truck" opens the
+ * Truck chips (His own first; a Truck with open problems carries a red mark,
+ * and His own carries his usual Truck's) and the note. A sentence previews
+ * it. Save needs nothing but the day; a refusal opens the refused chip and
+ * says why on it, and a failure keeps what was typed and says so. Close
+ * drops the draft.
  */
 export function Composer({
   date,
@@ -443,9 +491,10 @@ export function Composer({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [failed, setFailed] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  /** The chip of the sentence whose choices are open; one at a time. */
+  const [openSlot, setOpenSlot] = useState<SlotKey | null>(null);
   const noteId = useId();
   const machineId = useId();
-  const whatId = useId();
   const { places, materials, trucks, foremen, customers } = lists;
   // The lane's own Driver first (the Assignment is his), then the others picked, in the list's order.
   const offered = (lists.drivers ?? []).filter((d) => d.active);
@@ -507,6 +556,29 @@ export function Composer({
   ) : (
     <ChipRow label="Truck" chips={truckChips} picked={draft.truckId} onPick={(truckId) => change('truck', (d) => ({ ...d, truckId }))} required error={errors.truckId} />
   );
+  const place = (row: 'from' | 'to' | 'at') => nameIn(draft[row], places, (p) => p.shortName);
+  const truckNumber = trucks?.find((t) => t.id === draft.truckId)?.number;
+  const who: SentencePart = { key: 'who', name: 'Who', value: driversWords(names) };
+  const route: SentencePart[] = [
+    { key: 'from', name: 'From', lead: 'from', value: place('from') },
+    { key: 'to', name: 'To', lead: 'to', value: place('to') },
+  ];
+  // The sentence as Dave says it: "Randy hauls for Brody at TIUNY · Asphalt from … to Villager".
+  const parts: SentencePart[] =
+    draft.work === 'other'
+      ? [who, { key: 'truck', name: 'Truck', value: several ? 'His own' : truckNumber ? `Truck ${truckNumber}` : 'His own' }]
+      : draft.work === 'move'
+        ? [who, { key: 'machine', name: 'Machine', lead: several ? 'move' : 'moves', value: draft.machine.trim() || null }, ...route]
+        : [
+            who,
+            { key: 'for', name: 'For', lead: several ? 'haul for' : 'hauls for', value: forName(forOf(draft, lists), lists) },
+            { key: 'at', name: 'At', lead: 'at', value: place('at') },
+            { key: 'material', name: 'Material', lead: '·', value: nameIn(draft.material, materials, (m) => m.name) },
+            ...route,
+          ];
+  // Only a chip this kind's sentence has can be open.
+  const opened = parts.find((part) => part.key === openSlot)?.key ?? null;
+  const errorOf = (row: string) => Object.entries(errors).find(([field]) => ROW_OF[field] === row)?.[1];
   const unplaced = Object.entries(errors).filter(([field]) => !ROW_OF[field] || (ROW_OF[field] === 'who' && offered.length === 0)).map(([, message]) => message);
   const more = draft.more || Boolean(errors.truckId || errors.note);
 
@@ -520,7 +592,13 @@ export function Composer({
       toast.success(assignments.length > 1 ? `${assignments.length} Assignments saved` : 'Assignment saved');
       onSaved(assignments);
     } catch (error) {
-      if (error instanceof FieldErrors) setErrors(error.fields);
+      if (error instanceof FieldErrors) {
+        setErrors(error.fields);
+        // The first refused chip of the sentence opens, so its message shows on its row.
+        const refused = Object.keys(error.fields).map((field) => ROW_OF[field]);
+        const first = parts.find((part) => refused.includes(part.key));
+        if (first) setOpenSlot(first.key);
+      }
       else {
         setFailed(error instanceof Refused ? error.message : 'Could not save the Assignment. Try again.');
         toast.error('Could not save the Assignment');
@@ -538,25 +616,24 @@ export function Composer({
       className="animate-unfold space-y-4 rounded-md border border-primary/40 bg-background p-4 shadow-md"
     >
       <SegmentedToggle ariaLabel="Kind" options={WORK_OPTIONS} value={draft.work} onChange={(work) => change('work', (d) => ({ ...d, work }))} />
-      {offered.length > 0 && (
-        <WhoRow
-          drivers={offered}
-          laneDriverId={driverId}
-          picked={draft.alsoDriverIds}
-          onToggle={(id) =>
-            change('who', (d) => ({ ...d, alsoDriverIds: d.alsoDriverIds.includes(id) ? d.alsoDriverIds.filter((other) => other !== id) : [...d.alsoDriverIds, id] }))
-          }
-          error={errors.alsoDriverIds ?? errors.driverId}
-        />
-      )}
-      {draft.work === 'other' ? (
-        <>
-          {truckRow}
-          <div className="space-y-2">
-            <Label htmlFor={whatId}>What?</Label>
+      <div role="group" aria-label="Assignment" className="flex flex-wrap items-center gap-2 text-base">
+        {parts.map((part) =>
+          part.key === 'who' && offered.length === 0 ? (
+            <span key="who" className="font-medium">
+              {part.value ?? 'Someone'}
+            </span>
+          ) : (
+            <Fragment key={part.key}>
+              {part.lead && <span className="text-muted-foreground">{part.lead}</span>}
+              <SentenceChip part={part} open={opened === part.key} error={Boolean(errorOf(part.key))} onTap={() => setOpenSlot((current) => (current === part.key ? null : part.key))} />
+            </Fragment>
+          ),
+        )}
+        {draft.work === 'other' && (
+          <>
             <Input
-              id={whatId}
-              className="h-11"
+              aria-label="What?"
+              className="h-11 min-w-48 flex-1"
               maxLength={NOTE_LIMIT}
               placeholder="Water truck, trucking as needed"
               value={draft.note}
@@ -566,56 +643,70 @@ export function Composer({
               }}
             />
             {errors.note && (
-              <p className="text-xs text-destructive" role="alert">
+              <p className="w-full text-xs text-destructive" role="alert">
                 {errors.note}
               </p>
             )}
-          </div>
-          <p className="-mt-2 text-xs text-muted-foreground">Shop, standby, water truck, vac truck. Its Trips count as not a haul.</p>
-        </>
-      ) : draft.work === 'move' ? (
-        <>
-          <div className="space-y-2">
-            <Label htmlFor={machineId}>Machine</Label>
-            <Input
-              id={machineId}
-              className="h-11"
-              maxLength={MACHINE_LIMIT}
-              placeholder="the 260 + big bucket"
-              value={draft.machine}
-              onChange={(event) => {
-                const machine = event.target.value;
-                change('machine', (d) => ({ ...d, machine }));
-              }}
+          </>
+        )}
+      </div>
+
+      {opened && (
+        <div className="rounded-md border bg-muted/40 p-3">
+          {opened === 'who' && (
+            <WhoRow
+              drivers={offered}
+              laneDriverId={driverId}
+              picked={draft.alsoDriverIds}
+              onToggle={(id) =>
+                change('who', (d) => ({ ...d, alsoDriverIds: d.alsoDriverIds.includes(id) ? d.alsoDriverIds.filter((other) => other !== id) : [...d.alsoDriverIds, id] }))
+              }
+              error={errors.alsoDriverIds ?? errors.driverId}
             />
-            {errors.machine && (
-              <p className="text-xs text-destructive" role="alert">
-                {errors.machine}
-              </p>
-            )}
-          </div>
-          <ChipRow label="From" chips={placeChips} {...slotRow('from')} />
-          <ChipRow label="To" chips={placeChips} {...slotRow('to')} />
-          <p className="-mt-2 text-xs text-muted-foreground">The machine is typed. No Material, no For. Not counted as Loads.</p>
-        </>
-      ) : (
-        <>
-          <ChipRow
-            label="For"
-            groups={forGroups}
-            picked={forPicked}
-            onPick={pickFor}
-            typed={forNow.typed}
-            onTyped={(typed) => change('for', (d) => ({ ...d, for: { foremanId: null, customerId: null, typed } }))}
-            error={Object.entries(errors).find(([field]) => ROW_OF[field] === 'for')?.[1]}
-          />
-          {forHint && <p className="-mt-2 text-xs text-muted-foreground">{forHint}</p>}
-          <ChipRow label="At" chips={placeChips} {...slotRow('at')} />
-          <ChipRow label="Hauling what?" chips={active(materials, (m) => m.name)} {...slotRow('material')} />
-          <ChipRow label="Pick up" chips={placeChips} {...slotRow('from')} />
-          <ChipRow label="Drop off" chips={placeChips} {...slotRow('to')} />
-        </>
+          )}
+          {opened === 'for' && (
+            <ChipRow
+              label="For"
+              groups={forGroups}
+              picked={forPicked}
+              onPick={pickFor}
+              typed={forNow.typed}
+              onTyped={(typed) => change('for', (d) => ({ ...d, for: { foremanId: null, customerId: null, typed } }))}
+              error={errorOf('for')}
+            />
+          )}
+          {opened === 'at' && <ChipRow label="At" chips={placeChips} {...slotRow('at')} />}
+          {opened === 'material' && <ChipRow label="Material" chips={active(materials, (m) => m.name)} {...slotRow('material')} />}
+          {opened === 'from' && <ChipRow label="From" chips={placeChips} {...slotRow('from')} />}
+          {opened === 'to' && <ChipRow label="To" chips={placeChips} {...slotRow('to')} />}
+          {opened === 'truck' && truckRow}
+          {opened === 'machine' && (
+            <div className="space-y-2">
+              <Label htmlFor={machineId}>Machine</Label>
+              <Input
+                id={machineId}
+                autoFocus
+                className="h-11"
+                maxLength={MACHINE_LIMIT}
+                placeholder="the 260 + big bucket"
+                value={draft.machine}
+                onChange={(event) => {
+                  const machine = event.target.value;
+                  change('machine', (d) => ({ ...d, machine }));
+                }}
+              />
+              {errors.machine && (
+                <p className="text-xs text-destructive" role="alert">
+                  {errors.machine}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
       )}
+      {draft.work === 'haul' && forHint && <p className="text-xs text-muted-foreground">{forHint}</p>}
+      {draft.work === 'move' && <p className="text-xs text-muted-foreground">The machine is typed. No Material, no For. Not counted as Loads.</p>}
+      {draft.work === 'other' && <p className="text-xs text-muted-foreground">Shop, standby, water truck, vac truck. Its Trips count as not a haul.</p>}
 
       {/* Other shows its Truck and text above, so it has nothing to open. */}
       {draft.work !== 'other' && (

@@ -10,10 +10,16 @@ test('Dave Assigns an Assignment on the Board and the Driver sees it on his phon
 
   await board.getByRole('button', { name: 'Add an Assignment for Sample Driver A' }).click();
   const composer = board.getByRole('form', { name: 'New Assignment for Sample Driver A' });
-  await composer.getByRole('group', { name: 'Pick up' }).getByRole('button', { name: 'Sample Plant' }).click();
-  await composer.getByRole('group', { name: 'Drop off' }).getByRole('button', { name: 'Sample Site North' }).click();
-  await composer.getByRole('group', { name: 'Hauling what?' }).getByRole('button', { name: 'Sample Stone' }).click();
+  // Each chip of the sentence opens its choices under it.
+  const sentence = composer.getByRole('group', { name: 'Assignment', exact: true });
+  await sentence.getByRole('button', { name: 'From', exact: true }).click();
+  await composer.getByRole('group', { name: 'From', exact: true }).getByRole('button', { name: 'Sample Plant' }).click();
+  await sentence.getByRole('button', { name: 'To', exact: true }).click();
+  await composer.getByRole('group', { name: 'To', exact: true }).getByRole('button', { name: 'Sample Site North' }).click();
+  await sentence.getByRole('button', { name: 'Material', exact: true }).click();
+  await composer.getByRole('group', { name: 'Material', exact: true }).getByRole('button', { name: 'Sample Stone' }).click();
   // For a first-time Customer: typed, so the Worker adds him to Customers.
+  await sentence.getByRole('button', { name: 'For', exact: true }).click();
   await composer.getByRole('group', { name: 'For', exact: true }).getByRole('button', { name: 'Or type it' }).click();
   await composer.getByRole('textbox', { name: 'For, typed' }).fill('Sample Customer A');
   await composer.getByRole('button', { name: 'Save' }).click();
@@ -45,8 +51,12 @@ test('Dave Assigns a Move and the Driver sees the machine, From and To on his ph
   await board.getByRole('button', { name: 'Add an Assignment for Sample Driver B' }).click();
   const composer = board.getByRole('form', { name: 'New Assignment for Sample Driver B' });
   await composer.getByRole('group', { name: 'Kind' }).getByRole('button', { name: 'Move' }).click();
+  const sentence = composer.getByRole('group', { name: 'Assignment', exact: true });
+  await sentence.getByRole('button', { name: 'Machine', exact: true }).click();
   await composer.getByRole('textbox', { name: 'Machine' }).fill('the 260 + big bucket');
+  await sentence.getByRole('button', { name: 'From', exact: true }).click();
   await composer.getByRole('group', { name: 'From', exact: true }).getByRole('button', { name: 'Sample Yard' }).click();
+  await sentence.getByRole('button', { name: 'To', exact: true }).click();
   await composer.getByRole('group', { name: 'To', exact: true }).getByRole('button', { name: 'Sample Site North' }).click();
   await composer.getByRole('button', { name: 'Save' }).click();
 

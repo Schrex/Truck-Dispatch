@@ -700,16 +700,31 @@ describe('the composer', () => {
     const add = await within(await screen.findByRole('article', { name: driver })).findByRole('button', { name: `Add an Assignment for ${driver}` });
     fireEvent.click(add);
     const composer = within(lane(driver)).getByRole('form', { name: `New Assignment for ${driver}` });
+    // Once the Places have loaded; then the From chip is closed again, so it opens blank.
+    fireEvent.click(slot(composer, 'From'));
     await within(composer).findAllByRole('button', { name: 'Sample Plant' });
+    fireEvent.click(slot(composer, 'From'));
     return composer;
   };
+  /** The composer's sentence of chips. */
+  const sentenceOf = (composer: HTMLElement) => within(composer).getByRole('group', { name: 'Assignment' });
+  /** A chip of the sentence, "From" blank or "From: Sample Plant". */
+  const slot = (composer: HTMLElement, name: string) =>
+    within(sentenceOf(composer)).getByRole('button', { name: (label) => label === name || label.startsWith(`${name}: `) });
+  /** The chips the sentence has, by name. */
+  const slots = (composer: HTMLElement) => within(sentenceOf(composer)).getAllByRole('button').map((chip) => chip.getAttribute('aria-label')!.split(':')[0]);
+  /** A row of choices, opened from its chip in the sentence when it is not open yet. */
+  const row = (composer: HTMLElement, name: string) => {
+    const shown = within(composer).queryByRole('group', { name });
+    if (shown) return shown;
+    fireEvent.click(slot(composer, name));
+    return within(composer).getByRole('group', { name });
+  };
   /** The chips of a row as they read. */
-  const chips = (composer: HTMLElement, row: string) => within(within(composer).getByRole('group', { name: row })).getAllByRole('button').map((chip) => chip.textContent);
+  const chips = (composer: HTMLElement, name: string) => within(row(composer, name)).getAllByRole('button').map((chip) => chip.textContent);
   /** The chips of a row that are picked. */
-  const pressed = (composer: HTMLElement, row: string) =>
-    within(within(composer).getByRole('group', { name: row })).queryAllByRole('button', { pressed: true }).map((chip) => chip.textContent);
-  const tap = (composer: HTMLElement, row: string, chip: string) =>
-    fireEvent.click(within(within(composer).getByRole('group', { name: row })).getByRole('button', { name: chip }));
+  const pressed = (composer: HTMLElement, name: string) => within(row(composer, name)).queryAllByRole('button', { pressed: true }).map((chip) => chip.textContent);
+  const tap = (composer: HTMLElement, name: string, chip: string) => fireEvent.click(within(row(composer, name)).getByRole('button', { name: chip }));
   const type = (composer: HTMLElement, row: string, name: string) => {
     tap(composer, row, 'Or type it');
     fireEvent.change(within(composer).getByRole('textbox', { name: `${row}, typed` }), { target: { value: name } });
@@ -745,12 +760,48 @@ describe('the composer', () => {
     expect(screen.getAllByRole('form')).toHaveLength(1);
   });
 
+  it('reads as one sentence of chips, "… hauls for [For] at [At] · [Material] from [From] to [To]", a blank chip dashed', async () => {
+    await day();
+    const composer = await compose('Sample Driver A');
+    expect([...sentenceOf(composer).children].map((part) => part.textContent)).toEqual([
+      'Sample Driver A',
+      'hauls for',
+      'For',
+      'at',
+      'At',
+      '·',
+      'Material',
+      'from',
+      'From',
+      'to',
+      'To',
+    ]);
+    expect(slot(composer, 'Who').className).not.toContain('border-dashed');
+    expect(slot(composer, 'For').className).toContain('border-dashed');
+    tap(composer, 'For', 'Sample Customer Jaus');
+    expect(slot(composer, 'For').textContent).toBe('Sample Customer Jaus');
+    expect(slot(composer, 'For').className).not.toContain('border-dashed');
+  });
+
+  it('opens one chip\'s choices at a time, under the sentence', async () => {
+    await day();
+    const composer = await compose('Sample Driver A');
+    expect(within(composer).queryByRole('group', { name: 'For' })).toBeNull();
+    fireEvent.click(slot(composer, 'For'));
+    expect(slot(composer, 'For').getAttribute('aria-expanded')).toBe('true');
+    fireEvent.click(slot(composer, 'At'));
+    expect(within(composer).queryByRole('group', { name: 'For' })).toBeNull();
+    expect(within(composer).getByRole('group', { name: 'At' })).toBeTruthy();
+    fireEvent.click(slot(composer, 'At'));
+    expect(within(composer).queryByRole('group', { name: 'At' })).toBeNull();
+  });
+
   it('offers Places and Materials as chips in the order of their lists, active ones only, each with "Or type it"', async () => {
     await day();
     const composer = await compose('Sample Driver A');
-    expect(chips(composer, 'Pick up')).toEqual(['Sample Plant', 'Sample Site North', 'Or type it']);
-    expect(chips(composer, 'Drop off')).toEqual(['Sample Plant', 'Sample Site North', 'Or type it']);
-    expect(chips(composer, 'Hauling what?')).toEqual(['2" minus', 'Sample Dirt', 'Or type it']);
+    expect(chips(composer, 'From')).toEqual(['Sample Plant', 'Sample Site North', 'Or type it']);
+    expect(chips(composer, 'To')).toEqual(['Sample Plant', 'Sample Site North', 'Or type it']);
+    expect(chips(composer, 'Material')).toEqual(['2" minus', 'Sample Dirt', 'Or type it']);
     expect(chips(composer, 'At')).toEqual(['Sample Plant', 'Sample Site North', 'Or type it']);
     expect(chips(composer, 'For')).toEqual(['Sample Foreman A', 'Sample Customer Jaus', 'Or type it']);
     expect(chips(composer, 'Foremen')).toEqual(['Sample Foreman A']);
@@ -763,8 +814,8 @@ describe('the composer', () => {
     try {
       await day();
       const composer = await compose('Sample Driver A');
-      expect(chips(composer, 'Pick up')).toEqual(['Sample Site North', 'Sample Plant', 'Or type it']);
-      expect(chips(composer, 'Hauling what?')).toEqual(['Sample Dirt', '2" minus', 'Or type it']);
+      expect(chips(composer, 'From')).toEqual(['Sample Site North', 'Sample Plant', 'Or type it']);
+      expect(chips(composer, 'Material')).toEqual(['Sample Dirt', '2" minus', 'Or type it']);
     } finally {
       places.reverse();
       materials.reverse();
@@ -776,9 +827,9 @@ describe('the composer', () => {
     open('/?date=2026-11-20');
     const composer = await compose('Sample Driver A');
     expect(preview(composer)).toBe('Sample Driver A: just the day so far');
-    tap(composer, 'Pick up', 'Sample Plant');
-    tap(composer, 'Drop off', 'Sample Site North');
-    tap(composer, 'Hauling what?', '2" minus');
+    tap(composer, 'From', 'Sample Plant');
+    tap(composer, 'To', 'Sample Site North');
+    tap(composer, 'Material', '2" minus');
     tap(composer, 'For', 'Sample Foreman A');
     expect(preview(composer)).toBe('Sample Driver A hauls for Sample Foreman A · 2" minus from Sample Plant to Sample Site North');
     save(composer);
@@ -833,9 +884,9 @@ describe('the composer', () => {
   it('adds an Assignment to Unassigned with typed names, saved by name', async () => {
     await day();
     const composer = await compose('Unassigned');
-    type(composer, 'Pick up', 'Sample New Pit');
-    tap(composer, 'Drop off', 'Sample Site North');
-    type(composer, 'Hauling what?', 'sample dirt');
+    type(composer, 'From', 'Sample New Pit');
+    tap(composer, 'To', 'Sample Site North');
+    type(composer, 'Material', 'sample dirt');
     expect(preview(composer)).toBe('Someone hauls sample dirt from Sample New Pit to Sample Site North');
     save(composer);
 
@@ -849,13 +900,13 @@ describe('the composer', () => {
   it('drops a typed name when a chip is picked instead, and leaves a row blank when its picked chip is tapped again', async () => {
     await day();
     const composer = await compose('Unassigned');
-    type(composer, 'Pick up', 'Sample New Pit');
-    tap(composer, 'Pick up', 'Sample Plant');
-    expect(within(composer).queryByRole('textbox', { name: 'Pick up, typed' })).toBeNull();
-    expect(pressed(composer, 'Pick up')).toEqual(['Sample Plant']);
-    tap(composer, 'Hauling what?', 'Sample Dirt');
-    tap(composer, 'Hauling what?', 'Sample Dirt');
-    expect(pressed(composer, 'Hauling what?')).toEqual([]);
+    type(composer, 'From', 'Sample New Pit');
+    tap(composer, 'From', 'Sample Plant');
+    expect(within(composer).queryByRole('textbox', { name: 'From, typed' })).toBeNull();
+    expect(pressed(composer, 'From')).toEqual(['Sample Plant']);
+    tap(composer, 'Material', 'Sample Dirt');
+    tap(composer, 'Material', 'Sample Dirt');
+    expect(pressed(composer, 'Material')).toEqual([]);
     save(composer);
     expect(await screen.findByText('Assignment saved')).toBeTruthy();
     expect(sent).toEqual([expect.objectContaining({ fromPlaceId: 'plc-plant', materialId: null })]);
@@ -872,8 +923,8 @@ describe('the composer', () => {
   it('lets the same Place be both Pick up and Drop off', async () => {
     await day();
     const composer = await compose('Sample Driver B');
-    tap(composer, 'Pick up', 'Sample Plant');
-    tap(composer, 'Drop off', 'Sample Plant');
+    tap(composer, 'From', 'Sample Plant');
+    tap(composer, 'To', 'Sample Plant');
     save(composer);
     expect(await screen.findByText('Assignment saved')).toBeTruthy();
     expect(sent).toEqual([expect.objectContaining({ fromPlaceId: 'plc-plant', toPlaceId: 'plc-plant' })]);
@@ -909,10 +960,10 @@ describe('the composer', () => {
   it('folds after a save, and the next + starts blank, in the same lane or another', async () => {
     await day();
     let composer = await compose('Sample Driver A');
-    tap(composer, 'Who?', 'Sample Driver B');
-    tap(composer, 'Pick up', 'Sample Plant');
-    type(composer, 'Drop off', 'Sample New Site');
-    tap(composer, 'Hauling what?', 'Sample Dirt');
+    tap(composer, 'Who', 'Sample Driver B');
+    tap(composer, 'From', 'Sample Plant');
+    type(composer, 'To', 'Sample New Site');
+    tap(composer, 'Material', 'Sample Dirt');
     fireEvent.click(within(composer).getByRole('button', { name: 'Note' }));
     fireEvent.change(within(composer).getByRole('textbox', { name: 'Note' }), { target: { value: 'Two loads' } });
     save(composer);
@@ -921,10 +972,10 @@ describe('the composer', () => {
 
     for (const driver of ['Sample Driver B', 'Sample Driver A']) {
       composer = await compose(driver);
-      expect(pressed(composer, 'Who?')).toEqual([driver]);
-      expect(pressed(composer, 'Pick up')).toEqual([]);
-      expect(within(composer).queryByRole('textbox', { name: 'Drop off, typed' })).toBeNull();
-      expect(pressed(composer, 'Hauling what?')).toEqual([]);
+      expect(pressed(composer, 'Who')).toEqual([driver]);
+      expect(pressed(composer, 'From')).toEqual([]);
+      expect(within(composer).queryByRole('textbox', { name: 'To, typed' })).toBeNull();
+      expect(pressed(composer, 'Material')).toEqual([]);
       expect(within(composer).queryByRole('textbox', { name: 'Note' })).toBeNull();
       expect(preview(composer)).toBe(`${driver}: just the day so far`);
     }
@@ -933,18 +984,20 @@ describe('the composer', () => {
   it('starts blank when another lane\'s + is tapped while it is open', async () => {
     await day();
     let composer = await compose('Sample Driver A');
-    tap(composer, 'Pick up', 'Sample Plant');
-    tap(composer, 'Who?', 'Sample Driver B');
+    tap(composer, 'From', 'Sample Plant');
+    tap(composer, 'Who', 'Sample Driver B');
     composer = await compose('Sample Driver B');
-    expect(pressed(composer, 'Pick up')).toEqual([]);
-    expect(pressed(composer, 'Who?')).toEqual(['Sample Driver B']);
+    expect(pressed(composer, 'From')).toEqual([]);
+    expect(pressed(composer, 'Who')).toEqual(['Sample Driver B']);
   });
 
   describe('Haul and Move', () => {
     const kinds = (composer: HTMLElement) => within(within(composer).getByRole('group', { name: 'Kind' })).getAllByRole('button');
     const pickKind = (composer: HTMLElement, kind: string) => fireEvent.click(within(within(composer).getByRole('group', { name: 'Kind' })).getByRole('button', { name: kind }));
-    const machine = (composer: HTMLElement) => within(composer).getByRole('textbox', { name: 'Machine' }) as HTMLInputElement;
-    const rows = (composer: HTMLElement) => ['For', 'At', 'Hauling what?', 'Pick up', 'Drop off', 'From', 'To'].filter((row) => within(composer).queryByRole('group', { name: (name) => name === row }));
+    const machine = (composer: HTMLElement) => {
+      if (!within(composer).queryByRole('textbox', { name: 'Machine' })) fireEvent.click(slot(composer, 'Machine'));
+      return within(composer).getByRole('textbox', { name: 'Machine' }) as HTMLInputElement;
+    };
 
     it('starts with a Haul | Move | Other toggle, Haul chosen', async () => {
       await day();
@@ -955,16 +1008,16 @@ describe('the composer', () => {
         ['Move', 'false', false],
         ['Other', 'false', false],
       ]);
-      expect(rows(composer)).toEqual(['For', 'At', 'Hauling what?', 'Pick up', 'Drop off']);
+      expect(slots(composer)).toEqual(['Who', 'For', 'At', 'Material', 'From', 'To']);
     });
 
     it('asks a Move for the machine, typed, and From and To only, with its hint, and saves only those', async () => {
       await day();
       const composer = await compose('Sample Driver A');
-      tap(composer, 'Hauling what?', '2" minus');
+      tap(composer, 'Material', '2" minus');
       tap(composer, 'For', 'Sample Foreman A');
       pickKind(composer, 'Move');
-      expect(rows(composer)).toEqual(['From', 'To']);
+      expect(slots(composer)).toEqual(['Who', 'Machine', 'From', 'To']);
       expect(within(composer).getByText('The machine is typed. No Material, no For. Not counted as Loads.')).toBeTruthy();
       fireEvent.change(machine(composer), { target: { value: 'the 260 + big bucket' } });
       tap(composer, 'From', 'Sample Plant');
@@ -983,11 +1036,11 @@ describe('the composer', () => {
     it('keeps what was typed for each kind until Save, and a Haul saves no machine', async () => {
       await day();
       const composer = await compose('Sample Driver A');
-      tap(composer, 'Hauling what?', '2" minus');
+      tap(composer, 'Material', '2" minus');
       pickKind(composer, 'Move');
       fireEvent.change(machine(composer), { target: { value: 'D6' } });
       pickKind(composer, 'Haul');
-      expect(pressed(composer, 'Hauling what?')).toEqual(['2" minus']);
+      expect(pressed(composer, 'Material')).toEqual(['2" minus']);
       pickKind(composer, 'Move');
       expect(machine(composer).value).toBe('D6');
       pickKind(composer, 'Haul');
@@ -1012,15 +1065,14 @@ describe('the composer', () => {
   describe('Other', () => {
     const pickKind = (composer: HTMLElement, kind: string) => fireEvent.click(within(within(composer).getByRole('group', { name: 'Kind' })).getByRole('button', { name: kind }));
     const what = (composer: HTMLElement) => within(composer).getByRole('textbox', { name: 'What?' }) as HTMLInputElement;
-    const rows = (composer: HTMLElement) => ['For', 'At', 'Hauling what?', 'Pick up', 'Drop off', 'From', 'To', 'Truck'].filter((row) => within(composer).queryByRole('group', { name: (name) => name === row }));
 
     it('shows the Truck chips and one text box with its hint, and saves the Driver, the Truck and the text as the note only', async () => {
       await day();
       const composer = await compose('Sample Driver A');
-      tap(composer, 'Hauling what?', '2" minus');
-      tap(composer, 'Pick up', 'Sample Plant');
+      tap(composer, 'Material', '2" minus');
+      tap(composer, 'From', 'Sample Plant');
       pickKind(composer, 'Other');
-      expect(rows(composer)).toEqual(['Truck']);
+      expect(slots(composer)).toEqual(['Who', 'Truck']);
       expect(within(composer).queryByRole('button', { name: /Note or other truck/ })).toBeNull();
       expect(within(composer).getByText('Shop, standby, water truck, vac truck. Its Trips count as not a haul.')).toBeTruthy();
       tap(composer, 'Truck', '24');
@@ -1060,8 +1112,8 @@ describe('the composer', () => {
       const composer = await compose('Sample Driver A');
       tap(composer, 'For', 'Sample Customer Jaus');
       tap(composer, 'At', 'Sample Site North');
-      tap(composer, 'Hauling what?', '2" minus');
-      tap(composer, 'Drop off', 'Sample Plant');
+      tap(composer, 'Material', '2" minus');
+      tap(composer, 'To', 'Sample Plant');
       expect(preview(composer)).toBe('Sample Driver A hauls for Sample Customer Jaus at Sample Site North · 2" minus to Sample Plant');
       save(composer);
       expect(await screen.findByText('Assignment saved')).toBeTruthy();
@@ -1164,17 +1216,17 @@ describe('the composer', () => {
     });
   });
 
-  describe('Who?', () => {
+  describe('Who', () => {
     it("offers the active Drivers, the lane's own pressed and not to be dropped", async () => {
       await day();
       const composer = await compose('Sample Driver A');
-      expect(chips(composer, 'Who?')).toEqual(['Sample Driver A', 'Sample Driver B']);
-      expect(pressed(composer, 'Who?')).toEqual(['Sample Driver A']);
-      tap(composer, 'Who?', 'Sample Driver A');
-      expect(pressed(composer, 'Who?')).toEqual(['Sample Driver A']);
-      tap(composer, 'Who?', 'Sample Driver B');
-      tap(composer, 'Who?', 'Sample Driver B');
-      expect(pressed(composer, 'Who?')).toEqual(['Sample Driver A']);
+      expect(chips(composer, 'Who')).toEqual(['Sample Driver A', 'Sample Driver B']);
+      expect(pressed(composer, 'Who')).toEqual(['Sample Driver A']);
+      tap(composer, 'Who', 'Sample Driver A');
+      expect(pressed(composer, 'Who')).toEqual(['Sample Driver A']);
+      tap(composer, 'Who', 'Sample Driver B');
+      tap(composer, 'Who', 'Sample Driver B');
+      expect(pressed(composer, 'Who')).toEqual(['Sample Driver A']);
     });
 
     it('saves one Draft for each Driver picked, in one go, each in his own Truck', async () => {
@@ -1182,11 +1234,11 @@ describe('the composer', () => {
       const composer = await compose('Sample Driver B');
       fireEvent.click(within(composer).getByRole('button', { name: 'Note or other truck' }));
       tap(composer, 'Truck', '21');
-      tap(composer, 'Who?', 'Sample Driver A');
+      tap(composer, 'Who', 'Sample Driver A');
       expect(within(composer).queryByRole('group', { name: 'Truck' })).toBeNull();
       expect(within(composer).getByText('Each Driver takes his own Truck. Name another on his block after saving.')).toBeTruthy();
-      tap(composer, 'Pick up', 'Sample Plant');
-      tap(composer, 'Hauling what?', 'Sample Dirt');
+      tap(composer, 'From', 'Sample Plant');
+      tap(composer, 'Material', 'Sample Dirt');
       expect(preview(composer)).toBe('Sample Driver B and Sample Driver A haul Sample Dirt from Sample Plant');
       save(composer);
 
@@ -1201,9 +1253,9 @@ describe('the composer', () => {
     it('starts with nobody from Unassigned, where picking Drivers gives it to them instead', async () => {
       await day();
       const composer = await compose('Unassigned');
-      expect(pressed(composer, 'Who?')).toEqual([]);
-      tap(composer, 'Who?', 'Sample Driver B');
-      tap(composer, 'Who?', 'Sample Driver A');
+      expect(pressed(composer, 'Who')).toEqual([]);
+      tap(composer, 'Who', 'Sample Driver B');
+      tap(composer, 'Who', 'Sample Driver A');
       expect(preview(composer)).toBe('Sample Driver A and Sample Driver B: just the day so far');
       save(composer);
       expect(await screen.findByText('2 Assignments saved')).toBeTruthy();
@@ -1215,9 +1267,9 @@ describe('the composer', () => {
       refuse = { alsoDriverIds: 'One of these Drivers was removed. Pick the Drivers again.' };
       await day();
       const composer = await compose('Sample Driver A');
-      tap(composer, 'Who?', 'Sample Driver B');
+      tap(composer, 'Who', 'Sample Driver B');
       save(composer);
-      expect(await within(within(composer).getByRole('group', { name: 'Who?' })).findByText('One of these Drivers was removed. Pick the Drivers again.')).toBeTruthy();
+      expect(await within(within(composer).getByRole('group', { name: 'Who' })).findByText('One of these Drivers was removed. Pick the Drivers again.')).toBeTruthy();
       expect(blocks('Sample Driver B')).toEqual([]);
     });
   });
@@ -1226,10 +1278,10 @@ describe('the composer', () => {
     failSaves = true;
     await day();
     const composer = await compose('Sample Driver A');
-    type(composer, 'Pick up', 'Sample New Pit');
+    type(composer, 'From', 'Sample New Pit');
     save(composer);
     expect(await within(composer).findByText('Could not save the Assignment. Try again.')).toBeTruthy();
-    expect((within(composer).getByRole('textbox', { name: 'Pick up, typed' }) as HTMLInputElement).value).toBe('Sample New Pit');
+    expect((within(composer).getByRole('textbox', { name: 'From, typed' }) as HTMLInputElement).value).toBe('Sample New Pit');
     expect(blocks('Sample Driver A')).toEqual([]);
   });
 
@@ -1237,10 +1289,10 @@ describe('the composer', () => {
     refuse = { fromPlaceName: 'Keep it to 100 characters or fewer.' };
     await day();
     const composer = await compose('Sample Driver A');
-    type(composer, 'Pick up', 'Sample New Pit');
+    type(composer, 'From', 'Sample New Pit');
     save(composer);
     const message = await within(composer).findByText('Keep it to 100 characters or fewer.');
-    expect(within(within(composer).getByRole('group', { name: 'Pick up' })).getByText('Keep it to 100 characters or fewer.')).toBe(message);
+    expect(within(within(composer).getByRole('group', { name: 'From' })).getByText('Keep it to 100 characters or fewer.')).toBe(message);
   });
 
   describe('the usual Foreman', () => {
@@ -1259,8 +1311,8 @@ describe('the composer', () => {
     it("fills in the drop-off's usual Foreman when it is a job site", async () => {
       await day();
       const composer = await compose('Sample Driver A');
-      tap(composer, 'Pick up', 'Sample Plant');
-      tap(composer, 'Drop off', 'Sample Site South');
+      tap(composer, 'From', 'Sample Plant');
+      tap(composer, 'To', 'Sample Site South');
       expect(pressed(composer, 'For')).toEqual(['Sample Foreman B']);
       expect(preview(composer)).toBe('Sample Driver A hauls for Sample Foreman B · from Sample Plant to Sample Site South');
       save(composer);
@@ -1271,9 +1323,9 @@ describe('the composer', () => {
     it("fills in the pick-up's usual Foreman when the drop-off is not a job site", async () => {
       await day();
       const composer = await compose('Sample Driver A');
-      tap(composer, 'Pick up', 'Sample Site South');
+      tap(composer, 'From', 'Sample Site South');
       expect(pressed(composer, 'For')).toEqual(['Sample Foreman B']);
-      tap(composer, 'Drop off', 'Sample Plant');
+      tap(composer, 'To', 'Sample Plant');
       expect(pressed(composer, 'For')).toEqual(['Sample Foreman B']);
       expect(preview(composer)).toBe('Sample Driver A hauls for Sample Foreman B · from Sample Site South to Sample Plant');
     });
@@ -1281,26 +1333,26 @@ describe('the composer', () => {
     it("takes the drop-off's job site over the pick-up's, even when it has no usual Foreman", async () => {
       await day();
       const composer = await compose('Sample Driver A');
-      tap(composer, 'Pick up', 'Sample Site South');
-      tap(composer, 'Drop off', 'Sample Site North');
+      tap(composer, 'From', 'Sample Site South');
+      tap(composer, 'To', 'Sample Site North');
       expect(pressed(composer, 'For')).toEqual([]);
     });
 
     it('fills it in for a job site typed by its name', async () => {
       await day();
       const composer = await compose('Unassigned');
-      type(composer, 'Drop off', 'sample site south');
+      type(composer, 'To', 'sample site south');
       expect(pressed(composer, 'For')).toEqual(['Sample Foreman B']);
     });
 
     it('lets Dave change or clear it, and keeps his pick when the Places change', async () => {
       await day();
       const composer = await compose('Sample Driver A');
-      tap(composer, 'Drop off', 'Sample Site South');
+      tap(composer, 'To', 'Sample Site South');
       tap(composer, 'For', 'Sample Foreman A');
       expect(pressed(composer, 'For')).toEqual(['Sample Foreman A']);
-      tap(composer, 'Drop off', 'Sample Plant');
-      tap(composer, 'Drop off', 'Sample Site South');
+      tap(composer, 'To', 'Sample Plant');
+      tap(composer, 'To', 'Sample Site South');
       expect(pressed(composer, 'For')).toEqual(['Sample Foreman A']);
       tap(composer, 'For', 'Sample Foreman A');
       expect(pressed(composer, 'For')).toEqual([]);
@@ -1313,14 +1365,14 @@ describe('the composer', () => {
       await day();
       let composer = await compose('Sample Driver A');
       tap(composer, 'For', 'Sample Customer Jaus');
-      tap(composer, 'Drop off', 'Sample Site South');
+      tap(composer, 'To', 'Sample Site South');
       expect(pressed(composer, 'For')).toEqual(['Sample Customer Jaus']);
       save(composer);
       expect(await screen.findByText('Assignment saved')).toBeTruthy();
       expect(sent).toEqual([expect.objectContaining({ toPlaceId: 'plc-south', foremanId: null, customerId: 'cus-jaus' })]);
 
       composer = await compose('Sample Driver B');
-      tap(composer, 'Drop off', 'Sample Site South');
+      tap(composer, 'To', 'Sample Site South');
       type(composer, 'For', 'Sample Customer Empire');
       expect(pressed(composer, 'For')).toEqual(['Or type it']);
       expect(preview(composer)).toBe('Sample Driver B hauls for Sample Customer Empire · to Sample Site South');
@@ -1331,7 +1383,7 @@ describe('the composer', () => {
       try {
         await day();
         const composer = await compose('Sample Driver A');
-        tap(composer, 'Drop off', 'Sample Site South');
+        tap(composer, 'To', 'Sample Site South');
         save(composer);
         expect(await screen.findByText('Assignment saved')).toBeTruthy();
         expect(sent).toEqual([expect.objectContaining({ toPlaceId: 'plc-south', foremanId: null })]);
