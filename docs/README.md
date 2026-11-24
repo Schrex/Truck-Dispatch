@@ -29,6 +29,7 @@ Start with [`specs/mission.md`](specs/mission.md) for why the project exists, th
 | [`design/telematics-backend.md`](design/telematics-backend.md) | Phase 3 in detail: what one real day of HCSS Fleet data shows, how Trips are built and matched to Assignments, and proposed changes |
 | [`design/ui-standards.md`](design/ui-standards.md) | The one layout and set of controls every page follows: header, navigation, surfaces, states and motion |
 | [`design/system-design.html`](design/system-design.html) | Interactive map of the pipeline from Dave's plan to a Truck log, with a real truck's day (open in a browser) |
+| [`design/data-map.html`](design/data-map.html) | Where each Truck log field is captured and stored today (screen, route, D1 table), the 10 gaps left on the way, and an order to close them (open in a browser) |
 
 ## For AI agents
 

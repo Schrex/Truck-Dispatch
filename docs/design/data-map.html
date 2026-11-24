@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Truck Log Data Map</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;650;700&family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one pipeline map (source → capture → D1 → built on read → Truck log) with numbered gap badges,
+   then the Truck log field by field, the D1 inventory, the gap cards, and the order to close them.
+   Palette and type follow docs/design/system-design.html so the two pages read as one set. */
+:root{
+  --bg:#f1f4f6; --paper:#ffffff; --ink:#14222e; --muted:#566675; --line:#cdd7df; --nodeline:#9cafbd; --src:#e9eef2;
+  --stored:#17643f; --storedbg:#e2f4e8;
+  --built:#0a66a3; --builtbg:#dff0fb;
+  --manual:#855600; --manualbg:#ffefc6;
+  --miss:#b3261e; --missbg:#fde7e4;
+  --arrow:#62778a;
+  --display:"Space Grotesk",system-ui,sans-serif; --body:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0d151c; --paper:#151f28; --ink:#e6edf3; --muted:#9db0c0; --line:#2b3a47; --nodeline:#4a6073; --src:#121b23;
+    --stored:#7fd9a6; --storedbg:#12382a; --built:#6cc0f5; --builtbg:#10364f;
+    --manual:#f2c764; --manualbg:#40300a; --miss:#ff8a80; --missbg:#4a1714; --arrow:#8aa0b3; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0d151c; --paper:#151f28; --ink:#e6edf3; --muted:#9db0c0; --line:#2b3a47; --nodeline:#4a6073; --src:#121b23;
+  --stored:#7fd9a6; --storedbg:#12382a; --built:#6cc0f5; --builtbg:#10364f;
+  --manual:#f2c764; --manualbg:#40300a; --miss:#ff8a80; --missbg:#4a1714; --arrow:#8aa0b3; color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:15.5px/1.55 var(--body)}
+.wrap{max-width:1180px;margin:auto;padding-block:28px 56px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:18px}
+h1{font:700 clamp(26px,3.6vw,38px)/1.12 var(--display);margin:0;letter-spacing:-.6px;text-wrap:balance}
+h2{font:700 20px/1.2 var(--display);margin:0;text-wrap:balance}
+h3{font:700 16px/1.3 var(--display);margin:0}
+p{margin:0}
+code,.mono{font-family:var(--mono);font-size:.86em}
+.sub{color:var(--muted);max-width:72ch;margin-top:8px}
+.small{font-size:13.5px;color:var(--muted);max-width:80ch}
+section{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.legend{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:13px;color:var(--muted)}
+.legend>span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:22px;height:14px;border-radius:4px;border:1.5px solid}
+.sw.stored{background:var(--storedbg);border-color:var(--stored)}
+.sw.built{background:var(--builtbg);border-color:var(--built)}
+.sw.manual{background:var(--manualbg);border-color:var(--manual)}
+.sw.missing{background:var(--missbg);border-color:var(--miss);border-style:dashed}
+.sw.source{background:var(--src);border-color:var(--nodeline);border-style:dashed}
+.chip{display:inline-block;border-radius:999px;padding:1px 9px;font-size:12px;font-weight:650;white-space:nowrap}
+.c-stored{color:var(--stored);background:var(--storedbg)} .c-built{color:var(--built);background:var(--builtbg)}
+.c-manual{color:var(--manual);background:var(--manualbg)} .c-missing{color:var(--miss);background:var(--missbg)}
+.c-unused{color:var(--muted);background:var(--src)}
+.gapnum{display:inline-grid;place-items:center;flex:none;width:22px;height:22px;border-radius:50%;background:var(--miss);color:var(--paper);font-size:12px;font-weight:700;font-variant-numeric:tabular-nums;border:0;cursor:pointer;font-family:var(--body);padding:0}
+.gapnum:focus-visible{outline:2px solid var(--built);outline-offset:2px}
+
+/* summary */
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.tile{border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:2px;background:var(--bg)}
+.tile b{font:700 28px/1.1 var(--display);font-variant-numeric:tabular-nums}
+.tile span{font-size:13px;color:var(--muted)}
+.bar{display:flex;height:30px;border-radius:8px;overflow:hidden;border:1px solid var(--line)}
+.bar>div{display:grid;place-items:center;font-size:12px;font-weight:700;min-width:0;white-space:nowrap}
+.bar .stored{background:var(--storedbg);color:var(--stored)} .bar .built{background:var(--builtbg);color:var(--built)}
+.bar .manual{background:var(--manualbg);color:var(--manual)} .bar .missing{background:var(--missbg);color:var(--miss)}
+
+/* map */
+.scroll{overflow-x:auto;min-width:0;-webkit-overflow-scrolling:touch}
+#map{display:block;min-width:1040px;width:100%;height:auto}
+#map text{font-family:var(--body);fill:var(--ink)}
+#map .col-h{font-size:11px;font-weight:700;letter-spacing:1.2px;fill:var(--muted)}
+#map .band{fill:var(--bg)}
+#map .band-l{font:700 13px var(--display);fill:var(--muted)}
+#map .n rect.box{stroke-width:1.6}
+#map .n.stored rect.box{fill:var(--storedbg);stroke:var(--stored)}
+#map .n.built rect.box{fill:var(--builtbg);stroke:var(--built)}
+#map .n.manual rect.box{fill:var(--manualbg);stroke:var(--manual)}
+#map .n.missing rect.box{fill:var(--missbg);stroke:var(--miss);stroke-dasharray:6 4}
+#map .n.source rect.box{fill:var(--src);stroke:var(--nodeline);stroke-dasharray:4 4}
+#map .t1{font-size:13px;font-weight:700}
+#map .t1.code{font-family:var(--mono);font-size:12.5px}
+#map .t2{font-size:11.5px;fill:var(--muted)}
+#map .e{fill:none;stroke:var(--arrow);stroke-width:1.6}
+#map .e.dash{stroke:var(--miss);stroke-dasharray:5 4}
+#map .ah{fill:var(--arrow)} #map .ah.dash{fill:var(--miss)}
+#map .badge{cursor:pointer}
+#map .badge circle{fill:var(--miss)}
+#map .badge text{fill:var(--paper);font-size:11.5px;font-weight:700}
+#map .badge:focus-visible circle{stroke:var(--built);stroke-width:3}
+#map .n.dim{opacity:.28} #map .e.dim{opacity:.15}
+#map .n.hot rect.box{stroke-width:3}
+@media(prefers-reduced-motion:no-preference){#map .n,#map .e{transition:opacity .15s}}
+
+/* tables */
+table{border-collapse:collapse;width:100%;font-size:14px}
+.tw{overflow-x:auto;min-width:0}
+table.fields{min-width:760px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-weight:650;font-size:12.5px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted)}
+tr.grp td{font:700 13px var(--display);background:var(--bg);color:var(--muted);letter-spacing:.3px}
+td.where code{white-space:nowrap}
+tr.hot td{background:var(--missbg)}
+
+/* inventory */
+.inv{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.inv>div{border:1px solid var(--line);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.inv h3{font-size:14px}
+.tbls{display:flex;flex-wrap:wrap;gap:6px}
+.tbl{font-family:var(--mono);font-size:12px;padding:3px 8px;border-radius:6px;border:1.5px solid}
+.tbl.stored{background:var(--storedbg);border-color:var(--stored);color:var(--ink)}
+.tbl.unused{background:var(--src);border-color:var(--nodeline);color:var(--muted);text-decoration:line-through}
+.tbl.missing{background:var(--missbg);border-color:var(--miss);border-style:dashed;color:var(--ink)}
+
+/* gap cards */
+.gaps{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:14px}
+.gap{border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:9px;min-width:0;background:var(--paper);scroll-margin-top:16px}
+.gap.hot{border-color:var(--miss);box-shadow:0 0 0 2px var(--miss)}
+.gap .hd{display:flex;gap:10px;align-items:flex-start}
+.gap .hd h3{flex:1;min-width:0}
+.gap dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:5px 12px;font-size:14px}
+.gap dt{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);padding-top:2px}
+.gap dd{margin:0;min-width:0}
+.gap pre{margin:0;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-family:var(--mono);font-size:12px;line-height:1.5;overflow-x:auto;white-space:pre}
+.gap .tags{display:flex;flex-wrap:wrap;gap:6px}
+
+/* order */
+.order{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:10px;counter-reset:s}
+.order li{border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;background:var(--bg);min-width:0}
+.order .step{font:650 12px/1.3 var(--body);text-transform:uppercase;letter-spacing:.8px;color:var(--muted)}
+.order .what{font-weight:650;font-size:14.5px;line-height:1.35}
+.order .gl{display:flex;gap:5px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>Where each Truck log field comes from</h1>
+    <p class="sub">How the data is captured and stored at each step, from Dave's plan to the Truck log, and the gaps left on <code>main</code> (as of 24 Nov 2026, after PR #109). Each red number is a gap. Click one to see that gap in every section.</p>
+  </header>
+
+  <section aria-labelledby="sum-h">
+    <h2 id="sum-h">Where things stand</h2>
+    <div class="tiles">
+      <div class="tile"><b>16</b><span>D1 tables in use</span></div>
+      <div class="tile"><b>4</b><span>tables still to add, plus an R2 bucket for Ticket photos</span></div>
+      <div class="tile"><b>9 of 19</b><span>Truck log fields stored or worked out today</span></div>
+      <div class="tile"><b>10</b><span>gaps: 7 ready to build, 2 to decide, 1 blocked on HCSS</span></div>
+    </div>
+    <div>
+      <p class="small" style="margin-bottom:6px">The 19 fields of the paper <b>Daily Truck Log &amp; Inspection</b>, by where each one comes from today</p>
+      <div class="bar" role="img" aria-label="19 fields: 4 stored, 5 built on read, 4 partial, 6 missing">
+        <div class="stored" style="flex:4">4 stored</div>
+        <div class="built" style="flex:5">5 built on read</div>
+        <div class="manual" style="flex:4">4 partial</div>
+        <div class="missing" style="flex:6">6 missing</div>
+      </div>
+    </div>
+    <div class="legend">
+      <span><i class="sw stored"></i>Stored in D1</span>
+      <span><i class="sw built"></i>Built on every read, not stored</span>
+      <span><i class="sw manual"></i>Partial: works by hand or on staging only</span>
+      <span><i class="sw missing"></i>Missing: nothing captures or stores it</span>
+      <span><i class="sw source"></i>Outside the app</span>
+    </div>
+  </section>
+
+  <section aria-labelledby="map-h">
+    <h2 id="map-h">The pipeline, left to right</h2>
+    <p class="small">Each row is one of the four steps in <code>docs/specs/mission.md</code>. Read it left to right: where the data starts, the screen or route that captures it, the D1 table it lands in, what the Worker builds from it on each read, and the Truck log it ends up in. Dashed red boxes and arrows don't exist yet.</p>
+    <div class="scroll"><svg id="map" viewBox="0 0 1120 690" role="img" aria-label="Pipeline map from sources to Truck log, with gaps numbered 1 to 10"></svg></div>
+  </section>
+
+  <section aria-labelledby="f-h">
+    <h2 id="f-h">The Truck log, field by field</h2>
+    <p class="small">Fields from the paper <b>Daily Truck Log &amp; Inspection</b> the app replaces. "Built on read" means the Worker works it out from stored rows each time a page asks (<code>GET trucks/:id/days/:date</code>), using <code>shared/trips.ts</code> and <code>shared/truckLog.ts</code>. Nothing on the log is saved as a log.</p>
+    <div class="tw"><table class="fields">
+      <thead><tr><th>Field</th><th>Status</th><th>Comes from</th><th>What's missing</th></tr></thead>
+      <tbody id="fields"></tbody>
+    </table></div>
+  </section>
+
+  <section aria-labelledby="inv-h">
+    <h2 id="inv-h">What D1 holds</h2>
+    <p class="small">Every table in <code>migrations/0001</code> to <code>0020</code>, plus the tables the design docs plan for phases 3 and 4 (<code>docs/design/dispatch-board-decisions.md</code>, Target schema). Migrations only ever add.</p>
+    <div class="inv" id="inv"></div>
+    <div class="legend"><span><i class="sw stored"></i>In use</span><span><i class="sw source"></i>Kept but unused (crossed out)</span><span><i class="sw missing"></i>Planned, not created</span></div>
+  </section>
+
+  <section aria-labelledby="g-h">
+    <h2 id="g-h">The ten gaps</h2>
+    <p class="small">Each gap lists what is missing, which Truck log fields it leaves blank, and the proposed fix. The schema is taken from the design docs where they already have one.</p>
+    <div class="gaps" id="gaps"></div>
+  </section>
+
+  <section aria-labelledby="o-h">
+    <h2 id="o-h">An order to close them</h2>
+    <p class="small">Steps 1 to 3 need nothing from HCSS. They work with the Fleet exports Dave drops on the Fleet imports page today, so the Truck log can be finished end to end before the automatic pull exists.</p>
+    <ol class="order" id="order"></ol>
+  </section>
+</div>
+
+<script>
+(function(){
+const GAPS = {
+  1:{t:"No automatic Fleet read", st:["missing","Blocked: HCSS 403"],
+     what:"Visits reach D1 only when Dave drops an HCSS Fleet export on the Fleet imports page. The Worker refuses Imports in production (they are allowed on local, preview and staging only). Nothing pulls Fleet on a schedule.",
+     log:"Every Trip-based field (Loads, Trucking hours, start and end time) is only as fresh as the last file Dave dropped.",
+     fix:"Adapter A (Fleet entry/exit, every 10 min, 4 AM to 8 PM ET, plus one pull at 4 AM for the day before), or adapter B (public Telematics API polled every minute, with our own Place shapes). Both write the same fleet_visits rows, so nothing downstream changes.",
+     src:"Roadmap 3.0, 3.1 · telematics-backend.md §1, P1, P3"},
+  2:{t:"Visits have no engine hours or ignition", st:["manual","Partial"],
+     what:"fleet_visits stores entry and exit odometers but no engine hours, and an xlsx export gives no odometers at all. Ignition on and off are used by the Simulation (ping history) but never stored, so on real days start time is the first exit from the shop.",
+     log:"Trip miles are blank for xlsx Imports. Start time can be late when the Truck idled at the shop before leaving.",
+     fix:"Add the columns proposal P2 already names, plus where each row came from. Add-only migration:",
+     sql:"ALTER TABLE fleet_visits ADD COLUMN entry_hours REAL;\nALTER TABLE fleet_visits ADD COLUMN exit_hours REAL;\nALTER TABLE fleet_visits ADD COLUMN source TEXT\n  NOT NULL DEFAULT 'fleet';  -- fleet | poll",
+     src:"telematics-backend.md P2 · migrations/0018"},
+  3:{t:"No meter readings", st:["missing","To build"],
+     what:"There is no meter_readings table and nothing reads the Fleet odometer and engine-hour meters around the day.",
+     log:"Start miles and end miles are blank (marked \"meter reading\"). The miles check (day's miles = Trips' miles + miles inside Places, within 1 mi) can't run.",
+     fix:"Store the last reading before the day and the first after it (the end reading exists from about 22:12 ET that evening).",
+     sql:"CREATE TABLE meter_readings (\n  truck_id TEXT NOT NULL REFERENCES trucks (id),\n  read_at TEXT NOT NULL,\n  odometer REAL,\n  engine_hours REAL,\n  PRIMARY KEY (truck_id, read_at)\n);",
+     src:"Roadmap 3.6 · dispatch-board-decisions.md Phase 3"},
+  4:{t:"Trips are never stored", st:["built","To build"],
+     what:"The Trip builder runs on every read and keeps nothing. A Trip has no id, so a Ticket, a Load or an answer can't point at one. If a later export changes a day that was already answered, nothing notices.",
+     log:"# of loads and Trucking hours are right on screen but have no lasting record. Nothing can be locked or exported.",
+     fix:"Write a Trip once both of its visits are final (the visit it leaves closed for more than 5 min, the visit it reaches started). After that the row is never rebuilt, and a change to raw data flags the day for Dave.",
+     sql:"CREATE TABLE trips (\n  id TEXT PRIMARY KEY, truck_id TEXT NOT NULL,\n  date TEXT NOT NULL, from_place_id TEXT, to_place_id TEXT,\n  left_at TEXT NOT NULL, arrived_at TEXT NOT NULL, miles REAL,\n  driver_id TEXT, driver_from TEXT,  -- inspection | dave\n  assignment_id TEXT,\n  kind TEXT,  -- load | empty | not_a_haul | NULL\n  answered_at TEXT\n);",
+     src:"telematics-backend.md §3 \"When Trips are written\" · build order 2"},
+  5:{t:"Dave's answers have nowhere to go", st:["missing","To build"],
+     what:"The Board shows Unplanned work, \"Which Assignment?\" and \"Who was driving?\", but only the Simulation can answer them (Make an Assignment, Link to an Assignment, Not a haul, split), and it saves nothing.",
+     log:"Unplanned work stays unexplained. A Truck with no check-in keeps \"Who was driving?\" for good.",
+     fix:"Answers are columns on trips (kind, assignment_id, answered_at, driver_id with driver_from = dave), so this lands with gap 4. Routes along the lines of POST trips/:id/answer.",
+     src:"Spec #73 · roadmap 4.3 · ADR 0007"},
+  6:{t:"No Tickets", st:["missing","To build"],
+     what:"No tickets table and no R2 bucket. wrangler.jsonc binds D1 only. The Driver has nowhere to photograph a Ticket.",
+     log:"# of tons and the Ticket are blank. Material is only what Dave planned, never confirmed.",
+     fix:"A Ticket is a photo on a Load. Number, quantity and unit are left empty, to be read later from the photo or from the stone-invoice matching. The Driver never types numbers.",
+     sql:"CREATE TABLE tickets (\n  id TEXT PRIMARY KEY, date TEXT NOT NULL,\n  driver_id TEXT, truck_id TEXT, trip_id TEXT,  -- its Load\n  photo_key TEXT NOT NULL,  -- R2\n  taken_at TEXT NOT NULL,\n  ticket_number TEXT, quantity REAL, unit TEXT,\n  read_by TEXT  -- photo | stone_matching | NULL\n);",
+     src:"Roadmap 4.1 · dispatch-board-decisions.md Phase 4"},
+  7:{t:"No sign-off and no 9 AM lock", st:["missing","To build"],
+     what:"The Driver can't confirm his day, and nothing locks it. Nothing marks a day as finished.",
+     log:"The Driver's signature is blank, and a log can still change at any time.",
+     fix:"Append-only sign-offs, where the latest version counts. The Driver's part locks at 9 AM the next day (enforced by the Worker, as with past days in ADR 0004).",
+     sql:"CREATE TABLE sign_offs (\n  id TEXT PRIMARY KEY, date TEXT NOT NULL,\n  truck_id TEXT NOT NULL,\n  who TEXT NOT NULL,  -- driver | dave\n  driver_id TEXT, repairs TEXT,\n  signed_at TEXT NOT NULL, version INTEGER NOT NULL\n);",
+     src:"Roadmap 4.2, 4.4"},
+  8:{t:"Nobody signs in", st:["manual","To decide"],
+     what:"The Driver view trusts whoever picks a name on the phone, and the choice lives in browser storage. Inspections are append-only (ADR 0006) but aren't yet the official record.",
+     log:"The Driver and the Inspection can't be relied on, and neither can any Trip whose Driver comes from a check-in.",
+     fix:"The Hub's sign-in and roles, once the app is plugged in at /truck-dispatch/. The Worker then takes driverId from the session, not the request body.",
+     src:"Roadmap, Later · ADR 0001, 0006"},
+  9:{t:"No Customer", st:["missing","To decide"],
+     what:"The paper log has Customer name on every order. D1 has none: jobs holds only name and job_number, and an Assignment gets its Job through its Places (places.job_id).",
+     log:"Customer name is blank. Job name is blank when neither Place belongs to a Job.",
+     fix:"Decide who reads the log first (billing, job costing, payroll). If it is billing, add a customer to jobs, or read it from HeavyJob by job_number, rather than asking Dave for it on each Assignment.",
+     src:"mission.md \"Whoever uses the Truck log (to confirm)\""},
+  10:{t:"The Truck log can't leave the app", st:["missing","To build"],
+     what:"The Truck log is a component on the Board, the Driver view and Fleet imports. There is no page per Truck per day and no CSV, and nothing goes to HeavyJob or payroll.",
+     log:"The finished log can't be handed to anyone yet.",
+     fix:"A read-only Truck log page and CSV built from the stored tables (it never needs a table of its own). Pushing to HeavyJob or payroll is a later decision.",
+     src:"Roadmap 4.5, Later"}
+};
+
+/* ---------- map ---------- */
+const NS="http://www.w3.org/2000/svg";
+const svg=document.getElementById("map");
+const mk=(tag,a,txt)=>{const e=document.createElementNS(NS,tag);for(const k in a)e.setAttribute(k,a[k]);if(txt!=null)e.textContent=txt;return e;};
+const COLS=[{x:20,w:170,h:"WHERE IT STARTS"},{x:232,w:200,h:"CAPTURED BY"},{x:474,w:210,h:"STORED IN D1"},{x:726,w:180,h:"BUILT ON EVERY READ"},{x:948,w:160,h:"TRUCK LOG"}];
+const BANDS=[{y:40,h:92,l:"1 · Plan"},{y:140,h:104,l:"2 · Check in"},{y:252,h:186,l:"3 · Trips"},{y:446,h:232,l:"4 · Close the day"}];
+const N={
+  s_dave:{c:0,y:62,h:50,st:"source",t:"Dave",l:["plans each Driver's day"]},
+  c_board:{c:1,y:58,h:58,st:"stored",t:"Board  /",l:["POST assignments","assign · cancel · edit"]},
+  t_assign:{c:2,y:58,h:58,st:"stored",code:1,t:"assignments",l:["+ assignment_changes","jobs · places · materials"],g:[9]},
+
+  s_driver:{c:0,y:158,h:58,st:"source",t:"Driver's phone",l:["picks his name"],g:[8]},
+  c_check:{c:1,y:154,h:66,st:"stored",t:"Driver view · Check-in",l:["POST inspections","POST truck-problems"]},
+  t_insp:{c:2,y:154,h:66,st:"stored",code:1,t:"inspections",l:["inspection_answers","truck_problems"]},
+
+  s_fleet:{c:0,y:290,h:66,st:"source",t:"HCSS Fleet",l:["geofence entry / exit","odometer · engine hours"]},
+  c_import:{c:1,y:264,h:66,st:"manual",t:"Fleet imports page",l:["Dave drops JSON or xlsx","not allowed in production"]},
+  c_pull:{c:1,y:342,h:50,st:"missing",t:"Scheduled pull",l:["every 10 min, 4 AM–8 PM ET"],g:[1]},
+  t_visits:{c:2,y:264,h:66,st:"stored",code:1,t:"fleet_visits",l:["fleet_imports · _days","geofences"],g:[2]},
+  t_meter:{c:2,y:342,h:50,st:"missing",code:1,t:"meter_readings",l:["odometer · engine hours"],g:[3]},
+  b_trips:{c:3,y:264,h:92,st:"built",t:"Trip builder",l:["shared/trips.ts","Trips · Loads ·","Unplanned work"],g:[4]},
+
+  s_ticket:{c:0,y:468,h:50,st:"source",t:"Plant Ticket",l:["paper: tons, ticket no."]},
+  c_photo:{c:1,y:468,h:50,st:"missing",t:"Ticket photo",l:["Driver puts it on a Load"],g:[6]},
+  t_tickets:{c:2,y:468,h:50,st:"missing",code:1,t:"tickets + R2 photo",l:["number · quantity · unit"]},
+  s_driver2:{c:0,y:536,h:50,st:"source",t:"Driver, end of day",l:["confirms Trips, Tickets"]},
+  c_sign:{c:1,y:536,h:50,st:"missing",t:"Sign-off",l:["locks 9 AM next day"],g:[7]},
+  t_sign:{c:2,y:536,h:50,st:"missing",code:1,t:"sign_offs",l:["append-only, versioned"]},
+  s_dave2:{c:0,y:604,h:58,st:"source",t:"Dave, next morning",l:["Unplanned work,","Who was driving?"]},
+  c_answer:{c:1,y:604,h:58,st:"missing",t:"Answer Unplanned work",l:["only on the Simulation,","saves nothing"],g:[5]},
+  t_trips:{c:2,y:604,h:58,st:"missing",code:1,t:"trips",l:["kind · assignment_id","answered_at"],g:[4]},
+
+  l_log:{c:4,y:154,h:238,st:"built",t:"Truck log",l:["shared/truckLog.ts","on Board, Driver view,","Fleet imports page","","header · columns ·","Unplanned work ·","shop drives"]},
+  l_out:{c:4,y:536,h:66,st:"missing",t:"Page · CSV",l:["HeavyJob · payroll","(later)"],g:[10]}
+};
+const E=[
+  ["s_dave","c_board"],["c_board","t_assign"],
+  ["s_driver","c_check"],["c_check","t_insp"],
+  ["s_fleet","c_import"],["s_fleet","c_pull",1],["c_import","t_visits"],["c_pull","t_visits",1],["c_pull","t_meter",1],
+  ["t_assign","b_trips","assign"],["t_insp","b_trips","insp"],["t_visits","b_trips"],
+  ["b_trips","l_log"],["t_insp","l_log","insp2"],["t_meter","l_log",1,"meter"],
+  ["s_ticket","c_photo",1],["c_photo","t_tickets",1],
+  ["s_driver2","c_sign",1],["c_sign","t_sign",1],
+  ["s_dave2","c_answer",1],["c_answer","t_trips",1],
+  ["t_tickets","l_log",1,"low"],["t_sign","l_log",1,"low"],["t_trips","l_log",1,"low"],
+  ["l_log","l_out",1]
+];
+// headers and bands
+COLS.forEach(c=>svg.appendChild(mk("text",{x:c.x,y:24,class:"col-h"},c.h)));
+BANDS.forEach(b=>{svg.appendChild(mk("rect",{x:4,y:b.y,width:1112,height:b.h,rx:10,class:"band"}));});
+// edges first (under nodes)
+const edgeEls=[];
+function anchor(id,side){const n=N[id],c=COLS[n.c];return side==="r"?{x:c.x+c.w,y:n.y+n.h/2}:{x:c.x,y:n.y+n.h/2};}
+E.forEach(([a,b,dash,kind])=>{
+  if(typeof dash==="string"){kind=dash;dash=0;}
+  const p=anchor(a,"r"); let q=anchor(b,"l");
+  const nb=N[b];
+  if(b==="l_log"){ // spread arrival points on the tall Truck log box
+    const ys={b_trips:300,insp2:182,meter:360,low:380};
+    q={x:COLS[4].x,y:ys[kind||a]||ys.b_trips};
+    if(kind==="low"){q.y=372+({t_tickets:0,t_sign:8,t_trips:16}[a]);}
+  }
+  if(b==="b_trips"){q={x:COLS[3].x,y:{assign:278,insp:296}[kind]||318};}
+  let d;
+  if(a==="l_log"){const s={x:COLS[4].x+COLS[4].w/2,y:N.l_log.y+N.l_log.h};q={x:s.x,y:N.l_out.y};d=`M${s.x},${s.y} L${q.x},${q.y-6}`;}
+  else{const mx=(p.x+q.x)/2;d=`M${p.x},${p.y} C${mx},${p.y} ${mx},${q.y} ${q.x-6},${q.y}`;}
+  const g=mk("g",{"data-a":a,"data-b":b,class:"e-g"});
+  const path=mk("path",{d,class:"e"+(dash?" dash":"")});
+  g.appendChild(path);
+  const ah=a==="l_log"?`${q.x-5},${q.y-7} ${q.x+5},${q.y-7} ${q.x},${q.y}`:`${q.x-7},${q.y-5} ${q.x-7},${q.y+5} ${q.x},${q.y}`;
+  g.appendChild(mk("polygon",{points:ah,class:"ah"+(dash?" dash":"")}));
+  svg.appendChild(g); edgeEls.push(g);
+});
+// band labels on top of edges
+BANDS.forEach(b=>svg.appendChild(mk("text",{x:12,y:b.y+16,class:"band-l"},b.l)));
+// nodes
+const nodeEls={};
+for(const id in N){
+  const n=N[id],c=COLS[n.c];
+  const g=mk("g",{class:"n "+n.st,"data-id":id});
+  g.appendChild(mk("rect",{x:c.x,y:n.y,width:c.w,height:n.h,rx:8,class:"box"}));
+  g.appendChild(mk("text",{x:c.x+10,y:n.y+19,class:"t1"+(n.code?" code":"")},n.t));
+  n.l.forEach((ln,i)=>g.appendChild(mk("text",{x:c.x+10,y:n.y+36+i*15,class:"t2"},ln)));
+  (n.g||[]).forEach((num,i)=>{
+    const bx=c.x+c.w-4-i*24, by=n.y+4;
+    const b=mk("g",{class:"badge",tabindex:"0",role:"button","aria-label":"Gap "+num+": "+GAPS[num].t,"data-gap":num});
+    b.appendChild(mk("circle",{cx:bx,cy:by,r:11}));
+    b.appendChild(mk("text",{x:bx,y:by+4,"text-anchor":"middle"},String(num)));
+    b.appendChild(mk("title",{},"Gap "+num+": "+GAPS[num].t));
+    g.appendChild(b);
+  });
+  svg.appendChild(g); nodeEls[id]=g;
+}
+
+/* ---------- fields ---------- */
+const F=[
+  ["Header (one per Truck per day)"],
+  ["Truck","stored","trucks.hcss_code matches the export's EquipmentCode → fleet_imports.truck_id",""],
+  ["Date","stored","US Eastern day each visit was entered (fleet_import_days)",""],
+  ["Driver","built","Latest Inspection to the Truck at or before each Trip","Trusts the name picked on the phone. \"Who was driving?\" can't be answered.",[8,5]],
+  ["Start time","manual","First exit from the shop (fleet_visits)","Ignition isn't stored, so a Truck idling at the shop reads late.",[2]],
+  ["End time","built","Last arrival, or back at the shop (fleet_visits)",""],
+  ["Start miles","missing","Nothing","Shown blank, marked \"meter reading\".",[3]],
+  ["End miles","missing","Nothing","Shown blank, marked \"meter reading\".",[3]],
+  ["Total hours","built","End time minus start time",""],
+  ["Inspection checklist","manual","inspections + inspection_answers (append-only)","Not official until Drivers sign in.",[8]],
+  ["Driver's signature","missing","Nothing","No sign-off and no lock.",[7]],
+  ["One column per Assignment"],
+  ["Customer name","missing","Nothing in D1","No customer on jobs. Decide who needs it.",[9]],
+  ["Job name","manual","The Job of the Assignment's Places (places.job_id)","Blank when neither Place has a Job.",[9]],
+  ["Pick up","stored","assignments.from_place_id",""],
+  ["Drop off","stored","assignments.to_place_id",""],
+  ["Material","manual","assignments.material_id, as Dave planned it","Never confirmed by a Ticket.",[6]],
+  ["# of loads","built","Trip builder: Trips from From to To","Not stored, so it can't be locked or exported.",[4]],
+  ["# of tons","missing","Nothing","Needs Tickets.",[6]],
+  ["Trucking hours","built","Trip builder: first Trip left to last Trip arrived","Not stored.",[4]],
+  ["Ticket","missing","Nothing","No photo, no R2 bucket.",[6]],
+];
+const STL={stored:"Stored",built:"Built on read",manual:"Partial",missing:"Missing"};
+const tb=document.getElementById("fields");
+F.forEach(r=>{
+  const tr=document.createElement("tr");
+  if(r.length===1){tr.className="grp";tr.innerHTML=`<td colspan="4">${r[0]}</td>`;tb.appendChild(tr);return;}
+  const [name,st,from,miss,gs]=r; tr.dataset.gaps=(gs||[]).join(",");
+  const badges=(gs||[]).map(n=>`<button class="gapnum" data-gap="${n}" aria-label="Gap ${n}">${n}</button>`).join(" ");
+  tr.innerHTML=`<td><b>${name}</b></td><td><span class="chip c-${st}">${STL[st]}</span></td><td class="where">${from.replace(/([a-z_]+\.[a-z_]+|[a-z]+_[a-z_]+)/g,"<code>$1</code>")}</td><td><span style="display:inline-flex;gap:4px;margin-right:6px;vertical-align:-4px">${badges}</span>${miss}</td>`;
+  tb.appendChild(tr);
+});
+
+/* ---------- inventory ---------- */
+const INV=[
+  ["Lists in Settings",[["drivers","stored"],["trucks","stored"],["places","stored"],["jobs","stored"],["materials","stored"],["foremen","stored"],["inspection_items","stored"],["geofences","stored"]],"Synthetic data on staging. trucks.hcss_code and places.geofence_code join Fleet to the app."],
+  ["1 · Plan",[["assignments","stored"],["assignment_changes","stored"],["day_sends","unused"],["orders","unused"]],"assignment_changes keeps each earlier version, so a Trip matches the route as it was when it left."],
+  ["2 · Check in",[["inspections","stored"],["inspection_answers","stored"],["truck_problems","stored"]],"Inspections are append-only: a trigger refuses any UPDATE."],
+  ["3 · Trips",[["fleet_imports","stored"],["fleet_import_days","stored"],["fleet_visits","stored"],["not_considered","unused"],["meter_readings","missing"],["trips","missing"]],"A visit is kept once per Truck, geofence code and entry minute. not_considered was replaced by geofences (0020)."],
+  ["4 · Close the day",[["tickets","missing"],["R2: ticket photos","missing"],["sign_offs","missing"]],"The Truck log gets no table of its own. It is always built from these."]
+];
+document.getElementById("inv").innerHTML=INV.map(([h,ts,note])=>`<div><h3>${h}</h3><div class="tbls">${ts.map(([n,s])=>`<span class="tbl ${s}">${n}</span>`).join("")}</div><p class="small">${note}</p></div>`).join("");
+
+/* ---------- gap cards ---------- */
+const esc=s=>s.replace(/&/g,"&amp;").replace(/</g,"&lt;");
+document.getElementById("gaps").innerHTML=Object.entries(GAPS).map(([n,g])=>`
+  <article class="gap" id="gap-${n}" data-gap="${n}">
+    <div class="hd"><button class="gapnum" data-gap="${n}" aria-label="Show gap ${n} on the map">${n}</button><h3>${g.t}</h3><span class="chip c-${g.st[0]}">${g.st[1]}</span></div>
+    <dl>
+      <dt>Today</dt><dd>${g.what}</dd>
+      <dt>On the log</dt><dd>${g.log}</dd>
+      <dt>Fix</dt><dd>${g.fix}</dd>
+    </dl>
+    ${g.sql?`<pre>${esc(g.sql)}</pre>`:""}
+    <p class="small">${g.src}</p>
+  </article>`).join("");
+
+/* ---------- order ---------- */
+const ORD=[
+  ["Store Trips and take Dave's answers",[4,5],"No HCSS needed","stored"],
+  ["Ticket photos on Loads (R2)",[6],"No HCSS needed","stored"],
+  ["Sign-off, the 9 AM lock, the Truck log page and CSV",[7,10],"No HCSS needed","stored"],
+  ["Engine hours and meter readings",[2,3],"Needs a Fleet source for meters","manual"],
+  ["Automatic Fleet pull",[1],"Blocked: HCSS access (403)","missing"],
+  ["Sign-in through the Hub, and Customer",[8,9],"To decide","c-unused"]
+];
+document.getElementById("order").innerHTML=ORD.map(([w,gs,need,s],i)=>`<li><span class="step">Step ${i+1}</span><span class="what">${w}</span><span class="gl">${gs.map(n=>`<button class="gapnum" data-gap="${n}" aria-label="Gap ${n}">${n}</button>`).join("")}</span><span><span class="chip ${s.startsWith("c-")?s:"c-"+s}">${need}</span></span></li>`).join("");
+
+/* ---------- linking ---------- */
+let active=null;
+function nodesForGap(n){return Object.keys(N).filter(id=>(N[id].g||[]).includes(+n));}
+function show(n,scroll){
+  if(active===n){n=null;}
+  active=n;
+  document.querySelectorAll(".gap").forEach(el=>el.classList.toggle("hot",el.dataset.gap===String(n)));
+  document.querySelectorAll("#fields tr").forEach(tr=>tr.classList.toggle("hot",n!=null&&(tr.dataset.gaps||"").split(",").includes(String(n))));
+  const ids=n==null?null:new Set(nodesForGap(n));
+  for(const id in nodeEls){nodeEls[id].classList.toggle("dim",!!ids&&!ids.has(id));nodeEls[id].classList.toggle("hot",!!ids&&ids.has(id));}
+  edgeEls.forEach(e=>e.classList.toggle("dim",!!ids&&!(ids.has(e.dataset.a)||ids.has(e.dataset.b))));
+  if(n!=null&&scroll){const el=document.getElementById("gap-"+n);el&&el.scrollIntoView({behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth",block:"nearest"});}
+}
+document.addEventListener("click",e=>{
+  const b=e.target.closest("[data-gap]"); if(!b||b.classList.contains("gap"))return;
+  const inMap=!!b.closest("#map"); const inCard=!!b.closest(".gap");
+  show(b.dataset.gap,inMap||!inCard);
+  if(inCard&&active!=null)document.getElementById("map").scrollIntoView({behavior:"smooth",block:"nearest"});
+});
+document.addEventListener("keydown",e=>{
+  if((e.key==="Enter"||e.key===" ")&&e.target.matches&&e.target.matches("#map .badge")){e.preventDefault();show(e.target.dataset.gap,true);}
+  if(e.key==="Escape"&&active!=null)show(active);
+});
+})();
+</script>
+</body>
+</html>
