@@ -191,7 +191,7 @@ async function readDay(env: Env, date: string | null): Promise<Response> {
  * go in validate. A new one is one line here.
  */
 const PLAIN = [
-  { key: 'note', column: 'note', missing: null },
+  { key: 'note', column: 'note', copy: { when: "a.work = 'other'" }, missing: null },
   { key: 'work', column: 'work', copy: 'always', missing: 'haul' },
   { key: 'machine', column: 'machine', copy: 'always', missing: null },
 ] as const satisfies readonly (PlainColumn & { key: keyof NewAssignment & keyof Was })[];
@@ -336,7 +336,7 @@ function isUnassigned(): Response {
  * only while that entry is active, so a copy holds only what exists now (a
  * removed Driver's work goes to Unassigned). Named rather than skipped, so a
  * column a later migration adds is never copied by accident. Plain columns
- * are copied as PLAIN declares (the note is not); the times and whether it
+ * are copied as PLAIN declares (the note for Other only); the times and whether it
  * was cancelled are not copied; the position is new.
  */
 const COPIED = [

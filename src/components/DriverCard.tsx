@@ -30,6 +30,8 @@ const HIDDEN_WAS = [
   { field: 'at', key: 'atPlaceName', word: 'At' },
   { field: 'material', key: 'materialName', word: 'Material' },
   { field: 'machine', key: 'machine', word: 'Machine' },
+  { field: 'from', key: 'fromPlaceName', word: 'From' },
+  { field: 'to', key: 'toPlaceName', word: 'To' },
 ] as const satisfies readonly { field: string; key: keyof Was; word: string }[];
 
 /**
@@ -81,7 +83,8 @@ function TripLine({ part }: { part: AssignmentTripPart | undefined }) {
  * One of a Driver's Assignments, large enough to read from the cab: whom it is
  * for first, "Haul for Ed" (with "Customer" under it for a Customer; none when
  * For is blank), then At (only when set), the Material, Pick up and Drop off, the note, which Truck when it is not his
- * own, and Dave's changes since Assigning it: Changed (with what it was), Added,
+ * own, and Dave's changes since Assigning it. A Move leads with its machine, then
+ * From and To; an Other is its text in large type: Changed (with what it was), Added,
  * or cancelled (struck through). When the Assignment has a Trip part, its Loads,
  * the last one's time and Now. With onDismiss a cancelled card has Dismiss in its bottom right corner,
  * which clears it off his day once he has read it.
@@ -99,6 +102,8 @@ export function DriverCard({
 }) {
   const { materialName, fromPlaceName, toPlaceName, atPlaceName, note, cancelledAt, sinceSent, was, work, machine } = assignment;
   const move = work === 'move';
+  // Other is its text alone (its note), in large type.
+  const other = work === 'other';
   const forWho = forLine(assignment);
   // What Dave changed that this kind of card does not show goes in the Changed line.
   const hidden = sinceSent === 'changed' && !cancelledAt ? hiddenWas(work, was) : null;
@@ -107,7 +112,7 @@ export function DriverCard({
   const struck = cancelledAt && 'line-through';
   return (
     <article
-      aria-label={(move ? machine : materialName) ?? 'Assignment'}
+      aria-label={(move ? machine : other ? note : materialName) ?? 'Assignment'}
       style={{ '--i': index } as CSSProperties}
       className={cn(
         'relative animate-rise overflow-hidden rounded-lg border bg-card p-5 pl-6 text-card-foreground shadow-md',
@@ -136,7 +141,12 @@ export function DriverCard({
       {/* On a cancelled card the values are struck through, not the labels beside them. */}
       <div className={cn('space-y-3', cancelledAt && 'text-muted-foreground')}>
         <TripLine part={assignment.trips} />
-        {move ? (
+        {other ? (
+          <p className={cn('whitespace-pre-line text-2xl font-bold', struck)}>
+            {note ?? 'Nothing written'}
+            <Was value={was.note} />
+          </p>
+        ) : move ? (
           <>
             <p className={cn('text-2xl font-bold', struck)}>
               {machine ?? 'No machine named'}
@@ -173,7 +183,7 @@ export function DriverCard({
             </dl>
           </>
         )}
-        {(note || 'note' in was) && (
+        {!other && (note || 'note' in was) && (
           <p className={cn('whitespace-pre-line text-lg', struck)}>
             {note}
             <Was value={was.note} />

@@ -65,6 +65,8 @@ function partsOf(assignment: Assignment, lists: EditorLists): Part[] {
   const one = (key: Exclude<PartKey, 'for'>) => ({ value: assignment[key], changeTo: (id: string | null) => ({ [key]: id }) });
   const driver: Part = { key: 'driverId', name: 'Driver', choices: choices(lists.drivers, (d) => d.name), blankWords: 'Unassigned', blankChoice: 'Unassigned', saved: assignment.driverName, ...one('driverId') };
   const truck: Part = { key: 'truckId', name: 'Truck', lead: 'in', choices: choices(lists.trucks, (t) => t.number), blankWords: 'His own', blankChoice: 'His own', blankFirst: true, saved: assignment.truckNumber, ...one('truckId') };
+  // Other: the Driver and a Truck; its text is the note, below the sentence.
+  if (assignment.work === 'other') return [driver, truck];
   if (assignment.work === 'move') {
     // A Move: "Driver moves machine from From to To in Truck"; the machine is typed, never picked.
     return [
@@ -146,7 +148,7 @@ function messageOf(error: unknown, key: string | null, fallback: string): string
  * An Assignment opened in its lane (F2): Haul | Move | Other, then a sentence
  * of chips, "Driver hauls Material from From to To in Truck for For at At"
  * (a Move: "Driver moves machine from From to To in Truck", the machine
- * typed), and its note. Changing the kind asks first, naming what it clears,
+ * typed; Other: the Driver and Truck only), and its note (Other's text, "What?"). Changing the kind asks first, naming what it clears,
  * and saves only the kind: the Worker clears the rest in the same save. Tapping a chip
  * offers that part's list as a row of chips (one row at a time): active
  * entries, plus the one the Assignment uses if it was removed since, and a
@@ -324,7 +326,7 @@ export function AssignmentEditor({
       {open && alert(open.key)}
 
       <div className="space-y-2">
-        <Label htmlFor={noteId}>Note</Label>
+        <Label htmlFor={noteId}>{assignment.work === 'other' ? 'What?' : 'Note'}</Label>
         <Textarea
           id={noteId}
           rows={2}

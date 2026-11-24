@@ -273,7 +273,9 @@ const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       body.work && body.work !== (before.work ?? 'haul')
         ? body.work === 'move'
           ? { materialId: null, foremanId: null, customerId: null, atPlaceId: null }
-          : { machine: null }
+          : body.work === 'other'
+            ? { materialId: null, foremanId: null, customerId: null, atPlaceId: null, fromPlaceId: null, toPlaceId: null, machine: null }
+            : { machine: null }
         : {};
     const fields = resolve({ ...ids, ...forSet, ...kindSet, ...body } as Parameters<typeof resolve>[0]);
     const sameLane = (before.driverId ?? null) === fields.driverId;
@@ -944,14 +946,14 @@ describe('the composer', () => {
     const machine = (composer: HTMLElement) => within(composer).getByRole('textbox', { name: 'Machine' }) as HTMLInputElement;
     const rows = (composer: HTMLElement) => ['For', 'At', 'Hauling what?', 'Pick up', 'Drop off', 'From', 'To'].filter((row) => within(composer).queryByRole('group', { name: (name) => name === row }));
 
-    it('starts with a Haul | Move | Other toggle, Haul chosen, and Other not offered yet', async () => {
+    it('starts with a Haul | Move | Other toggle, Haul chosen', async () => {
       await day();
       const composer = await compose('Sample Driver A');
       expect(within(composer).getAllByRole('group')[0].getAttribute('aria-label')).toBe('Kind');
       expect(kinds(composer).map((kind) => [kind.textContent, kind.getAttribute('aria-pressed'), kind.hasAttribute('disabled')])).toEqual([
         ['Haul', 'true', false],
         ['Move', 'false', false],
-        ['Other', 'false', true],
+        ['Other', 'false', false],
       ]);
       expect(rows(composer)).toEqual(['For', 'At', 'Hauling what?', 'Pick up', 'Drop off']);
     });
@@ -1004,6 +1006,51 @@ describe('the composer', () => {
       save(composer);
       expect((await within(composer).findByRole('alert')).textContent).toBe('Keep it to 100 characters or fewer.');
       expect(within(composer).getByRole('alert').previousElementSibling).toBe(machine(composer));
+    });
+  });
+
+  describe('Other', () => {
+    const pickKind = (composer: HTMLElement, kind: string) => fireEvent.click(within(within(composer).getByRole('group', { name: 'Kind' })).getByRole('button', { name: kind }));
+    const what = (composer: HTMLElement) => within(composer).getByRole('textbox', { name: 'What?' }) as HTMLInputElement;
+    const rows = (composer: HTMLElement) => ['For', 'At', 'Hauling what?', 'Pick up', 'Drop off', 'From', 'To', 'Truck'].filter((row) => within(composer).queryByRole('group', { name: (name) => name === row }));
+
+    it('shows the Truck chips and one text box with its hint, and saves the Driver, the Truck and the text as the note only', async () => {
+      await day();
+      const composer = await compose('Sample Driver A');
+      tap(composer, 'Hauling what?', '2" minus');
+      tap(composer, 'Pick up', 'Sample Plant');
+      pickKind(composer, 'Other');
+      expect(rows(composer)).toEqual(['Truck']);
+      expect(within(composer).queryByRole('button', { name: /Note or other truck/ })).toBeNull();
+      expect(within(composer).getByText('Shop, standby, water truck, vac truck. Its Trips count as not a haul.')).toBeTruthy();
+      tap(composer, 'Truck', '24');
+      fireEvent.change(what(composer), { target: { value: 'Water truck, trucking as needed' } });
+      expect(preview(composer)).toBe('Sample Driver A: Water truck, trucking as needed · in Truck 24');
+      save(composer);
+      expect(await screen.findByText('Assignment saved')).toBeTruthy();
+      expect(sent).toEqual([{ date: '2026-11-20', driverId: 'drv-a', truckId: 'trk-24', work: 'other', note: 'Water truck, trucking as needed' }]);
+      await waitFor(() => expect(blocks('Sample Driver A')).toEqual(['First · Other · Draft · Water truck, trucking as needed · Truck 24']));
+    });
+
+    it('keeps the text as the note when switching back to a Haul', async () => {
+      await day();
+      const composer = await compose('Sample Driver A');
+      pickKind(composer, 'Other');
+      fireEvent.change(what(composer), { target: { value: 'Shop, on deck' } });
+      pickKind(composer, 'Haul');
+      fireEvent.click(within(composer).getByRole('button', { name: /Note or other truck/ }));
+      expect((within(composer).getByRole('textbox', { name: 'Note' }) as HTMLTextAreaElement).value).toBe('Shop, on deck');
+    });
+
+    it('shows a refused text on its box', async () => {
+      refuse = { note: 'Keep the note to 500 characters or fewer.' };
+      await day();
+      const composer = await compose('Sample Driver A');
+      pickKind(composer, 'Other');
+      fireEvent.change(what(composer), { target: { value: 'Shop' } });
+      save(composer);
+      expect((await within(composer).findByRole('alert')).textContent).toBe('Keep the note to 500 characters or fewer.');
+      expect(within(composer).getByRole('alert').previousElementSibling).toBe(what(composer));
     });
   });
 
@@ -1508,7 +1555,7 @@ describe('opening an Assignment', () => {
       open('/?date=2026-11-20');
       const opened = await openBlock('For Sample Foreman A · at Sample Site North · 2" minus · Haul stone · Draft');
       expect(kindIn(opened, 'Haul').getAttribute('aria-pressed')).toBe('true');
-      expect(kindIn(opened, 'Other').hasAttribute('disabled')).toBe(true);
+      expect(kindIn(opened, 'Other').hasAttribute('disabled')).toBe(false);
 
       fireEvent.click(kindIn(opened, 'Move'));
       const ask = screen.getByRole('alertdialog');
@@ -1533,6 +1580,21 @@ describe('opening an Assignment', () => {
 
       fireEvent.click(kindIn(opened, 'Haul'));
       expect(within(screen.getByRole('alertdialog')).getByText('The machine will be cleared.')).toBeTruthy();
+    });
+
+    it('turns a Haul into Other after asking, leaving the Driver and Truck, with the note as its text', async () => {
+      assignments = [planned({ ...haul, fromPlaceId: 'plc-plant', fromPlaceName: 'Sample Plant' })];
+      open('/?date=2026-11-20');
+      const opened = await openBlock('For Sample Foreman A · at Sample Site North · 2" minus · Sample Plant → · Haul stone · Draft');
+      fireEvent.click(kindIn(opened, 'Other'));
+      const ask = screen.getByRole('alertdialog');
+      expect(within(ask).getByRole('heading').textContent).toBe('Switch to Other?');
+      expect(within(ask).getByText('Material, For, At, From and To will be cleared.')).toBeTruthy();
+      fireEvent.click(within(ask).getByRole('button', { name: 'Switch to Other' }));
+      await waitFor(() => expect(sentenceOf(opened)).toEqual(['Driver: Sample Driver A', 'Truck: His own']));
+      expect(sent).toEqual([{ work: 'other' }]);
+      expect((within(opened).getByRole('textbox', { name: 'What?' }) as HTMLTextAreaElement).value).toBe('Haul stone');
+      expect(blocks('Sample Driver A')).toEqual(['First · Other · Draft · Haul stone · Truck 21 (his own)']);
     });
 
     it('marks an Assigned one Changed when its kind changes, as any change', async () => {

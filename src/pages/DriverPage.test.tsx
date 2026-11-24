@@ -415,6 +415,32 @@ describe('a Driver\'s yesterday, today and tomorrow', () => {
       expect(within(move).getByText('was Los')).toBeTruthy();
     });
 
+    it('shows an Other card\'s grey OTHER pill and its text in large type, with nothing of a haul', async () => {
+      sentDays['drv-a 2026-11-19'] = [card({ work: 'other', note: 'Shop, on deck', truckNumber: '31' })];
+      open('/');
+      const [other] = cardsIn(await day('Today, Thu, Nov 19'));
+      expect(other.getAttribute('aria-label')).toBe('Shop, on deck');
+      expect(within(other).getByText('Other').className).toContain('bg-foreground/10');
+      expect(within(other).getByText('Shop, on deck').className).toContain('text-2xl');
+      expect(within(other).getByText('Take Truck 31 for this one')).toBeTruthy();
+      expect(within(other).queryByText(/Material|Haul for|Pick up|Drop off/)).toBeNull();
+      expect(edge(other)).toContain('bg-primary');
+    });
+
+    it('keeps the amber edge on a Haul turned Other, and says what it was in the Changed line', async () => {
+      sentDays['drv-a 2026-11-19'] = [
+        card({
+          work: 'other', note: 'Shop, on deck', sinceSent: 'changed', changedAt: '2026-11-19T12:00:00.000Z',
+          was: { work: 'haul', note: 'Haul stone', materialName: 'Sample Stone', fromPlaceName: 'Sample Plant', toPlaceName: null },
+        }),
+      ];
+      open('/');
+      const [other] = cardsIn(await day('Today, Thu, Nov 19'));
+      expect(edge(other)).toContain('bg-warning');
+      expect(within(other).getByText('was Haul · Material was Sample Stone · From was Sample Plant · To was empty')).toBeTruthy();
+      expect(within(other).getByText('was Haul stone')).toBeTruthy();
+    });
+
     it('shows a Haul card\'s Pick up and Drop off lines only when set', async () => {
       sentDays['drv-a 2026-11-19'] = [card({ materialName: 'Sample Stone', fromPlaceName: 'Sample Plant' })];
       open('/');

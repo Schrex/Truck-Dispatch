@@ -72,7 +72,7 @@ export function forLine({ foremanName, customerName }: Pick<Assignment, 'foreman
 
 /**
  * The kind pill that starts every block and Driver card: HAUL black, MOVE
- * blue. It says only the kind: it never takes the place of a state colour
+ * blue, OTHER grey. It says only the kind: it never takes the place of a state colour
  * (the outline, the edge and the marks keep those). Shared with the Driver card.
  */
 export const WORK_PILL: Record<Work, { word: string; className: string }> = {
@@ -125,8 +125,9 @@ const DRAFT = { word: 'Draft', className: 'border border-dashed border-muted-for
 
 /**
  * One Assignment as a block in its lane, marked First (the first in the lane that is not cancelled)
- * or Then, beside its kind pill (HAUL black, MOVE blue). A Move leads with its
- * machine in bold, then From → To, the note and the Truck. A Haul leads with whom it is for, "For Jaus" in bold, with a grey
+ * or Then, beside its kind pill (HAUL black, MOVE blue, OTHER grey). A Move leads with its
+ * machine in bold, then From → To, the note and the Truck. An Other is its
+ * text (its note) in bold, then the Truck. A Haul leads with whom it is for, "For Jaus" in bold, with a grey
  * Customer tag when For is a Customer (nothing when For is blank). With an
  * At it then reads like Dave's message, only the parts that are set: "at
  * TIUNY · Asphalt · → Villager"; without one, "From → To" (or the one Place
@@ -172,6 +173,8 @@ export function AssignmentBlock({
   open?: boolean;
 }) {
   const move = assignment.work === 'move';
+  // Other is its text alone: the note is the whole Assignment, so it is the title, in bold.
+  const other = assignment.work === 'other';
   // A Move carries a machine, not a For: it leads with the machine instead.
   const machine = move ? assignment.machine : null;
   const forWho = move ? null : forLine(assignment);
@@ -192,7 +195,7 @@ export function AssignmentBlock({
   const forWords = forWho && [`For ${forWho.name}`, forWho.customer && CUSTOMER_TAG.word].filter(Boolean).join(' · ');
   // The edit button is named by what the Assignment itself says: his own Truck is not part of it, and his lane already names it.
   const words =
-    [move && WORK_PILL.move.word, machine, forWords, ...[title, ...details].filter((part) => part && !part.hisOwn).map((part) => part?.words)]
+    [(move || other) && WORK_PILL[assignment.work].word, machine, forWords, ...[title, ...details].filter((part) => part && !part.hisOwn).map((part) => part?.words)]
       .filter(Boolean)
       .join(' · ') || 'No details yet';
   const draft = assignment.assignedAt === null && !assignment.cancelledAt;
@@ -254,7 +257,7 @@ export function AssignmentBlock({
       {(title || !(forWho || machine)) && (
         <>
           {SEPARATOR}
-          <span className={cn('block whitespace-pre-line font-medium', !title && 'font-normal text-muted-foreground', assignment.cancelledAt && cancelledText)}>
+          <span className={cn('block whitespace-pre-line', other ? 'font-bold' : 'font-medium', !title && 'font-normal text-muted-foreground', assignment.cancelledAt && cancelledText)}>
             {title?.shown ?? 'No details yet'}
           </span>
         </>

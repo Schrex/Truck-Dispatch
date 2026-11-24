@@ -1423,6 +1423,85 @@ describe('Haul and Move: the kind of work', () => {
   });
 });
 
+describe('Other: work that is not a haul or a move', () => {
+  beforeEach(addCustomers);
+  const ASSIGNED = { NOW: '2026-11-19T21:15:00.000Z' };
+  const LATER = { NOW: '2026-11-19T22:00:00.000Z' };
+  const changed = async (id: string, body: unknown, vars = {}) => ((await (await change(id, body, vars)).json()) as { assignment: Assignment }).assignment;
+  const OTHER = { date: '2026-11-20', driverId: 'drv-a', truckId: 'trk-24', work: 'other', note: 'Water truck, trucking as needed' };
+  const HAUL = { date: '2026-11-20', driverId: 'drv-a', truckId: 'trk-24', fromPlaceId: 'plc-plant', toPlaceId: 'plc-north', atPlaceId: 'plc-yard', materialId: 'mat-stone', foremanId: 'frm-a', note: 'Haul stone' };
+  const textOf = (a: Assignment) => [a.driverId, a.work, a.truckId, a.note];
+
+  it('saves the Driver, the named Truck and the text as its note, and the day read returns them', async () => {
+    const other = await add(OTHER);
+    expect(other).toMatchObject({
+      work: 'other', driverName: 'Sample Driver A', truckNumber: '24', note: 'Water truck, trucking as needed',
+      fromPlaceId: null, toPlaceId: null, atPlaceId: null, materialId: null, foremanId: null, customerId: null, machine: null,
+    });
+    expect((await day('2026-11-20')).map(textOf)).toEqual([['drv-a', 'other', 'trk-24', 'Water truck, trucking as needed']]);
+  });
+
+  it('refuses From, To, At, Material, For and machine on an Other, on each field', async () => {
+    expect(await refusal(await post('/api/assignments', { ...OTHER, fromPlaceId: 'plc-plant', toPlaceName: 'Sample Pit', atPlaceId: 'plc-yard', materialId: 'mat-stone', customerId: 'cus-jaus', machine: 'D6' }))).toEqual({
+      fromPlaceId: 'Other has no From.',
+      toPlaceName: 'Other has no To.',
+      atPlaceId: 'Other has no At.',
+      materialId: 'Other has no Material.',
+      customerId: 'Other has no For.',
+      machine: 'Other has no machine.',
+    });
+    const other = await add(OTHER);
+    expect(await refusal(await change(other.id, { foremanId: 'frm-a' }))).toEqual({ foremanId: 'Other has no For.' });
+  });
+
+  it('clears From, To, At, Material and For when a Haul becomes Other, keeping the Driver, Truck and note', async () => {
+    const haul = await add(HAUL);
+    expect(await changed(haul.id, { work: 'other', note: 'Shop, on deck' })).toMatchObject({
+      work: 'other', note: 'Shop, on deck', driverId: 'drv-a', truckId: 'trk-24',
+      fromPlaceId: null, toPlaceId: null, atPlaceId: null, materialId: null, foremanId: null, customerId: null, machine: null,
+    });
+  });
+
+  it('clears the machine, From and To when a Move becomes Other', async () => {
+    const move = await add({ date: '2026-11-20', driverId: 'drv-a', work: 'move', machine: 'D6', fromPlaceId: 'plc-yard', toPlaceId: 'plc-north' });
+    expect(await changed(move.id, { work: 'other' })).toMatchObject({ work: 'other', machine: null, fromPlaceId: null, toPlaceId: null });
+  });
+
+  it('copies an Other\'s note with Start from and Copy to, and still drops a Haul\'s', async () => {
+    await add({ ...OTHER, date: '2026-11-19' });
+    await add({ ...HAUL, date: '2026-11-19', truckId: 'trk-21' });
+    const started = (await (await send('POST', '/api/days/2026-11-23/start-from')).json()) as { assignments: Assignment[] };
+    expect(started.assignments.map((a) => [a.work, a.note])).toEqual([['other', 'Water truck, trucking as needed'], ['haul', null]]);
+    await send('POST', '/api/assignments', { ...OTHER, date: '2026-11-17' }, { NOW: '2026-11-17T15:00:00.000Z' });
+    expect((await send('POST', '/api/days/2026-11-17/copy-to', { to: '2026-11-20' })).status).toBe(201);
+    expect((await day('2026-11-20')).map((a) => [a.work, a.note])).toEqual([['other', 'Water truck, trucking as needed']]);
+  });
+
+  it('gives each Driver of "Who?" the same Other, and carries it to the copy when an Assigned one is handed over', async () => {
+    const created = await post('/api/assignments', { ...OTHER, truckId: null, alsoDriverIds: ['drv-b'] });
+    expect(((await created.json()) as { assignments: Assignment[] }).assignments.map((a) => [a.driverId, a.work, a.note])).toEqual([
+      ['drv-a', 'other', 'Water truck, trucking as needed'],
+      ['drv-b', 'other', 'Water truck, trucking as needed'],
+    ]);
+    const other = await add({ ...OTHER, date: '2026-11-21' });
+    await assign(other.id);
+    const copy = await changed(other.id, { driverId: 'drv-c' }, { NOW: '2026-11-19T20:30:00.000Z' });
+    expect([copy.driverId, copy.work, copy.note, copy.handedFromId]).toEqual(['drv-c', 'other', 'Water truck, trucking as needed', other.id]);
+  });
+
+  it('shows a Haul turned Other as Changed, with "was Haul" and what each cleared field was', async () => {
+    const haul = await add(HAUL);
+    await assign(haul.id, ASSIGNED);
+    await change(haul.id, { work: 'other', note: 'Shop, on deck' }, LATER);
+    const [card] = ((await (await get('/api/drivers/drv-a/days/2026-11-20')).json()) as DriverDay).assignments;
+    expect(card).toMatchObject({ sinceSent: 'changed', work: 'other', note: 'Shop, on deck' });
+    expect(card.was).toEqual({
+      work: 'haul', note: 'Haul stone', materialName: 'Sample Stone', forName: 'Sample Foreman A', atPlaceName: 'Sample Yard',
+      fromPlaceName: 'Sample Plant', toPlaceName: 'Sample Site North',
+    });
+  });
+});
+
 describe('one Assignment for several Drivers', () => {
   it('makes one for each Driver, the same but for the Driver, last in his lane', async () => {
     await add({ date: '2026-11-20', driverId: 'drv-b', note: 'Already his' });

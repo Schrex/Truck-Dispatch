@@ -152,6 +152,10 @@ export function sentence(drivers: string[], draft: Draft, lists: ComposerLists):
   const who = drivers.length === 0 ? 'Someone' : drivers.length === 1 ? drivers[0] : `${drivers.slice(0, -1).join(', ')} and ${drivers[drivers.length - 1]}`;
   const several = drivers.length > 1;
   const haul = draft.work === 'haul';
+  const truck = (!several && lists.trucks?.find((t) => t.id === draft.truckId)?.number) || null;
+  const note = draft.note.trim();
+  // Other is the Driver, a named Truck and its text: nothing of a route.
+  if (draft.work === 'other') return `${who}: ${[note || 'nothing written yet', truck && `in Truck ${truck}`].filter(Boolean).join(' · ')}`;
   // Only what the chosen kind saves: a Move has no Material, For or At; a Haul no machine.
   const material = haul ? nameIn(draft.material, lists.materials, (m) => m.name) : null;
   const from = nameIn(draft.from, lists.places, (p) => p.shortName);
@@ -159,8 +163,6 @@ export function sentence(drivers: string[], draft: Draft, lists: ComposerLists):
   const at = haul ? nameIn(draft.at, lists.places, (p) => p.shortName) : null;
   const forWho = haul ? forName(forOf(draft, lists), lists) : null;
   const machine = haul ? null : draft.machine.trim() || null;
-  const truck = (!several && lists.trucks?.find((t) => t.id === draft.truckId)?.number) || null;
-  const note = draft.note.trim();
   if (!material && !from && !to && !at && !forWho && !machine && !truck) return note ? `${who}: ${note}` : `${who}: just the day so far`;
   if (!haul) {
     const move = [`${who} ${several ? 'move' : 'moves'}`, machine, from && `from ${from}`, to && `to ${to}`, truck && `in Truck ${truck}`].filter(Boolean).join(' ');
@@ -191,32 +193,34 @@ function forFields(slot: ForSlot): Pick<AddAssignment, 'foremanId' | 'customerId
 function requestOf(date: string, driverIds: string[], draft: Draft, lists: ComposerLists): AddAssignment {
   const [driverId = null, ...alsoDriverIds] = driverIds;
   // Only the fields the chosen kind uses: what another kind's rows still hold is left out.
+  const route = { ...slotFields(draft.from, 'fromPlaceId', 'fromPlaceName'), ...slotFields(draft.to, 'toPlaceId', 'toPlaceName') };
   const kind =
-    draft.work === 'move'
-      ? { machine: draft.machine.trim() || null }
-      : {
-          ...slotFields(draft.at, 'atPlaceId', 'atPlaceName'),
-          ...slotFields(draft.material, 'materialId', 'materialName'),
-          ...forFields(forOf(draft, lists)),
-        };
+    draft.work === 'other'
+      ? {}
+      : draft.work === 'move'
+        ? { ...route, machine: draft.machine.trim() || null }
+        : {
+            ...route,
+            ...slotFields(draft.at, 'atPlaceId', 'atPlaceName'),
+            ...slotFields(draft.material, 'materialId', 'materialName'),
+            ...forFields(forOf(draft, lists)),
+          };
   return {
     date,
     driverId,
     ...(alsoDriverIds.length > 0 && { alsoDriverIds }),
     truckId: alsoDriverIds.length > 0 ? null : draft.truckId,
     work: draft.work,
-    ...slotFields(draft.from, 'fromPlaceId', 'fromPlaceName'),
-    ...slotFields(draft.to, 'toPlaceId', 'toPlaceName'),
     ...kind,
     note: draft.note.trim() || null,
   };
 }
 
-/** The kinds the composer and the open Assignment offer; Other is not offered yet. */
+/** The kinds the composer and the open Assignment offer. */
 export const WORK_OPTIONS: { value: Work; label: string; disabled?: boolean }[] = [
   { value: 'haul', label: 'Haul' },
   { value: 'move', label: 'Move' },
-  { value: 'other', label: 'Other', disabled: true },
+  { value: 'other', label: 'Other' },
 ];
 
 /** The most characters a Move's machine may have, as the Worker allows. */
@@ -395,8 +399,9 @@ function WhoRow({
 /**
  * The F1 composer, opened by a lane's +, always blank: it adds one Assignment
  * to that lane (Unassigned when driverId is null), last in the lane. Haul |
- * Move | Other at the top picks its kind (Other not yet offered), which
- * decides the rows: a Move asks for the machine, typed, with From and To. A
+ * Move | Other at the top picks its kind, which decides the rows: a Move asks
+ * for the machine, typed, with From and To; Other shows the Truck chips and
+ * one line of text, "What?", which is saved as its note. A
  * switch keeps what each kind's rows hold, and Save sends only the chosen
  * kind's fields. "Who?"
  * adds other Drivers, who each get the same Assignment as their own Draft, all
@@ -440,6 +445,7 @@ export function Composer({
   const [saving, setSaving] = useState(false);
   const noteId = useId();
   const machineId = useId();
+  const whatId = useId();
   const { places, materials, trucks, foremen, customers } = lists;
   // The lane's own Driver first (the Assignment is his), then the others picked, in the list's order.
   const offered = (lists.drivers ?? []).filter((d) => d.active);
@@ -495,6 +501,12 @@ export function Composer({
     marked({ id: null, label: 'His own' }, usualTruckId),
     ...(active(trucks, (t) => t.number) ?? []).map((chip) => marked(chip, chip.id)),
   ];
+  // The Truck chips, or with several Drivers why there are none: Other shows them at once, the other kinds behind "Note or other truck".
+  const truckRow = several ? (
+    <p className="text-sm text-muted-foreground">Each Driver takes his own Truck. Name another on his block after saving.</p>
+  ) : (
+    <ChipRow label="Truck" chips={truckChips} picked={draft.truckId} onPick={(truckId) => change('truck', (d) => ({ ...d, truckId }))} required error={errors.truckId} />
+  );
   const unplaced = Object.entries(errors).filter(([field]) => !ROW_OF[field] || (ROW_OF[field] === 'who' && offered.length === 0)).map(([, message]) => message);
   const more = draft.more || Boolean(errors.truckId || errors.note);
 
@@ -537,7 +549,31 @@ export function Composer({
           error={errors.alsoDriverIds ?? errors.driverId}
         />
       )}
-      {draft.work === 'move' ? (
+      {draft.work === 'other' ? (
+        <>
+          {truckRow}
+          <div className="space-y-2">
+            <Label htmlFor={whatId}>What?</Label>
+            <Input
+              id={whatId}
+              className="h-11"
+              maxLength={NOTE_LIMIT}
+              placeholder="Water truck, trucking as needed"
+              value={draft.note}
+              onChange={(event) => {
+                const note = event.target.value;
+                change('note', (d) => ({ ...d, note }));
+              }}
+            />
+            {errors.note && (
+              <p className="text-xs text-destructive" role="alert">
+                {errors.note}
+              </p>
+            )}
+          </div>
+          <p className="-mt-2 text-xs text-muted-foreground">Shop, standby, water truck, vac truck. Its Trips count as not a haul.</p>
+        </>
+      ) : draft.work === 'move' ? (
         <>
           <div className="space-y-2">
             <Label htmlFor={machineId}>Machine</Label>
@@ -581,29 +617,21 @@ export function Composer({
         </>
       )}
 
-      <Button
-        type="button"
-        variant="ghost"
-        aria-expanded={more}
-        className="px-2"
-        onClick={() => onDraft((d) => ({ ...d, more: !more }))}
-      >
-        {more ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />} {several ? 'Note' : 'Note or other truck'}
-      </Button>
-      {more && (
+      {/* Other shows its Truck and text above, so it has nothing to open. */}
+      {draft.work !== 'other' && (
+        <Button
+          type="button"
+          variant="ghost"
+          aria-expanded={more}
+          className="px-2"
+          onClick={() => onDraft((d) => ({ ...d, more: !more }))}
+        >
+          {more ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />} {several ? 'Note' : 'Note or other truck'}
+        </Button>
+      )}
+      {more && draft.work !== 'other' && (
         <>
-          {several ? (
-            <p className="text-sm text-muted-foreground">Each Driver takes his own Truck. Name another on his block after saving.</p>
-          ) : (
-            <ChipRow
-              label="Truck"
-              chips={truckChips}
-              picked={draft.truckId}
-              onPick={(truckId) => change('truck', (d) => ({ ...d, truckId }))}
-              required
-              error={errors.truckId}
-            />
-          )}
+          {truckRow}
           <div className="space-y-2">
             <Label htmlFor={noteId}>Note</Label>
             <Textarea

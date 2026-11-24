@@ -402,6 +402,21 @@ describe('AssignmentBlock', () => {
       expect(screen.getByText('Changed').className).toContain('bg-warning');
       expect(screen.getAllByText('Move').every((pill) => pill.className.includes('bg-move'))).toBe(true);
     });
+
+    it('reads an Other as a grey OTHER pill and its text in bold, then the Truck, and names it in the edit button', () => {
+      const shop = { ...a, work: 'other' as const, note: 'Shop, on deck' };
+      expect(block({ ...shop, ...truck })).toBe('First · Other · Shop, on deck · Truck 24');
+      expect(screen.getByText('Other').className).toContain('bg-foreground/10');
+      expect(screen.getByText('Shop, on deck').className).toContain('font-bold');
+      cleanup();
+      render(
+        <ul>
+          <AssignmentBlock assignment={assignment({ ...shop, sinceSent: 'changed' })} first onEdit={vi.fn()} />
+        </ul>,
+      );
+      expect(screen.getByRole('button', { name: 'Edit Other · Shop, on deck · Changed' })).toBeTruthy();
+      expect(screen.getByText('Changed').className).toContain('bg-warning');
+    });
   });
 });
 

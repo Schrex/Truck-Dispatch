@@ -5,7 +5,7 @@ How Dave plans each driver's day and how the work they actually do becomes a tru
 ## Planning
 
 **Assignment**:
-One piece of work given to one Driver for one day, e.g. haul 2" minus from Villager to TIUNY. Each is one kind of work, a Haul (the default) or a Move, and its kind decides which of its fields it uses. It covers any number of Loads. The same work for two Drivers is two Assignments, one each, made together but separate from then on. A Driver's Assignments for a day are done in an order Dave sets. Dave can cancel one; a cancelled Assignment is kept and the Driver sees it was cancelled. Each of them can then clear it out of his own view (Dave discards it, the Driver dismisses it) without hiding it from the other; it is still kept. Its day never changes once it exists. Once it is Assigned, giving it to another Driver cancels it and adds a new one for that Driver. Whether one has started or finished comes from the Truck, never from Dave or the Driver.
+One piece of work given to one Driver for one day, e.g. haul 2" minus from Villager to TIUNY. Each is one kind of work, a Haul (the default), a Move or Other, and its kind decides which of its fields it uses. It covers any number of Loads. The same work for two Drivers is two Assignments, one each, made together but separate from then on. A Driver's Assignments for a day are done in an order Dave sets. Dave can cancel one; a cancelled Assignment is kept and the Driver sees it was cancelled. Each of them can then clear it out of his own view (Dave discards it, the Driver dismisses it) without hiding it from the other; it is still kept. Its day never changes once it exists. Once it is Assigned, giving it to another Driver cancels it and adds a new one for that Driver. Whether one has started or finished comes from the Truck, never from Dave or the Driver.
 _Avoid_: task, order (the paper Truck log's word), work order, dispatch, dispatch order, job
 
 **Unassigned**:
@@ -51,8 +51,12 @@ The usual kind of Assignment: hauling material, with a For, At, Material, From a
 _Avoid_: load (a Load is one trip's worth), job
 
 **Move**:
-An Assignment that moves a piece of equipment, typically on a lowboy: a machine typed as Dave writes it ("the 260 + big bucket"), with From and To, and no Material, For or At. Never counted as Loads. Its block and card carry a blue MOVE pill. Changing an Assignment between Haul and Move clears what the new kind does not use, after Dave confirms.
+An Assignment that moves a piece of equipment, typically on a lowboy: a machine typed as Dave writes it ("the 260 + big bucket"), with From and To, and no Material, For or At. Never counted as Loads. Its block and card carry a blue MOVE pill. Changing an Assignment from one kind to another clears what the new kind does not use, after Dave confirms.
 _Avoid_: lowboy (the trailer, not the work), transfer, haul (for a Move)
+
+**Other**:
+An Assignment that is not a haul or a move, such as a shop day, standby, water truck or vac truck work: the Driver, a named Truck if any, and a line of text (its note), e.g. "Shop, on deck". No For, At, Material, From, To or machine. Start from and Copy to keep its text, as it is its whole content. Its block and card carry a grey OTHER pill. Its Trips count as not a haul.
+_Avoid_: note (for the Assignment itself), misc, non-haul
 
 **Customer**:
 Someone outside the company we haul for, e.g. Jaus; never a Foreman. Kept in Settings beside Foremen, each with an optional usual Place where their work usually is, which picking them fills in as At. No name is both a Foreman's and a Customer's (ignoring case, removed ones included).
