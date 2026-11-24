@@ -15,8 +15,7 @@ export function SegmentedToggle<T extends string>({
 }: {
   label?: string;
   ariaLabel?: string;
-  /** A disabled option is shown but cannot be chosen yet. */
-  options: { value: T; label: string; disabled?: boolean }[];
+  options: { value: T; label: string }[];
   value: T | null;
   onChange: (value: T) => void;
 }) {
@@ -37,7 +36,6 @@ export function SegmentedToggle<T extends string>({
             size="sm"
             variant={chosen ? 'default' : 'ghost'}
             aria-pressed={chosen}
-            disabled={option.disabled}
             className={chosen ? 'h-11 px-4 text-sm shadow-sm' : 'h-11 px-4 text-sm text-muted-foreground hover:bg-background/70'}
             onClick={() => onChange(option.value)}
           >
