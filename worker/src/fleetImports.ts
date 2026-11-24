@@ -4,7 +4,7 @@ import { json, readJson, refuse, text } from './http';
 import { businessDateOf } from '../../shared/days';
 import { EXPORT_ADVICE, isMoment, type FleetExportRow } from '../../shared/fleetExport';
 import { codeKey } from '../../shared/trips';
-import type { CodeWithNoPlace, FleetExportFormat, FleetImport, FleetImportDay, ImportCounts } from '../../shared/types';
+import type { ClearedImports, CodeWithNoPlace, FleetExportFormat, FleetImport, FleetImportDay, ImportCounts } from '../../shared/types';
 
 /**
  * Fleet imports: Dave drops an HCSS Fleet export on the
@@ -23,10 +23,42 @@ import type { CodeWithNoPlace, FleetExportFormat, FleetImport, FleetImportDay, I
  * IMPORTS_ALLOWED_IN, when the rows are not a Fleet export's, when they hold
  * more than one EquipmentCode, or when no active Truck has that HCSS code.
  */
-export async function handleFleetImports(request: Request, env: Env, route: string): Promise<Response | null> {
+export async function handleFleetImports(request: Request, env: Env, route: string, query: URLSearchParams): Promise<Response | null> {
   if (route !== 'fleet-imports') return null;
   if (request.method === 'POST') return importExport(request, env);
-  return json({ error: 'method_not_allowed' }, 405, { Allow: 'POST' });
+  if (request.method === 'DELETE') return clearImports(env, query.get('geofences') === '1');
+  return json({ error: 'method_not_allowed' }, 405, { Allow: 'POST, DELETE' });
+}
+
+/**
+ * Clear Fleet imports, for testing Imports again from nothing: deletes every
+ * Import, the days each covered and every stored visit, so every Truck log,
+ * block Trip part and Unplanned work built from them is gone from the Board,
+ * the Driver page and Fleet imports. With `geofences`, also every Geofence and
+ * its Not considered toggle (the next Import brings its codes back,
+ * considered). Places, their geofence codes and all other lists are kept.
+ * Allowed only where Imports are, so production never loses its data.
+ *
+ *   DELETE api/fleet-imports[?geofences=1]  → 200 { cleared: { imports, visits, geofences } }
+ */
+async function clearImports(env: Env, geofences: boolean): Promise<Response> {
+  if (!IMPORTS_ALLOWED_IN.includes(env.ENVIRONMENT ?? '')) {
+    return json({ error: 'imports_not_allowed', message: 'Fleet imports can be cleared only on local, preview and staging.' }, 403);
+  }
+  const DB = env.DB;
+  const count = (table: string) => DB.prepare(`SELECT count(*) AS n FROM ${table}`);
+  const [imports, visits, codes] = await DB.batch<{ n: number }>([
+    count('fleet_imports'),
+    count('fleet_visits'),
+    count('geofences'),
+    // Children first: the visits and days name their Import.
+    DB.prepare('DELETE FROM fleet_visits'),
+    DB.prepare('DELETE FROM fleet_import_days'),
+    DB.prepare('DELETE FROM fleet_imports'),
+    ...(geofences ? [DB.prepare('DELETE FROM geofences')] : []),
+  ]);
+  const n = (result: D1Result<{ n: number }>) => result.results[0]?.n ?? 0;
+  return json({ cleared: { imports: n(imports), visits: n(visits), geofences: geofences ? n(codes) : 0 } satisfies ClearedImports });
 }
 
 const FORMATS: FleetExportFormat[] = ['json', 'xlsx'];

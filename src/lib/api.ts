@@ -1,4 +1,4 @@
-import type { Assignment, AssignmentChange, BusinessDay, ChangedAssignment, CheckIn, CheckIns, CopiedDay, Day, DriverDay, FleetImport, Geofence, NewFleetImport, Inspection, NewInspection, EntryFields, ListName, Lists, AddAssignment, OrderedList, TruckLogDay, TruckProblem, WeekDay } from '../../shared/types';
+import type { Assignment, ClearedImports, AssignmentChange, BusinessDay, ChangedAssignment, CheckIn, CheckIns, CopiedDay, Day, DriverDay, FleetImport, Geofence, NewFleetImport, Inspection, NewInspection, EntryFields, ListName, Lists, AddAssignment, OrderedList, TruckLogDay, TruckProblem, WeekDay } from '../../shared/types';
 import { basePath } from './basePath';
 
 // Every call starts at the base path the page was reached under: /api/...
@@ -219,6 +219,14 @@ export async function reportTruckProblem(report: { driverId: string; truckId: st
 /** Imports a Fleet export's rows, read by the page (shared/fleetExport.ts): what it added, for which Truck and days. */
 export async function importFleetExport(body: NewFleetImport): Promise<FleetImport> {
   return (await request<{ import: FleetImport }>('api/fleet-imports', json('POST', body))).import;
+}
+
+/**
+ * Clear Fleet imports: deletes every Import and stored visit, so Imports can
+ * be tested again from nothing; with `geofences`, every Geofence and its toggle too.
+ */
+export async function clearFleetImports(geofences: boolean): Promise<ClearedImports> {
+  return (await request<{ cleared: ClearedImports }>(`api/fleet-imports${geofences ? '?geofences=1' : ''}`, { method: 'DELETE' })).cleared;
 }
 
 /** Every geofence code the app knows, by code, each with its Not considered toggle (Settings). */

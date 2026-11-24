@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type DragEvent, type SetStateAction } from 'react';
-import { ClipboardList, Loader2, Upload } from 'lucide-react';
+import { ClipboardList, Loader2, Trash2, Upload } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { PageHeader } from '@/components/PageHeader';
 import { chipClass } from '@/components/TypedName';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Switch } from '@/components/ui/switch';
 import { CalendarDays } from '@/components/CalendarDays';
 import { EmptyBox, Loading } from '@/components/States';
-import { Refused, fetchBusinessDay, fetchList, fetchTruckLogDay, importFleetExport, setNotConsidered } from '@/lib/api';
+import { Refused, clearFleetImports, fetchBusinessDay, fetchList, fetchTruckLogDay, importFleetExport, setNotConsidered } from '@/lib/api';
 import { toast } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
 import { StoredTruckLog } from '@/components/TruckLog';
@@ -17,7 +18,7 @@ import { ReplayClock } from '@/components/ReplayClock';
 import { TripLog } from '@/components/TripLog';
 import { clockMinutes, easternTime, minuteClock, shortDate } from '../../shared/days';
 import { EXPORT_ADVICE, countFleetXlsxVisits, readFleetJson, readFleetXlsx, type FleetExportRow, type FleetSheet } from '../../shared/fleetExport';
-import type { CodeWithNoPlace, Driver, FleetExportFormat, FleetImport, FleetImportDay, ImportCounts, Truck, TruckLogDay } from '../../shared/types';
+import type { ClearedImports, CodeWithNoPlace, Driver, FleetExportFormat, FleetImport, FleetImportDay, ImportCounts, Truck, TruckLogDay } from '../../shared/types';
 
 /** A dropped file's text or bytes. FileReader, as every browser (and jsdom) has it. */
 function readFile(file: File, as: 'text'): Promise<string>;
@@ -313,6 +314,74 @@ function StoredDayViews({
   );
 }
 
+/** "3 Imports · 41 visits", and the Geofences when they were cleared too. */
+const clearedLabel = (cleared: ClearedImports, geofences: boolean) =>
+  [
+    `${cleared.imports} ${cleared.imports === 1 ? 'Import' : 'Imports'}`,
+    `${cleared.visits} ${cleared.visits === 1 ? 'visit' : 'visits'}`,
+    geofences && `${cleared.geofences} ${cleared.geofences === 1 ? 'Geofence' : 'Geofences'}`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
+/**
+ * Start over, for testing Imports again and again: Clear Fleet imports deletes
+ * every Import and stored visit, so the stored days, the Board's Trip parts and
+ * the Truck logs are empty again. The switch also clears the Geofences and
+ * their Not considered toggles. It asks once more before it deletes anything.
+ */
+function StartOver({ onCleared }: { onCleared: () => void }) {
+  const [geofences, setGeofences] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const clear = async () => {
+    setBusy(true);
+    try {
+      const cleared = await clearFleetImports(geofences);
+      toast.success(`Cleared ${clearedLabel(cleared, geofences)}`);
+      setAsking(false);
+      onCleared();
+    } catch (error) {
+      toast.error(error instanceof Refused ? error.message : 'Could not clear the Fleet imports. Try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section aria-labelledby="start-over" className="space-y-2">
+      <h2 id="start-over" className="font-display text-xl font-semibold uppercase tracking-wide">
+        Start over
+      </h2>
+      <Card className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-2">
+          <p className="text-sm text-muted-foreground">
+            Delete every Import and stored visit, so the Board, Driver pages and Truck logs show no Fleet data. Drivers, Trucks, Places and Assignments are kept.
+          </p>
+          <label className="flex items-center gap-2 text-sm">
+            <Switch checked={geofences} onCheckedChange={setGeofences} aria-label="Also clear Geofences" disabled={busy} />
+            Also clear Geofences and their Not considered toggles
+          </label>
+        </div>
+        {asking ? (
+          <div className="flex shrink-0 items-center gap-2">
+            <Button type="button" variant="outline" onClick={() => setAsking(false)} disabled={busy}>
+              Cancel
+            </Button>
+            <Button type="button" className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={clear} disabled={busy}>
+              {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+              Yes, clear them
+            </Button>
+          </div>
+        ) : (
+          <Button type="button" variant="outline" className="shrink-0" onClick={() => setAsking(true)}>
+            <Trash2 className="h-4 w-4" /> Clear Fleet imports
+          </Button>
+        )}
+      </Card>
+    </section>
+  );
+}
+
 /** One dropped file: importing, waiting for its Truck, imported with what it changed, or not imported and why. */
 type Drop = { key: number; fileName: string } & (
   | { state: 'importing' }
@@ -565,6 +634,15 @@ export function FleetImportsPage() {
           onDate={pickDate}
           onClock={setClock}
           onDontConsider={dontConsider}
+        />
+
+        <StartOver
+          onCleared={() => {
+            setDrops([]);
+            setTurnedOff([]);
+            setClock(null);
+            setRefresh((n) => n + 1);
+          }}
         />
       </main>
     </div>
