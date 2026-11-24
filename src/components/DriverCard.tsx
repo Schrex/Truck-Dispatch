@@ -4,7 +4,7 @@ import { WORK_FIELD_WORDS, WORK_FIELDS, WORK_WORDS, type AssignmentTripPart, typ
 import { easternTime } from '../../shared/days';
 import { Button } from '@/components/ui/button';
 import { CUSTOMER_TAG, forLine, KIND_PILL, WORK_PILL } from '@/components/AssignmentBlock';
-import { cn, loadsText, shownTripPart } from '@/lib/utils';
+import { cn, tripWords } from '@/lib/utils';
 
 /** Whose changes the Driver is told about: the dispatcher, by name, as he knows him. */
 const DISPATCHER = 'Dave';
@@ -69,19 +69,10 @@ function truckLine({ truckNumber, was }: DriverAssignment): string | null {
  * first Trip, nothing: the card looks as it always has.
  */
 function TripLine({ part, work }: { part: AssignmentTripPart | undefined; work: Work }) {
-  const trips = shownTripPart(part);
-  if (!trips) return null;
-  // A Move has no Loads: "Done 08:15" once the machine is there. An Other has its Trucking hours.
-  const words =
-    work === 'move'
-      ? trips.status === 'done' && trips.movedAt
-        ? `Done ${easternTime(trips.movedAt)}`
-        : null
-      : work === 'other'
-        ? trips.truckingHours === null
-          ? null
-          : `${trips.truckingHours.toFixed(1)} h`
-        : `${loadsText(trips.loads)}${trips.lastLoadAt ? ` · last ${easternTime(trips.lastLoadAt)}` : ''}`;
+  const shown = tripWords(part, work);
+  if (!shown) return null;
+  const { trips, loads, moved, hours } = shown;
+  const words = loads ? `${loads}${trips.lastLoadAt ? ` · last ${easternTime(trips.lastLoadAt)}` : ''}` : (moved ?? hours);
   return (
     <p className="flex flex-wrap items-center gap-x-2 text-lg">
       {trips.status === 'now' && <span className="rounded bg-primary px-2 py-0.5 text-base font-semibold text-primary-foreground">Now</span>}

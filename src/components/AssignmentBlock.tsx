@@ -3,7 +3,7 @@ import { Loader2, Trash2, UserCheck } from 'lucide-react';
 import { WORK_WORDS, type Assignment, type AssignmentTripPart, type SinceSent, type Work } from '../../shared/types';
 import { easternTime } from '../../shared/days';
 import { Button } from '@/components/ui/button';
-import { cancelledText, cn, loadsText, shownTripPart } from '@/lib/utils';
+import { cancelledText, cn, tripWords } from '@/lib/utils';
 
 /**
  * Read aloud and in tests the parts of a block run together as one line
@@ -101,47 +101,28 @@ const TRIP_STATUS: Record<Exclude<AssignmentTripPart['status'], 'none'>, { word:
  * hours: "Done · 3.0 h".
  */
 function TripLine({ part, work }: { part: AssignmentTripPart | undefined; work: Work }) {
-  const trips = shownTripPart(part);
-  if (!trips) return null;
+  const shown = tripWords(part, work);
+  if (!shown) return null;
+  const { trips, loads, moved, hours } = shown;
   const status = TRIP_STATUS[trips.status];
-  const pill = (word: string) => <span className={cn('rounded px-1.5 py-0.5 text-xs font-medium', status.className)}>{word}</span>;
-  if (work === 'move' && trips.status === 'done')
-    return (
-      <>
-        {SEPARATOR}
-        <span className="mt-1 flex flex-wrap items-center gap-x-1 text-muted-foreground">{pill(trips.movedAt ? `${status.word} ${easternTime(trips.movedAt)}` : status.word)}</span>
-      </>
-    );
-  if (work === 'other')
-    return (
-      <>
-        {SEPARATOR}
-        <span className="mt-1 flex flex-wrap items-center gap-x-1 text-muted-foreground">
-          {pill(status.word)}
-          {trips.truckingHours !== null && (
-            <>
-              {' · '}
-              <span className="font-medium text-foreground">{trips.truckingHours.toFixed(1)} h</span>
-            </>
-          )}
-        </span>
-      </>
-    );
+  // A done Move is only its "Done 08:15"; an Other its hours after Now or Done; the rest since when.
+  const done = work === 'move' && trips.status === 'done';
+  const after = work === 'other' ? hours : done ? null : trips.since && `since ${easternTime(trips.since)}`;
   return (
     <>
       {SEPARATOR}
       <span className="mt-1 flex flex-wrap items-center gap-x-1 text-muted-foreground">
-        {work !== 'move' && (
+        {loads && (
           <>
-            <span className="font-medium text-foreground">{loadsText(trips.loads)}</span>
+            <span className="font-medium text-foreground">{loads}</span>
             {' · '}
           </>
         )}
-        {pill(status.word)}
-        {trips.since && (
+        <span className={cn('rounded px-1.5 py-0.5 text-xs font-medium', status.className)}>{(done && moved) || status.word}</span>
+        {after && (
           <>
             {' · '}
-            <span>since {easternTime(trips.since)}</span>
+            <span className={cn(work === 'other' && 'font-medium text-foreground')}>{after}</span>
           </>
         )}
       </span>

@@ -1,6 +1,7 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import type { AssignmentTripPart } from '../../shared/types';
+import type { AssignmentTripPart, Work } from '../../shared/types';
+import { easternTime } from '../../shared/days';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -17,6 +18,23 @@ export function shownTripPart(trips: AssignmentTripPart | undefined): (Assignmen
 
 /** "1 Load", "4 Loads"; "Loads from Tickets" when the Truck cannot count them (an At-only Haul). */
 export const loadsText = (loads: number | null) => (loads === null ? 'Loads from Tickets' : `${loads} ${loads === 1 ? 'Load' : 'Loads'}`);
+
+/**
+ * What the Truck did on an Assignment, in the words its kind uses, shared by
+ * its block and its Driver card: a Haul its Loads ("4 Loads"); a Move none,
+ * but "Done 08:15" once its last Move Trip arrived; an Other its Trucking
+ * hours ("3.0 h"). Null as shownTripPart is.
+ */
+export function tripWords(part: AssignmentTripPart | undefined, work: Work) {
+  const trips = shownTripPart(part);
+  if (!trips) return null;
+  return {
+    trips,
+    loads: work === 'haul' ? loadsText(trips.loads) : null,
+    moved: work === 'move' && trips.status === 'done' && trips.movedAt ? `Done ${easternTime(trips.movedAt)}` : null,
+    hours: work === 'other' && trips.truckingHours !== null ? `${trips.truckingHours.toFixed(1)} h` : null,
+  };
+}
 
 /** How a cancelled Assignment's words look everywhere (its block, the open Assignment, the Driver's card): struck through and greyed. */
 export const cancelledText = 'text-muted-foreground line-through';
