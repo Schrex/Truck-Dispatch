@@ -14,7 +14,8 @@ import type { CodeWithNoPlace, FleetExportFormat, FleetImport, FleetImportDay, I
  * its geofence code and UTC entry minute: new visits are added, open ones
  * closed (see CLOSES and MORE_EXACT), and the Import keeps its counts. The
  * answer also counts per US Eastern day touched, and lists the geofence codes
- * no Place has (their visits are stored all the same).
+ * no Place has (their visits are stored all the same). Each code new to the
+ * app is added to Geofences, considered.
  *
  *   POST api/fleet-imports  { fileName, format, rows }  → 201 { import }
  *
@@ -115,6 +116,11 @@ async function importExport(request: Request, env: Env): Promise<Response> {
          WHERE ${CLOSES} OR ${MORE_EXACT}`,
       ).bind(crypto.randomUUID(), truck.id, v.geofenceCode, v.enteredMinute, v.enteredAt, v.exitedAt, v.entryOdometer, v.exitOdometer, id),
     ),
+    // Each code new to the app becomes a Geofence, considered; one it knows (ignoring case) keeps its toggle.
+    DB.prepare(
+      `INSERT OR IGNORE INTO geofences (code)
+       SELECT DISTINCT trim(json_extract(value, '$.geofenceCode')) FROM json_each(?1) WHERE trim(json_extract(value, '$.geofenceCode')) <> ''`,
+    ).bind(JSON.stringify(once)),
   ]);
 
   const days = perDay.results as unknown as FleetImportDay[];
@@ -131,21 +137,15 @@ async function importExport(request: Request, env: Env): Promise<Response> {
   );
 }
 
-/** The codes on the Not considered list (Settings), as the Trip builder takes them. */
-export async function notConsideredCodes(DB: D1Database): Promise<string[]> {
-  const { results } = await DB.prepare('SELECT code FROM not_considered WHERE active = 1 ORDER BY code COLLATE NOCASE').all<{ code: string }>();
-  return results.map((r) => r.code);
-}
-
 /**
  * Every geofence code in the Import that no active Place has and that is not
- * on the Not considered list (both ignoring case, as Settings and the Trip
+ * turned to Not considered in Geofences (both ignoring case, as Settings and the Trip
  * builder match codes), by code. Its visits are stored all the same.
  */
 export async function codesWithNoPlaceIn(DB: D1Database, visits: Pick<StoredVisit, 'geofenceCode'>[]): Promise<CodeWithNoPlace[]> {
   const { results } = await DB.prepare(
     `SELECT geofence_code AS code FROM places WHERE active = 1 AND geofence_code IS NOT NULL
-     UNION ALL SELECT code FROM not_considered WHERE active = 1`,
+     UNION ALL SELECT code FROM geofences WHERE not_considered = 1`,
   ).all<{ code: string }>();
   const known = new Set(results.map((p) => codeKey(p.code)));
   const codes = new Set(visits.map((v) => v.geofenceCode).filter((code) => !known.has(codeKey(code))));

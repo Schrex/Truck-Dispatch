@@ -1,7 +1,8 @@
 import type { Env } from './app';
 import { DAY_ORDER, SELECT_ASSIGNMENT, marked, type AssignmentRow } from './assignmentQueries';
 import { clock } from './clock';
-import { codesWithNoPlaceIn, notConsideredCodes } from './fleetImports';
+import { codesWithNoPlaceIn } from './fleetImports';
+import { notConsideredCodes } from './geofences';
 import { LATEST_INSPECTIONS } from './inspectionQueries';
 import { json, refuse } from './http';
 import { DAY_END, addDays, easternMoment, easternTime, isCalendarDate, minuteClock } from '../../shared/days';
@@ -187,7 +188,7 @@ async function storedTruckDay(env: Env, truck: StoredTruck, date: string, at: st
     now: moment,
     dayOver,
     truck: truckInput,
-    // Dave's Not considered list as it is now, so a code put on it or taken off re-reads every day, past ones included.
+    // The Geofences turned to Not considered as they are now, so turning one off or back on re-reads every day, past ones included.
     notConsidered: await notConsideredCodes(DB),
   });
 
