@@ -1,4 +1,4 @@
-import type { PaperLogPhoto, Truck } from '../../shared/types';
+import type { Truck } from '../../shared/types';
 import { shortDate } from '../../shared/days';
 import { PaperLog } from '@/components/PaperLog';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -17,7 +17,6 @@ export function PaperLogDialog({
   trucks,
   checkInTruckId,
   refreshes,
-  onPhotos,
   onClose,
 }: {
   date: string;
@@ -28,8 +27,6 @@ export function PaperLogDialog({
   checkInTruckId: string | null;
   /** Changes to read the photos again (the Board came back into view). */
   refreshes: number;
-  /** His photos as last read or attached, for the lane's count. */
-  onPhotos: (photos: PaperLogPhoto[]) => void;
   onClose: () => void;
 }) {
   const suggestedTruckId = checkInTruckId ?? driver.defaultTruckId;
@@ -47,7 +44,6 @@ export function PaperLogDialog({
           trucks={trucks.filter((t) => t.active || t.id === suggestedTruckId)}
           suggestedTruckId={suggestedTruckId}
           refreshes={refreshes}
-          onPhotos={onPhotos}
         />
       </DialogContent>
     </Dialog>

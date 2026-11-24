@@ -10,6 +10,7 @@ import { readFleetJson } from '../../shared/fleetExport';
 import { buildTripDay } from '../../shared/trips';
 import { truckLog, truckLogLanes } from '../../shared/truckLog';
 import { REAL_DAY } from '@/simulate/realDay';
+import { forgetPaperLogs } from '@/lib/paperLogStore';
 import type { CheckIn, DriverAssignment, DriverDay, DriverTruckLog, Inspection, NewInspection, PaperLogPhoto, TruckProblem } from '../../shared/types';
 // The whole 16 Nov day cut at 10:15 and at 16:20, as Fleet would have exported it then.
 import CUT_1015 from '../../shared/fixtures/fleet/2026-11-16-cut-1015.json?raw';
@@ -238,6 +239,7 @@ beforeEach(() => {
   refuseAttach = null;
   localStorage.clear();
   vi.stubGlobal('fetch', api);
+  forgetPaperLogs();
 });
 
 afterEach(() => {
@@ -1009,6 +1011,34 @@ describe('his Paper log', () => {
     expect(new URLSearchParams(attaches[1]).get('id')).toBe(new URLSearchParams(attaches[0]).get('id'));
     expect(new URLSearchParams(attaches[0]).get('attachedBy')).toBe('driver');
     expect(within(section).queryByRole('button', { name: 'Try again' })).toBeNull();
+  });
+
+  it('keeps a photo that failed to send when he goes to another day, says which day it is for, and warns before the page is left', async () => {
+    failAttaches = 1;
+    open('/');
+    let section = await paperLog();
+    await within(section).findByText('No photos yet for this day.');
+    photograph(section);
+    await within(section).findByRole('button', { name: 'Try again' });
+    const leaving = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(leaving);
+    expect(leaving.defaultPrevented).toBe(true);
+
+    await pick('Yesterday');
+    await day('Yesterday, Wed, Nov 18');
+    await waitFor(async () => expect(within(await paperLog()).getByText('Truck 21 · Thu, Nov 19 · not sent')).toBeTruthy());
+
+    await pick('Today');
+    await day('Today, Thu, Nov 19');
+    section = await paperLog();
+    await within(section).findByText('Truck 21 · not sent');
+    fireEvent.click(within(section).getByRole('button', { name: 'Try again' }));
+    expect(await listed(section)).toEqual(['Truck 21 · attached 16:05']);
+    expect(attaches).toHaveLength(2);
+    expect(new URLSearchParams(attaches[1]).get('id')).toBe(new URLSearchParams(attaches[0]).get('id'));
+    const left = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(left);
+    expect(left.defaultPrevented).toBe(false);
   });
 
   it('shows a refusal from the Worker as a plain message', async () => {

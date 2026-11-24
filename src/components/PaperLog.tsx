@@ -1,19 +1,12 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Camera, ImagePlus, Loader2 } from 'lucide-react';
 import type { PaperLogAttacher, PaperLogPhoto, Truck } from '../../shared/types';
-import { clockTime } from '../../shared/days';
+import { clockTime, shortDate } from '../../shared/days';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { attachPaperLog, fetchPaperLogs, FieldErrors, paperLogPictureUrl, Refused, takeOffPaperLog } from '@/lib/api';
+import { fetchPaperLogs, paperLogPictureUrl } from '@/lib/api';
+import { paperLogMoment, refusalFor, sayRefused, sendPaperLog, takeOffPhoto, unsent, usePaperLogChanges, withChangesSince } from '@/lib/paperLogStore';
 import { shrinkPhoto } from '@/lib/shrinkPhoto';
-
-/** A photo the Worker has not kept yet: sending, or failed with Try again (the same id, the same picture). */
-interface Sending {
-  id: string;
-  truckId: string;
-  picture: Blob;
-  failed: boolean;
-}
 
 export interface PaperLogProps {
   /** The day the sheet is for: today or a past day (the page never offers a day to come). */
@@ -28,8 +21,6 @@ export interface PaperLogProps {
   suggestedTruckId: string | null;
   /** Changes to read the photos again (the page came back into view). */
   refreshes?: number;
-  /** The photos as last read or attached, for a count beside the Paper log elsewhere. */
-  onPhotos?: (photos: PaperLogPhoto[]) => void;
 }
 
 /**
@@ -39,39 +30,46 @@ export interface PaperLogProps {
  * suggested one to begin with; another is one tap); one large "Photograph
  * Paper log" button opens the camera and "Choose a photo" the phone's photos.
  * The photo is shrunk on the phone and sent; one that fails to send stays
- * with Try again, which repeats the same attach, so it is kept once. A
- * refusal is shown as the Worker's plain message. The day's photos are listed
- * oldest first, "Truck 24 · attached 9:00", and open full size on a tap.
+ * with Try again, which repeats the same attach, so it is kept once. Unsent
+ * photos are held above this component (lib/paperLogStore.ts), so another
+ * day, a closed dialog or the date moving on never loses one: each of this
+ * Driver's shows here whatever day is open, with its day when it is another,
+ * and leaving the page while one is unsent asks first. A refusal is shown as
+ * the Worker's plain message. The day's photos are listed oldest first,
+ * "Truck 24 · attached 9:00", and open full size on a tap; a read that
+ * crossed an attach or a Take off keeps it.
  * Nothing on the sheet is typed. In Dave's mode only, an opened photo has
  * Take off: it leaves the list (and the count) and is kept by the Worker; a
  * Driver can only add another.
  */
-export function PaperLog({ date, driverId, attacher, trucks, suggestedTruckId, refreshes = 0, onPhotos }: PaperLogProps) {
-  const [photos, setPhotos] = useState<PaperLogPhoto[] | null>(null);
+export function PaperLog({ date, driverId, attacher, trucks, suggestedTruckId, refreshes = 0 }: PaperLogProps) {
+  /** The photos as last read, and the moment that read started; null until the first answers. */
+  const [read, setRead] = useState<{ photos: PaperLogPhoto[]; since: number } | null>(null);
   const [readFailed, setReadFailed] = useState(false);
-  const [sending, setSending] = useState<Sending[]>([]);
-  const [message, setMessage] = useState<string | null>(null);
+  const moment = usePaperLogChanges();
+  const photos = useMemo(() => (read ? withChangesSince(read.photos, read.since, date, driverId) : null), [read, moment, date, driverId]);
+  const sending = unsent(driverId, attacher);
+  const message = refusalFor(driverId, attacher);
   /** The Truck tapped; null until one is, so a suggestion read later still applies. */
   const [tapped, setTapped] = useState<string | null>(null);
-  const [open, setOpen] = useState<number | null>(null);
+  /** The photo opened full size, by id, so a read that moves the list never swaps it. */
+  const [open, setOpen] = useState<string | null>(null);
   /** Take off on the opened photo: sending, or failed with its message. */
   const [takingOff, setTakingOff] = useState<'sending' | 'failed' | null>(null);
   const heading = useId();
   const camera = useRef<HTMLInputElement>(null);
   const library = useRef<HTMLInputElement>(null);
-  const reported = useRef(onPhotos);
-  reported.current = onPhotos;
 
   const truckId = tapped ?? suggestedTruckId;
   const truckNumber = (id: string) => trucks.find((t) => t.id === id)?.number ?? '?';
 
   useEffect(() => {
     let stale = false;
+    const since = paperLogMoment();
     fetchPaperLogs(date, driverId).then(
-      (read) => {
+      (answer) => {
         if (stale) return;
-        setPhotos(read);
-        reported.current?.(read);
+        setRead({ photos: answer, since });
         setReadFailed(false);
       },
       () => !stale && setReadFailed(true),
@@ -81,61 +79,35 @@ export function PaperLog({ date, driverId, attacher, trucks, suggestedTruckId, r
     };
   }, [date, driverId, refreshes]);
 
-  const send = async (attempt: Sending) => {
-    setMessage(null);
-    setSending((all) => [...all.filter((s) => s.id !== attempt.id), { ...attempt, failed: false }]);
-    try {
-      const kept = await attachPaperLog({ id: attempt.id, date, truckId: attempt.truckId, driverId, attachedBy: attacher }, attempt.picture);
-      setSending((all) => all.filter((s) => s.id !== attempt.id));
-      setPhotos((current) => {
-        const next = [...(current ?? []).filter((p) => p.id !== kept.id), kept];
-        reported.current?.(next);
-        return next;
-      });
-    } catch (error) {
-      if (error instanceof FieldErrors || error instanceof Refused) {
-        setSending((all) => all.filter((s) => s.id !== attempt.id));
-        setMessage(error instanceof FieldErrors ? Object.values(error.fields)[0] ?? 'This photo was not kept. Take it again.' : error.message);
-        return;
-      }
-      setSending((all) => all.map((s) => (s.id === attempt.id ? { ...s, failed: true } : s)));
-    }
-  };
-
   const picked = async (input: HTMLInputElement) => {
     const file = input.files?.[0];
     input.value = '';
     if (!file || !truckId) return;
     const picture = await shrinkPhoto(file);
     if (!picture) {
-      setMessage('This photo could not be read. Take it again.');
+      sayRefused(driverId, attacher, 'This photo could not be read. Take it again.');
       return;
     }
-    void send({ id: crypto.randomUUID(), truckId, picture, failed: false });
+    void sendPaperLog({ photo: { id: crypto.randomUUID(), date, truckId, driverId, attachedBy: attacher }, picture, failed: false });
   };
 
-  const shown = open === null ? null : photos?.[open] ?? null;
+  const shown = open === null ? null : (photos?.find((p) => p.id === open) ?? null);
 
-  const view = (index: number | null) => {
+  const view = (id: string | null) => {
     setTakingOff(null);
-    setOpen(index);
+    setOpen(id);
   };
 
   /** Dave takes the opened photo off: it leaves the list once the Worker has it; a failure says so and leaves it. */
   const takeOff = async (photo: PaperLogPhoto) => {
     setTakingOff('sending');
     try {
-      await takeOffPaperLog(photo.id);
+      await takeOffPhoto(photo);
     } catch {
       setTakingOff('failed');
       return;
     }
     view(null);
-    setPhotos((current) => {
-      const next = (current ?? []).filter((p) => p.id !== photo.id);
-      reported.current?.(next);
-      return next;
-    });
   };
 
   return (
@@ -188,7 +160,7 @@ export function PaperLog({ date, driverId, attacher, trucks, suggestedTruckId, r
           <Loader2 className="h-4 w-4 animate-spin" /> Loading photos…
         </p>
       )}
-      {photos?.length === 0 && sending.length === 0 && <p className="text-muted-foreground">No photos yet for this day.</p>}
+      {photos?.length === 0 && !sending.some((s) => s.photo.date === date) && <p className="text-muted-foreground">No photos yet for this day.</p>}
 
       {photos && photos.length > 0 && (
         <ul aria-label="Paper log photos" className="space-y-2">
@@ -198,7 +170,7 @@ export function PaperLog({ date, driverId, attacher, trucks, suggestedTruckId, r
                 type="button"
                 aria-label={`Open photo ${i + 1} full size`}
                 className="lift h-16 w-16 shrink-0 overflow-hidden rounded-md border bg-muted"
-                onClick={() => view(i)}
+                onClick={() => view(photo.id)}
               >
                 <img src={paperLogPictureUrl(photo.id)} alt={`Paper log photo ${i + 1}`} className="h-full w-full object-cover" />
               </button>
@@ -214,17 +186,21 @@ export function PaperLog({ date, driverId, attacher, trucks, suggestedTruckId, r
       {sending.length > 0 && (
         <ul aria-label="Photos sending" className="space-y-2">
           {sending.map((attempt) => (
-            <li key={attempt.id} className="flex flex-wrap items-center gap-3">
+            <li key={attempt.photo.id} className="flex flex-wrap items-center gap-3">
               {attempt.failed ? (
                 <>
-                  <span className="text-destructive">Truck {truckNumber(attempt.truckId)} · not sent</span>
-                  <Button type="button" variant="outline" className="h-11" onClick={() => send(attempt)}>
+                  <span className="text-destructive">
+                    Truck {truckNumber(attempt.photo.truckId)}
+                    {attempt.photo.date !== date && ` · ${shortDate(attempt.photo.date)}`} · not sent
+                  </span>
+                  <Button type="button" variant="outline" className="h-11" onClick={() => sendPaperLog(attempt)}>
                     Try again
                   </Button>
                 </>
               ) : (
                 <span className="flex items-center gap-2 text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Sending the photo for Truck {truckNumber(attempt.truckId)}…
+                  <Loader2 className="h-4 w-4 animate-spin" /> Sending the photo for Truck {truckNumber(attempt.photo.truckId)}
+                  {attempt.photo.date !== date && ` · ${shortDate(attempt.photo.date)}`}…
                 </span>
               )}
             </li>
