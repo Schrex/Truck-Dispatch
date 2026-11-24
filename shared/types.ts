@@ -100,6 +100,17 @@ export interface NotConsidered {
 }
 
 /**
+ * A geofence code the app knows (Settings, Geofences): from HCSS's Location
+ * list, or brought by an Import. Unique, ignoring case. Turned to Not
+ * considered, its visits are skipped before Trips are built, however long the
+ * Truck stayed; turned back, they count again (GET, PATCH api/geofences).
+ */
+export interface Geofence {
+  code: string;
+  notConsidered: boolean;
+}
+
+/**
  * The lists Settings edits and the Board picks from, by their API route
  * (GET, POST api/<list>; PATCH api/<list>/<id>). Nothing is ever deleted.
  */
