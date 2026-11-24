@@ -12,7 +12,7 @@ Words are from `GLOSSARY.md`: Assignment, Driver, Truck, Place, Trip, Load, Tick
 ## Agreed (from `main`), and used here as is
 
 - Trips come from HCSS Fleet place enter/leave data, pulled every 10 minutes from 4 AM to 8 PM Eastern. They are kept raw and paired into Trips.
-- A Trip from an Assignment's From to its To is a Load; the way back is empty. `trips.kind` is `load`, `empty`, `not_a_haul` or NULL (not answered yet).
+- A Trip from an Assignment's From to its To is a Load; the way back is empty. `trips.kind` is `load`, `empty`, `at` (an At Trip), `not_a_haul` or NULL (not answered yet).
 - The Driver of a Trip is whoever last inspected that Truck before it (phase 2). Without an Inspection, Dave answers "Who was driving?".
 - At sign-off the Driver puts each Ticket on its Load and confirms his Trips. Dave answers the rest next morning: Trips with no Assignment (make one, link one, not a haul), "Who was driving?", and Assignments with no Trips.
 - Trips made before a reroute are matched against the Assignment as it was. `assignment_changes` already keeps every earlier version from when it was Assigned on.
@@ -24,7 +24,7 @@ Words are from `GLOSSARY.md`: Assignment, Driver, Truck, Place, Trip, Load, Tick
 These come from the simulation spec (#55) and are built in the Trip builder (`shared/trips.ts`). Words as in `GLOSSARY.md`.
 
 - **The Truck's day's Driver, without Inspections.** The Driver whose Assignments that day name the Truck (an Assignment with no Truck names his usual one), otherwise the Driver whose usual Truck it is. If more than one fits, nobody is chosen and the Truck log asks "Who was driving?". This stands in for the phase 2 rule (whoever last inspected it) until Inspections exist; see P4.
-- **An Assignment's Job comes from its Places:** the Job of its drop-off, otherwise of its pick-up (its route as it is now, so a reroute can change it). The Assignment has no Job field. A Place belongs to at most one Job (`places.job_id`).
+- **An Assignment's Job comes from its Places:** the Job of its To, then of its At, then of its From, the first that belongs to a Job (its route as it is now, so a reroute can change it). The Assignment has no Job field. A Place belongs to at most one Job (`places.job_id`).
 - **Trucking hours** of an Assignment run from the leave time of its first linked Trip to the arrive time of its last, loaded or empty. On 16 Nov as planned, A1 runs 08:24 to its last Load at 11:25 (3.02 h) and A2 11:30 to 13:54 (2.40 h). The empty drive from Bishop Kearney back to J25008 at 14:33 would fit rule 4 ("going to A1's pickup") and stretch A1 to 14:43, overlapping A2; it is the way back from a Trip nothing explains, so it goes to Dave with that Trip instead (see the rules below).
 - **Total hours** run from the Truck's day's start time to its end time (see build order 1).
 - **Tons** are the sum of the Ticket quantities on an Assignment's Loads (phase 4). Until Tickets exist the Truck log shows them blank, marked "from Tickets". Nobody types them.
@@ -155,9 +155,12 @@ An Assignment cancelled after `left_at` still matches; one cancelled before does
 | 4 | B is the From of an Assignment (going to load) | `empty` | that Assignment |
 | 5 | An Assignment has From = A, To empty | `load` | that Assignment |
 | 6 | An Assignment has To = B, From empty, and A is a plant | `load` | that Assignment |
-| 7 | Nothing fits | NULL | none; Dave answers |
+| 7 | An Assignment has only At (no From, no To), and A or B is its At | `at` (an At Trip, never a Load) | that Assignment |
+| 8 | Nothing fits | NULL | none; Dave answers |
 
-**The way back from a Trip nothing explains goes with it.** When a rule 7 Trip A → B is followed straight away by B → A, and that drive back was only matched by rules 4–7 (an empty guess), the drive back is NULL too: one side trip for Dave to answer, not a drive to some Assignment's pickup. A drive back that fits an Assignment's route (rules 1, 2) or the shop (rule 3) keeps its match.
+**At fills the missing end.** Rules 1–6 read each Assignment's route with At standing in for an empty From or To: At + To is At → To, From + At is From → At. With From and To both set, At is used only for the Job. Rule 7 never fits a null At, and an At with no geofence code fits no Trip.
+
+**The way back from a Trip nothing explains goes with it.** When a rule 8 Trip A → B is followed straight away by B → A, and that drive back was only matched by rule 4 (an empty guess), the drive back is NULL too: one side trip for Dave to answer, not a drive to some Assignment's pickup. A drive back that fits an Assignment's route (rules 1, 2) or the shop (rule 3) keeps its match.
 
 **Rule 3 is an assumption, not a measurement.** Fleet only records when the Truck entered and left each geofence, nothing about what it carried. A Trip to or from the shop or a yard is taken as empty because Trucks do not load there; a Ticket would be the only proof otherwise.
 

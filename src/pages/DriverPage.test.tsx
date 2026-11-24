@@ -876,6 +876,12 @@ describe('the Trip part on a Driver card', () => {
     expect(text).toContain('1 Load · last 08:40');
   });
 
+  it('shows Loads from Tickets on an At-only Haul, with no last Load', async () => {
+    const { text } = await shown({ fromPlaceName: null, toPlaceName: null, trips: part({ loads: null, status: 'now', since: '2026-11-16T13:24:26Z' }) });
+    expect(text).toContain('Loads from Tickets');
+    expect(text).not.toContain('last');
+  });
+
   it("shows each card's Loads from his day read, and Now on the one he is on", async () => {
     sentDays['drv-a 2026-11-19'] = [
       card({ id: 'a1', ...haul, trips: part({ loads: 4, status: 'done', since: '2026-11-16T13:24:26Z', lastLoadAt: '2026-11-16T16:25:10Z' }) }),
@@ -911,8 +917,8 @@ describe('his Truck log under Today', () => {
     const tripDay = buildTripDay({
       places: REAL_DAY.places, notConsidered: REAL_DAY.notConsidered, jobs: REAL_DAY.jobs, visits, now: asOf, dayOver: false,
       assignments: [
-        { id: 'a1', label: 'A1', fromPlaceId: J25008, toPlaceId: VILLAGER, cancelledAt: null, changes: [] },
-        { id: 'a2', label: 'A2', fromPlaceId: WALWORTH, toPlaceId: J25008, cancelledAt: null, changes: [] },
+        { id: 'a1', label: 'A1', fromPlaceId: J25008, toPlaceId: VILLAGER, atPlaceId: null, cancelledAt: null, changes: [] },
+        { id: 'a2', label: 'A2', fromPlaceId: WALWORTH, toPlaceId: J25008, atPlaceId: null, cancelledAt: null, changes: [] },
       ],
     });
     const labels = { a1: 'A1', a2: 'A2' };

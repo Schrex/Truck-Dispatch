@@ -75,6 +75,7 @@ const assignment = (id: string, label: string, fromPlaceId: string | null, toPla
   label,
   fromPlaceId,
   toPlaceId,
+  atPlaceId: null,
   cancelledAt: null,
   changes: [],
   ...extra,

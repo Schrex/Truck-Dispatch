@@ -7,6 +7,8 @@ import { cn } from '@/lib/utils';
 const KIND: Record<string, { label: string; style: string }> = {
   load: { label: 'load', style: 'bg-primary text-primary-foreground' },
   empty: { label: 'empty', style: 'bg-muted text-muted-foreground' },
+  // An At Trip: the label names its At, "at TIUNY".
+  at: { label: 'at', style: 'bg-secondary text-secondary-foreground' },
   [NOT_A_HAUL]: { label: 'not a haul', style: 'bg-muted text-muted-foreground italic' },
   null: { label: 'for Dave', style: 'bg-warning/25 text-foreground' },
 };
@@ -14,7 +16,7 @@ const KIND: Record<string, { label: string; style: string }> = {
 /**
  * The simulation's Trip log: every Trip the Truck made, as the Trip builder
  * has it at the clock's time, the drives to and from the shop included. Each
- * says whether it was a Load or an empty drive, which Assignment it counts
+ * says whether it was a Load, an empty drive or an At Trip ("at TIUNY"), which Assignment it counts
  * on, and the matching rule that decided it. A Trip counts as soon as the
  * Truck arrives; visits to fences on the Not considered list never make one.
  */
@@ -58,7 +60,9 @@ export function TripLog({
                   </td>
                   <td className="px-2 py-1.5 tabular-nums">{trip.miles}</td>
                   <td className="px-2 py-1.5">
-                    <span className={cn('whitespace-nowrap rounded px-1.5 py-0.5 text-xs font-semibold', kind.style)}>{kind.label}</span>
+                    <span className={cn('whitespace-nowrap rounded px-1.5 py-0.5 text-xs font-semibold', kind.style)}>
+                      {trip.match.atPlaceId ? `at ${placeName(trip.match.atPlaceId, '')}` : kind.label}
+                    </span>
                   </td>
                   <td className="px-2 py-1.5">{(trip.match.assignmentId && assignmentLabels[trip.match.assignmentId]) || '–'}</td>
                   <td className="px-2 py-1.5 text-muted-foreground">{trip.match.reason}</td>
