@@ -9,6 +9,7 @@ import { DESKTOP, PHONE } from './clock';
 // before the Driver attached, the Driver's lane counts the photos once the
 // page regains the focus; Dave opens the lane's Paper log, sees the Driver's
 // photos and attaches one himself, which the Driver's page then shows "by Dave".
+// An Escape right after opening a photo closes only the photo.
 // The Worker's clock is fixed at 9:00 AM US Eastern on Mon 23 Nov.
 
 /** Sun 22 Nov: Yesterday on the Driver page. */
@@ -27,6 +28,26 @@ const loaded = (image: Locator) =>
     const img = element as unknown as { complete: boolean; naturalWidth: number };
     return img.complete && img.naturalWidth > 0;
   });
+
+/**
+ * Taps the button and presses Escape in the very next task, as a quick hand
+ * can, before the dialog it opens has taken over the Escape key.
+ */
+const escapeRightAfterOpening = (button: Locator) =>
+  button.evaluate(
+    (element) =>
+      new Promise<void>((done) => {
+        const page = globalThis as unknown as {
+          document: { activeElement: { dispatchEvent: (event: unknown) => void } | null };
+          KeyboardEvent: new (type: string, init: object) => unknown;
+        };
+        (element as unknown as { click: () => void }).click();
+        setTimeout(() => {
+          page.document.activeElement?.dispatchEvent(new page.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+          done();
+        }, 0);
+      }),
+  );
 
 test('a Driver attaches a Paper log photo for yesterday, and Dave sees it on the Board and attaches one himself', async ({ browser }) => {
   // Dave has yesterday's Board open: nothing attached yet, and a day to come has no Paper log.
@@ -97,6 +118,10 @@ test('a Driver attaches a Paper log photo for yesterday, and Dave sees it on the
   await expect(fullOnBoard.getByText('Attached 9:00 by Dave')).toBeVisible();
   await board.keyboard.press('Escape');
   await expect(fullOnBoard).toHaveCount(0);
+  // An Escape straight after opening a photo, before the page has settled, closes only the photo.
+  await escapeRightAfterOpening(listed.getByRole('button', { name: 'Open photo 3 full size' }));
+  await expect(fullOnBoard).toHaveCount(0);
+  await expect(dialog).toBeVisible();
   await dialog.getByRole('button', { name: 'Close' }).click();
   await expect(dialog).toHaveCount(0);
   await expect(lane.getByRole('button', { name: 'Paper log for Sample Driver B · 3 photos' })).toBeVisible();
