@@ -30,7 +30,7 @@ jobs:
   typecheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.REF }}
       - uses: ./.github/actions/setup
@@ -39,7 +39,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.REF }}
       - uses: ./.github/actions/setup
@@ -50,7 +50,7 @@ jobs:
     outputs:
       sha: ${{ steps.sha.outputs.sha }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.REF }}
       - id: sha
@@ -78,7 +78,7 @@ jobs:
       CONFIG: dist/truck_dispatch/wrangler.json
       SHA: ${{ needs.build.outputs.sha }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.build.outputs.sha }}
       - uses: ./.github/actions/setup
