@@ -23,14 +23,14 @@ jobs:
   typecheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
       - run: bun run typecheck
 
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
       - run: bun run test
 
@@ -40,7 +40,7 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
       - uses: actions/cache@v6
         with:
@@ -54,7 +54,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
       # Built once, for the preview environment; the preview job uploads this build.
       - run: bun run build
@@ -95,7 +95,7 @@ jobs:
           fi
 
       - if: steps.secrets.outputs.ready == 'true'
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
       - if: steps.secrets.outputs.ready == 'true'
         uses: ./.github/actions/setup
       - if: steps.secrets.outputs.ready == 'true'
